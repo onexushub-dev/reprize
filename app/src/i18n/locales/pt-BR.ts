@@ -93,7 +93,6 @@ export const ptBR: Messages = {
       'No iPhone, abra o app Watch, encontre o Reprize em "Apps Disponíveis" e toque em Instalar.',
     watchProBadge: 'PRO',
     watchProOnly: 'Disponível no PRO',
-    watchIosOnly: 'Disponível apenas no iPhone',
     proBadge: 'PRO',
     proOnly: 'Disponível no PRO',
     voiceUnavailable: 'Indisponível neste celular',
@@ -200,6 +199,7 @@ export const ptBR: Messages = {
     clipA11y: 'Clipe %{number}%{name}, %{duration}, %{source}',
     freeTitle: 'Seus clipes com qualidade PRO',
     freeNote: 'Full HD, som, Modo Foco e sem marca d’água.',
+    freeNoteNoFocus: 'Full HD, som e sem marca d’água.',
     upgrade: 'Liberar',
     savedTag: 'Na galeria',
     sharedTag: 'Compartilhado',
@@ -497,6 +497,7 @@ export const ptBR: Messages = {
   unlock: {
     title: 'Usar o Passe Avulso nesta gravação?',
     message: 'Todos os clipes dela ficam em Full HD, com som, Modo Foco e sem marca d’água. Se preferir, guarde o passe para depois.',
+    messageNoFocus: 'Todos os clipes dela ficam em Full HD, com som e sem marca d’água. Se preferir, guarde o passe para depois.',
     keep: 'Agora não',
     use: 'Usar o passe',
   },

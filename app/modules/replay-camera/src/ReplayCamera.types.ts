@@ -107,7 +107,7 @@ export type ReplayCameraModuleEvents = {
   /** TEMP(diag-remote): one line for the in-app diagnostic log. iOS only. */
   onDiag: (e: { message: string }) => void;
   onError: (e: { code: ReplayErrorCode; message: string }) => void;
-  /** Diagnostic (Etapa 0): what the gesture detector saw in the last second. iOS only for now. */
+  /** What the gesture detector saw lately (people, arms up, wave): the practice screen reads `raised`. */
   onGestureDebug: (e: GestureDebug) => void;
   /** Gesture test (spike screen): one event per gesture sample while setGestureTrace(true). iOS only. */
   onGestureTrace: (e: GestureTrace) => void;
@@ -175,9 +175,9 @@ export type GestureDebug = {
   /** Height in pixels of the smallest person the pose step looked at. iOS only. */
   smallestPx?: number;
   isX: boolean;
-  /** Both wrists above the head line in at least one person (the cue for sampling faster). iOS only. */
+  /** Both wrists above the head line in at least one person (the cue for sampling faster). */
   raised?: boolean;
-  /** The wave gesture fired in this sample. iOS only. */
+  /** The wave gesture fired in this sample. */
   waved?: boolean;
   orientation: number;
   samples: number;
@@ -197,11 +197,11 @@ export type ExportClipOptions = {
   /** 0.5, 1, 1.5 or 2. Anything but 1 plays without sound. */
   speed: number;
   muted: boolean;
-  /** The visible part of the video (0..1 of its size) after a zoom; omit for the whole video. iOS only for now. */
+  /** The visible part of the video (0..1 of its size) after a zoom; omit for the whole video. */
   crop?: { x: number; y: number; width: number; height: number };
   /** Modo Foco: follow this framing file's track (ignored when `crop` is set). iOS only. */
   focus?: { path: string; aspect: 'landscape' | 'portrait' };
-  /** Extra clockwise turn (0, 90, 180 or 270) on top of the clip's own. iOS only for now. */
+  /** Extra clockwise turn (0, 90, 180 or 270) on top of the clip's own. */
   rotation?: number;
   width: number;
   height: number;

@@ -63,7 +63,7 @@ export function setZoom(factor: number, animated: boolean = false): void {
   if (typeof ReplayCameraModule.setZoom === 'function') ReplayCameraModule.setZoom(factor, animated);
 }
 
-/** Screen economy while recording (iOS): the preview stops and the brightness goes down; false gives both back. */
+/** Screen economy while recording: the brightness goes down (iOS also stops the preview); false gives it back. */
 export function setScreenEconomy(on: boolean): void {
   const set = ReplayCameraModule.setScreenEconomy;
   if (typeof set === 'function') set.call(ReplayCameraModule, on);

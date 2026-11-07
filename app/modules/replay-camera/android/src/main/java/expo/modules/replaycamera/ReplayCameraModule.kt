@@ -22,12 +22,21 @@ class SaveClipOptions : Record {
   @Field val keepMs: Double = 0.0
 }
 
+class ExportCrop : Record {
+  @Field val x: Double = 0.0
+  @Field val y: Double = 0.0
+  @Field val width: Double = 1.0
+  @Field val height: Double = 1.0
+}
+
 class ExportClipOptions : Record {
   @Field val clipPath: String = ""
   @Field val startMs: Double = 0.0
   @Field val endMs: Double = 0.0
   @Field val speed: Double = 1.0
   @Field val muted: Boolean = false
+  @Field val rotation: Int = 0
+  @Field val crop: ExportCrop? = null
   @Field val width: Int = 1080
   @Field val height: Int = 1920
   @Field val overlayPngPath: String? = null
@@ -64,13 +73,17 @@ class ReplayCameraModule : Module() {
 
     Function("setGestureEnabled") { enabled: Boolean -> ReplayEngine.setGestureEnabled(enabled) }
 
+    // Screen economy while recording: brightness down (the JS side covers the screen in black); false gives it back.
+    Function("setScreenEconomy") { on: Boolean -> ScreenEconomy.set(appContext.currentActivity, on) }
+
     Function("signalSaved") { sound: Boolean, flash: Boolean -> ReplayEngine.signalSaved(sound, flash) }
 
     AsyncFunction("exportClip") { o: ExportClipOptions, promise: Promise ->
       ClipExporter.export(
         context,
         ClipExporter.Options(
-          o.clipPath, o.startMs.toLong(), o.endMs.toLong(), o.speed.toFloat(), o.muted, o.width, o.height, o.overlayPngPath,
+          o.clipPath, o.startMs.toLong(), o.endMs.toLong(), o.speed.toFloat(), o.muted, o.rotation,
+          o.crop?.let { ClipExporter.Crop01(it.x, it.y, it.width, it.height) }, o.width, o.height, o.overlayPngPath,
         ),
         onDone = { path, ms -> promise.resolve(mapOf("path" to path, "durationMs" to ms)) },
         onError = { promise.reject(ReplayException("ENCODER_FAILED", "$it")) },

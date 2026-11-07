@@ -107,6 +107,7 @@ object ReplayEngine {
     if (gesture == null) gesture = GestureDetector(context.applicationContext) {
       emit?.invoke("onTrigger", mapOf("source" to "gesture", "at" to System.currentTimeMillis().toDouble()))
     }
+    gesture?.onDebug = { emit?.invoke("onGestureDebug", it) }
     this.lens = lens
     quality = maxQuality
     degraded = false

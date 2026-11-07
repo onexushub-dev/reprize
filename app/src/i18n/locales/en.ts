@@ -95,7 +95,6 @@ export const en = {
       'On the iPhone, open the Watch app, find Reprize under "Available Apps" and tap Install. With the app open on the watch, one tap saves the play.',
     watchProBadge: 'PRO',
     watchProOnly: 'Available with PRO',
-    watchIosOnly: 'Only available on iPhone',
     proBadge: 'PRO',
     proOnly: 'Available with PRO',
     voiceUnavailable: 'Not available on this phone',
@@ -202,6 +201,7 @@ export const en = {
     clipA11y: 'Clip %{number}%{name}, %{duration}, %{source}',
     freeTitle: 'Your clips in PRO quality',
     freeNote: 'Full HD, sound, Focus Mode and no watermark.',
+    freeNoteNoFocus: 'Full HD, sound and no watermark.',
     upgrade: 'Unlock',
     savedTag: 'In Photos',
     sharedTag: 'Shared',
@@ -499,6 +499,7 @@ export const en = {
   unlock: {
     title: 'Use the Single Pass on this recording?',
     message: 'All of its clips get Full HD, sound, Focus Mode and no watermark. If you prefer, keep the pass for later.',
+    messageNoFocus: 'All of its clips get Full HD, sound and no watermark. If you prefer, keep the pass for later.',
     keep: 'Not now',
     use: 'Use the pass',
   },
