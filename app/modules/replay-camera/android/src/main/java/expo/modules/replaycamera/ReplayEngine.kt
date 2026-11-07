@@ -155,12 +155,14 @@ object ReplayEngine {
     val ctx = context
     if (!wanted || enc == null || ctx == null) return@post onError(ReplayException("NO_SESSION", "No replay session is running"))
     val id = UUID.randomUUID().toString()
+    // The clip takes the phone's position at the trigger (as on iOS), not its oldest segment's.
+    val rotation = gesture?.rotation
     pendingSaves += PendingSave(id, run = {
       saveExecutor.execute {
         val dest = File(ReplayPaths.clips(ctx), "$id.mp4")
         try {
           val lastSeconds = if (keepSeconds > 0) minOf(keepSeconds, windowSeconds) else windowSeconds
-          val seconds = ring.copyClip(lastSeconds, dest, ClipConcat::concat)
+          val seconds = ring.copyClip(lastSeconds, dest) { segments, file -> ClipConcat.concat(segments, file, rotation) }
           onDone(dest.path, (seconds * 1000).toInt())
         } catch (t: Throwable) {
           dest.delete()
