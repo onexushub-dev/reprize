@@ -33,6 +33,8 @@ class SegmentEncoder(
   private val rotationDegrees: () -> Int,
   private val onSegment: (Segment) -> Unit,
   private val onFailure: (Throwable) -> Unit,
+  /** Each PCM chunk the microphone gave (16-bit mono at [SAMPLE_RATE]), before it is encoded: the voice command. */
+  private val onPcm: ((java.nio.ByteBuffer, Int, Int) -> Unit)? = null,
 ) {
   companion object {
     const val SEGMENT_US = 2_000_000L
@@ -156,6 +158,7 @@ class SegmentEncoder(
       if (inIdx >= 0) {
         val buf = audioCodec.getInputBuffer(inIdx)!!
         val read = record.read(buf, buf.capacity()).coerceAtLeast(0)
+        if (read > 0) onPcm?.invoke(buf, read, SAMPLE_RATE)
         val frames = read / 2L // 16-bit mono
         if (record.getTimestamp(stamp, timebase) == AudioRecord.SUCCESS) {
           anchorNanos = stamp.nanoTime

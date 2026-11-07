@@ -21,6 +21,7 @@ jest.mock('../../share/clipExport', () => ({
   clipShapeOf: jest.fn(async (c: { id: string }) => mockShapes[c.id] || { width: 1080, height: 1920 }),
 }));
 jest.mock('../../../modules/replay-camera', () => ({
+  isFocusSupported: () => true,
   exportClip: jest.fn(),
   createThumbnail: jest.fn(),
   shareFiles: jest.fn(async () => 'shared'),

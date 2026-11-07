@@ -17,7 +17,11 @@ jest.mock('../../data/mmkv', () => ({
     },
   },
 }));
-jest.mock('../../../modules/replay-camera', () => ({ createThumbnail: jest.fn(async () => '/tmp/thumb.jpg') }));
+const mockFocus = jest.fn(() => true);
+jest.mock('../../../modules/replay-camera', () => ({
+  createThumbnail: jest.fn(async () => '/tmp/thumb.jpg'),
+  isFocusSupported: () => mockFocus(),
+}));
 const mockOpenPaywall = jest.fn(async (..._a: unknown[]) => 'cancelled');
 jest.mock('../../payments/feedback', () => ({ openPaywall: (...a: unknown[]) => mockOpenPaywall(...a) }));
 const mockUnlock = jest.fn(async (..._a: unknown[]) => false);
@@ -65,6 +69,19 @@ test('the first export of a recording opens the full sheet: the clip as free and
   await settle();
   expect(go).toBe(false);
   expect(mockMarked).toEqual([]);
+});
+
+test('where the phone has no Modo Foco (Android) the sheet does not sell it', async () => {
+  mockFocus.mockReturnValue(false);
+  try {
+    await render(<Harness />);
+    await act(async () => void gate.ask('s1', { focus: false, sound: true }, 'save'));
+    expect(screen.getByLabelText('GRÁTIS: Sem som, HD, Com marca d’água')).toBeTruthy();
+    expect(screen.getByLabelText('PRO: Com som, Full HD, Sem marca d’água')).toBeTruthy();
+    expect(screen.queryByText(/Modo Foco/)).toBeNull();
+  } finally {
+    mockFocus.mockReturnValue(true);
+  }
 });
 
 test('"Continuar no plano grátis" goes on and marks the recording: its next export goes on with no notice at all', async () => {

@@ -1,6 +1,11 @@
 package expo.modules.replaycamera
 
 import android.Manifest
+import expo.modules.replaycamera.remote.DeviceIdentity
+import expo.modules.replaycamera.remote.RemoteBle
+import expo.modules.replaycamera.remote.RemoteController
+import expo.modules.replaycamera.remote.RemoteHost
+import expo.modules.replaycamera.remote.RemoteVoice
 import expo.modules.interfaces.permissions.PermissionsStatus
 import expo.modules.kotlin.Promise
 import expo.modules.kotlin.exception.Exceptions
@@ -22,12 +27,21 @@ class SaveClipOptions : Record {
   @Field val keepMs: Double = 0.0
 }
 
+class ExportCrop : Record {
+  @Field val x: Double = 0.0
+  @Field val y: Double = 0.0
+  @Field val width: Double = 1.0
+  @Field val height: Double = 1.0
+}
+
 class ExportClipOptions : Record {
   @Field val clipPath: String = ""
   @Field val startMs: Double = 0.0
   @Field val endMs: Double = 0.0
   @Field val speed: Double = 1.0
   @Field val muted: Boolean = false
+  @Field val rotation: Int = 0
+  @Field val crop: ExportCrop? = null
   @Field val width: Int = 1080
   @Field val height: Int = 1920
   @Field val overlayPngPath: String? = null
@@ -37,13 +51,105 @@ class ExportClipOptions : Record {
 class ReplayCameraModule : Module() {
   private val context get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
 
+  private fun remote() = RemoteController.shared(context)
+  private fun host() = RemoteHost.shared(context)
+
+  /** Runs `work` once the Bluetooth permissions are there, asking for them first if needed (the screen hears the
+   * answer through `onRemoteStatus`: `denied`/`unauthorized` when refused). */
+  private fun withHostBluetooth(work: () -> Unit) {
+    if (RemoteBle.hostGranted(context)) return work()
+    val permissions = appContext.permissions ?: return work()
+    permissions.askForPermissions({ _ -> work(); host().permissionsChanged() }, *RemoteBle.hostPermissions())
+  }
+
+  /** Pairing needs the advertise permission first; without it the screen gets null and the status says why. */
+  private fun withHostPairing(): Map<String, Any?>? {
+    if (!RemoteBle.hostGranted(context)) {
+      withHostBluetooth { }
+      return null
+    }
+    return host().beginPairing()
+  }
+
+  private fun withBluetooth(work: () -> Unit) {
+    if (RemoteBle.granted(context)) return work()
+    val permissions = appContext.permissions ?: return work()
+    permissions.askForPermissions({ _ -> work(); remote().permissionsChanged() }, *RemoteBle.permissions())
+  }
+
   override fun definition() = ModuleDefinition {
     Name("ReplayCamera")
 
-    Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus")
+    Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus", "onDiag",
+      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck")
 
     OnCreate {
       ReplayEngine.emit = { name, body -> sendEvent(name, body) }
+      remote().emit = { name, body -> sendEvent(name, body) }
+      host().emit = { name, body -> sendEvent(name, body) }
+      RemoteVoice.emit = { name, body -> sendEvent(name, body) }
+    }
+
+    // ---- This phone as the remote of a camera phone (an iPhone or an Android), over Bluetooth LE. The camera side
+    // (remoteHost*) is not on Android yet, so the app offers only "use as remote" here (isRemoteSupported is false).
+    // This phone as the camera phone of a remote (RemoteHost).
+    Function("remoteHostStart") { withHostBluetooth { host().start() } }
+    Function("remoteHostStop") { host().stop() }
+    Function("remoteHostBeginPairing") { withHostPairing() }
+    Function("remoteHostEndPairing") { host().endPairing() }
+    Function("remoteHostPeers") { host().peers.map { mapOf("id" to it.id, "name" to it.name, "connected" to host().isConnected(it.id)) } }
+    Function("remoteHostCheck") { id: String -> host().check(id) }
+    Function("remoteHostRemove") { id: String -> host().remove(id) }
+    Function("remoteHostControllers") { host().controllers }
+    Function("remoteSync") { recording: Boolean, clipCount: Int, startedAt: Double? -> host().sync(recording, clipCount, startedAt) }
+    Function("remoteSignal") { saved: Boolean -> host().signal(saved) }
+
+    Function("remoteControllerStart") { withBluetooth { remote().start() } }
+
+    Function("remoteControllerStop") { remote().stop() }
+
+    Function("remoteControllerHost") {
+      remote().host?.let { mapOf("id" to it.id, "name" to it.name) }
+    }
+
+    Function("remoteControllerForget") { remote().forget() }
+
+    Function("remoteControllerPairWithLink") { _: String, secret: String, _: String -> withBluetooth { remote().pairWithLink(secret) } }
+
+    Function("remoteControllerPairWithCode") { code: String -> withBluetooth { remote().pairWithCode(code) } }
+
+    Function("remoteControllerSave") { remote().save() }
+
+    Function("remoteControllerEndRecording") { remote().endRecording() }
+
+    Function("remoteControllerStartRecording") { remote().startRecording() }
+
+    // No camera preview over Bluetooth (the iPhone sends it over Apple-only peer-to-peer Wi-Fi): nothing to ask for.
+    Function("remoteControllerPreview") { _: Boolean -> }
+
+    Function("remoteVoiceSetEnabled") { on: Boolean, locale: String -> RemoteVoice.set(on, locale) }
+
+    Function("getMicrophonePermission") {
+      val ctx = appContext.reactContext ?: return@Function "undetermined"
+      if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED) "granted" else "undetermined"
+    }
+
+    AsyncFunction("requestMicrophonePermission") { promise: Promise ->
+      val permissions = appContext.permissions ?: return@AsyncFunction promise.resolve(false)
+      permissions.askForPermissions(
+        { results -> promise.resolve(results.values.all { it.status == PermissionsStatus.GRANTED }) },
+        Manifest.permission.RECORD_AUDIO,
+      )
+    }
+
+    Function("remoteDeviceName") { DeviceIdentity.name(context) }
+
+    Function("remoteSetDeviceName") { name: String -> DeviceIdentity.setCustomName(context, name) }
+
+    // Screen economy on the remote phone: brightness down to a level that can still be read; false gives it back.
+    Function("setRemoteScreenDim") { on: Boolean ->
+      ScreenEconomy.set(appContext.currentActivity, on, ScreenEconomy.REMOTE_BRIGHTNESS)
     }
 
     AsyncFunction("startSession") { opts: SessionOptions, promise: Promise ->
@@ -64,13 +170,17 @@ class ReplayCameraModule : Module() {
 
     Function("setGestureEnabled") { enabled: Boolean -> ReplayEngine.setGestureEnabled(enabled) }
 
+    // Screen economy while recording: brightness down (the JS side covers the screen in black); false gives it back.
+    Function("setScreenEconomy") { on: Boolean -> ScreenEconomy.set(appContext.currentActivity, on) }
+
     Function("signalSaved") { sound: Boolean, flash: Boolean -> ReplayEngine.signalSaved(sound, flash) }
 
     AsyncFunction("exportClip") { o: ExportClipOptions, promise: Promise ->
       ClipExporter.export(
         context,
         ClipExporter.Options(
-          o.clipPath, o.startMs.toLong(), o.endMs.toLong(), o.speed.toFloat(), o.muted, o.width, o.height, o.overlayPngPath,
+          o.clipPath, o.startMs.toLong(), o.endMs.toLong(), o.speed.toFloat(), o.muted, o.rotation,
+          o.crop?.let { ClipExporter.Crop01(it.x, it.y, it.width, it.height) }, o.width, o.height, o.overlayPngPath,
         ),
         onDone = { path, ms -> promise.resolve(mapOf("path" to path, "durationMs" to ms)) },
         onError = { promise.reject(ReplayException("ENCODER_FAILED", "$it")) },
@@ -100,8 +210,8 @@ class ReplayCameraModule : Module() {
 
     AsyncFunction("createThumbnail") { clipPath: String, atMs: Double -> ClipThumbnail.make(clipPath, atMs) }
 
-    // Voice is iOS-only for now: Android's microphone is already taken by the recorder.
-    Function("setVoiceEnabled") { _: Boolean, _: String -> }
+    // The save command by voice: on-device recognition fed with the recorder's own audio (VoiceTrigger).
+    Function("setVoiceEnabled") { enabled: Boolean, locale: String -> ReplayEngine.setVoiceEnabled(enabled, locale) }
 
     // Wear OS arrives with the Android device stage; until then there is never a watch on Android.
     Function("getWatchStatus") { "unsupported" }
@@ -111,11 +221,21 @@ class ReplayCameraModule : Module() {
 
     Function("watchSignal") { _: Boolean -> }
 
-    Function("isVoiceSupported") { _: String -> false }
+    // Basic-mode recognition exists from Android 12; the language pack downloads the first time voice is turned on.
+    Function("isVoiceSupported") { _: String -> VoiceTrigger.isSupported() }
 
-    Function("getSpeechPermission") { "denied" }
+    // No speech permission of its own on Android: the recorder's microphone permission covers it.
+    Function("getSpeechPermission") {
+      val ctx = appContext.reactContext ?: return@Function "undetermined"
+      if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED) "granted" else "denied"
+    }
 
-    AsyncFunction("requestSpeechPermission") { false }
+    AsyncFunction("requestSpeechPermission") {
+      val ctx = appContext.reactContext ?: return@AsyncFunction false
+      androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
 
     Function("signalSaveFailed") { sound: Boolean -> ReplayEngine.signalSaveFailed(sound) }
 

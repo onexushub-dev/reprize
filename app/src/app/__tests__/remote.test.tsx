@@ -14,7 +14,6 @@ jest.mock('../../../modules/replay-camera', () => ({
   remoteControllerEndRecording: jest.fn(),
   remoteControllerPairWithLink: jest.fn(),
   remoteControllerStartRecording: jest.fn(),
-  remoteControllerPreview: jest.fn(),
   remoteDeviceName: jest.fn(() => 'iPhone XR#1234'),
   remoteSetDeviceName: jest.fn(),
   setRemoteScreenDim: jest.fn(),
@@ -516,23 +515,6 @@ test('if the camera phone does not start, it says so', async () => {
     await emit('onRemoteState', { recording: false, clipCount: 0 });
   });
   expect(screen.getByText(/A gravação não começou/)).toBeTruthy();
-});
-
-test('"Ver câmera" opens the picture, keeps asking for it, and stops asking when closed', async () => {
-  paired();
-  await render(<Remote />);
-  await emit('onRemoteStatus', { side: 'remote', link: 'connected', peerName: 'Quadra 1' });
-  await emit('onRemoteState', { recording: true, clipCount: 1, startedAt: NOW });
-  await fireEvent.press(screen.getByRole('button', { name: 'Ver câmera' }));
-  expect(camera().remoteControllerPreview).toHaveBeenLastCalledWith(true);
-  await act(async () => {
-    jest.advanceTimersByTime(2100);
-  });
-  expect(camera().remoteControllerPreview.mock.calls.filter((c: any[]) => c[0] === true).length).toBeGreaterThanOrEqual(3);
-  await emit('onRemoteFrame', { jpeg: '/9j/AAAA' });
-  expect(screen.getByLabelText('O que a câmera está vendo')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
-  expect(camera().remoteControllerPreview).toHaveBeenLastCalledWith(false);
 });
 
 test('the camera side of this same phone saying "searching" does not make the remote look disconnected', async () => {

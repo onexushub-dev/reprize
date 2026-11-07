@@ -11,7 +11,12 @@ import java.nio.ByteBuffer
 
 /** Remuxes segment MP4s into one 0-based file, without re-encoding. Timing rules live in [TimelineRemap]. */
 object ClipConcat {
-  fun concat(segments: List<Segment>, dest: File) {
+  /**
+   * [rotationDegrees] is the phone's position when the clip was saved, for the whole clip, as on iOS: the frames are
+   * always the sensor's own, only the players' rotation differs, and a phone turned while the window filled must not
+   * leave the clip in the position of its oldest segment. Null keeps the first segment's.
+   */
+  fun concat(segments: List<Segment>, dest: File, rotationDegrees: Int? = null) {
     require(segments.isNotEmpty()) { "no segments to save" }
     val muxer = MediaMuxer(dest.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
     val outTracks = mutableMapOf<String, Int>()
@@ -31,8 +36,8 @@ object ClipConcat {
             mime
           }
           if (index == 0) {
-            // The segment muxers stored the phone's rotation; carry the first one's to the clip.
-            val rotation = (0 until extractor.trackCount).map(extractor::getTrackFormat)
+            // The segment muxers stored the phone's rotation; without the save's own, carry the first one's to the clip.
+            val rotation = rotationDegrees ?: (0 until extractor.trackCount).map(extractor::getTrackFormat)
               .firstOrNull { it.containsKey(MediaFormat.KEY_ROTATION) }?.getInteger(MediaFormat.KEY_ROTATION) ?: 0
             muxer.setOrientationHint(rotation)
             muxer.start()

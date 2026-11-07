@@ -22,5 +22,18 @@ dependencies {
   implementation 'androidx.media3:media3-transformer:1.9.1'
   implementation 'androidx.media3:media3-effect:1.9.1'
   implementation 'androidx.media3:media3-common:1.9.1'
+  // Voice command ("salvar"/"save"): on-device speech, fed with the recorder's own audio. Alpha API.
+  implementation 'com.google.mlkit:genai-speech-recognition:1.0.0-alpha2'
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
+  // The pairing QR (camera phone side).
+  implementation 'com.google.zxing:core:3.5.3'
   testImplementation 'junit:junit:4.13.2'
+  // org.json is a stub in JVM unit tests; the real one reads the remote protocol's JSON there.
+  testImplementation 'org.json:json:20240303'
+}
+
+// ML Kit GenAI speech is built with a newer Kotlin (metadata 2.4) than the app's compiler; its API is plain classes
+// and flows, so the version check is skipped for this module only.
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+  compilerOptions.freeCompilerArgs.add("-Xskip-metadata-version-check")
 }

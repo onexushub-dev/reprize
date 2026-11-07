@@ -71,6 +71,13 @@ object ReplayEngine {
 
   fun setGestureEnabled(enabled: Boolean) = post { gesture?.enabled = enabled }
 
+  /** The save command by voice, heard in the recorder's own audio (see [VoiceTrigger]). */
+  private val voice = VoiceTrigger { message -> emit?.invoke("onDiag", mapOf("message" to message)) }.apply {
+    onCommand = { emit?.invoke("onTrigger", mapOf("source" to "voice", "at" to System.currentTimeMillis().toDouble())) }
+  }
+
+  fun setVoiceEnabled(enabled: Boolean, locale: String) = voice.setEnabled(enabled, locale)
+
   fun signalSaved(sound: Boolean, flash: Boolean) = post {
     val cap = capture
     feedback.saved(sound, flash, if (encoder != null && cap != null) cap::setTorch else null)
@@ -107,6 +114,7 @@ object ReplayEngine {
     if (gesture == null) gesture = GestureDetector(context.applicationContext) {
       emit?.invoke("onTrigger", mapOf("source" to "gesture", "at" to System.currentTimeMillis().toDouble()))
     }
+    gesture?.onDebug = { emit?.invoke("onGestureDebug", it) }
     this.lens = lens
     quality = maxQuality
     degraded = false
@@ -147,12 +155,14 @@ object ReplayEngine {
     val ctx = context
     if (!wanted || enc == null || ctx == null) return@post onError(ReplayException("NO_SESSION", "No replay session is running"))
     val id = UUID.randomUUID().toString()
+    // The clip takes the phone's position at the trigger (as on iOS), not its oldest segment's.
+    val rotation = gesture?.rotation
     pendingSaves += PendingSave(id, run = {
       saveExecutor.execute {
         val dest = File(ReplayPaths.clips(ctx), "$id.mp4")
         try {
           val lastSeconds = if (keepSeconds > 0) minOf(keepSeconds, windowSeconds) else windowSeconds
-          val seconds = ring.copyClip(lastSeconds, dest, ClipConcat::concat)
+          val seconds = ring.copyClip(lastSeconds, dest) { segments, file -> ClipConcat.concat(segments, file, rotation) }
           onDone(dest.path, (seconds * 1000).toInt())
         } catch (t: Throwable) {
           dest.delete()
@@ -190,6 +200,7 @@ object ReplayEngine {
         rotationDegrees = { gest.rotation },
         onSegment = { segment -> post { onSegment(segment) } },
         onFailure = { error -> post { fail(ReplayException("ENCODER_FAILED", "$error")) } },
+        onPcm = { buf, bytes, rate -> voice.consider(buf, bytes, rate) },
       )
       val rdr = gest.createReader(cap.handler)
       encoder = enc

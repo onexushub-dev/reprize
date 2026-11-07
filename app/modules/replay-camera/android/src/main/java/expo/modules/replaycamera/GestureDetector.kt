@@ -12,16 +12,18 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.pose.PoseDetection
 import com.google.mlkit.vision.pose.PoseLandmark
 import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
-import expo.modules.replaycamera.core.HoldTracker
 import expo.modules.replaycamera.core.ImageRotation
 import expo.modules.replaycamera.core.Point
 import expo.modules.replaycamera.core.Pose
-import expo.modules.replaycamera.core.ArmsUp
+import expo.modules.replaycamera.core.Sighting
+import expo.modules.replaycamera.core.WaveTracker
 import java.util.concurrent.atomic.AtomicBoolean
 import com.google.mlkit.vision.pose.Pose as MlPose
 
 /**
- * Runs ML Kit pose detection on ~5 frames per second and fires [onGesture] when both arms are held up.
+ * Runs ML Kit pose detection on ~5 frames per second (8 while the arms are up) and fires [onGesture] on the wave:
+ * both hands above the head, swung from side to side (WaveTracker, the same gesture and thresholds as iOS). The old
+ * hold (arms up and still) is gone, as on iOS: a volleyball set or block looks the same.
  * Frames come from a small ImageReader on the capture session, or, when the device can't add
  * that third stream, from bitmaps of the preview (see [startBitmapSampling]).
  * Frame rotation follows the phone's physical position (the UI is portrait-locked), read from the accelerometer.
@@ -29,13 +31,27 @@ import com.google.mlkit.vision.pose.Pose as MlPose
 class GestureDetector(context: Context, private val onGesture: () -> Unit) {
   companion object {
     private const val SAMPLE_MS = 200L
+    /** Waving is quick: sample faster while somebody has the arms up. */
+    private const val RAISED_SAMPLE_MS = 125L
+    private const val RAISED_FAST_MS = 1500L
+    /** At most this often to JS, unless the arms just went up (the practice screen's cue). */
+    private const val DEBUG_EVERY_MS = 500L
   }
+
+  /** What the detector saw, for the practice screen (onGestureDebug); set by the engine. */
+  @Volatile var onDebug: ((Map<String, Any>) -> Unit)? = null
+  private var lastRaisedMs = 0L
+  private var lastDebugMs = 0L
+  private var lastDebugRaised = false
+  private var samplesSinceDebug = 0
+
+  private fun sampleMs(now: Long) = if (now - lastRaisedMs < RAISED_FAST_MS) RAISED_SAMPLE_MS else SAMPLE_MS
 
   @Volatile var enabled = true
   private val detector = PoseDetection.getClient(
     PoseDetectorOptions.Builder().setDetectorMode(PoseDetectorOptions.STREAM_MODE).build()
   )
-  private val tracker = HoldTracker()
+  private val tracker = WaveTracker()
   private val busy = AtomicBoolean(false)
   private var lastSample = 0L
   private val main = Handler(Looper.getMainLooper())
@@ -67,7 +83,7 @@ class GestureDetector(context: Context, private val onGesture: () -> Unit) {
       setOnImageAvailableListener({ reader ->
         val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
         val now = SystemClock.elapsedRealtime()
-        if (!enabled || now - lastSample < SAMPLE_MS || !busy.compareAndSet(false, true)) {
+        if (!enabled || now - lastSample < sampleMs(now) || !busy.compareAndSet(false, true)) {
           image.close()
           return@setOnImageAvailableListener
         }
@@ -86,7 +102,7 @@ class GestureDetector(context: Context, private val onGesture: () -> Unit) {
           // The preview shows the raw sensor buffer, so it needs the same rotation as camera frames.
           detect(InputImage.fromBitmap(bitmap, rotation), SystemClock.elapsedRealtime()) {}
         }
-        main.postDelayed(this, SAMPLE_MS)
+        main.postDelayed(this, sampleMs(SystemClock.elapsedRealtime()))
       }
     }
     bitmapSampler = sampler
@@ -100,13 +116,38 @@ class GestureDetector(context: Context, private val onGesture: () -> Unit) {
 
   private fun detect(image: InputImage, nowMs: Long, release: () -> Unit) {
     detector.process(image)
-      .addOnSuccessListener { pose ->
-        if (tracker.update(ArmsUp.isUp(toPose(pose)), nowMs / 1000.0)) onGesture()
+      .addOnSuccessListener { mlPose ->
+        val pose = toPose(mlPose)
+        val seen = pose.leftShoulder != null && pose.rightShoulder != null
+        // ML Kit finds one person per frame; where they stand (0..1) tells two players apart between samples.
+        val sightings = if (seen) {
+          val w = image.width.toDouble().coerceAtLeast(1.0)
+          val h = image.height.toDouble().coerceAtLeast(1.0)
+          val upright = rotation == 90 || rotation == 270
+          val (fw, fh) = if (upright) Pair(h, w) else Pair(w, h)
+          listOf(Sighting(pose, (pose.leftShoulder!!.x + pose.rightShoulder!!.x) / 2 / fw, (pose.leftShoulder.y + pose.rightShoulder.y) / 2 / fh))
+        } else emptyList()
+        val raised = seen && WaveTracker.armsRaised(pose)
+        if (raised) lastRaisedMs = nowMs
+        val waved = tracker.update(sightings, nowMs / 1000.0)
+        report(nowMs, if (seen) 1 else 0, raised, waved)
+        if (waved) onGesture()
       }
       .addOnCompleteListener {
         release()
         busy.set(false)
       }
+  }
+
+  private fun report(nowMs: Long, people: Int, raised: Boolean, waved: Boolean) {
+    val send = onDebug ?: return
+    samplesSinceDebug++
+    if (!waved && raised == lastDebugRaised && nowMs - lastDebugMs < DEBUG_EVERY_MS) return
+    lastDebugMs = nowMs
+    lastDebugRaised = raised
+    val samples = samplesSinceDebug
+    samplesSinceDebug = 0
+    send(mapOf("people" to people, "isX" to false, "raised" to raised, "waved" to waved, "orientation" to deviceDegrees, "samples" to samples))
   }
 
   /** ML Kit positions are pixels in the upright image, y growing downward, as ArmsUp expects. */

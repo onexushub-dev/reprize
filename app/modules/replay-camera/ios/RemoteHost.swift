@@ -17,6 +17,8 @@ final class RemoteHost: NSObject {
   /// The advertised name says whether a pairing is open, so a remote that is pairing only talks to such phones.
   static let advertisedName = "Reprize"
   static let advertisedPairingName = "Reprize+"
+  /// An Android camera phone cannot choose the name it advertises, so it says "a pairing is open" with this second service id.
+  static let pairingServiceUUID = CBUUID(string: "6E3F1004-8C1B-4F6E-9D4B-2A7C5E0B1A10")
 
   /// Console.app (filter: subsystem `Reprize`, category `RemoteHost`) shows each step.
   private static let log = Logger(subsystem: "Reprize", category: "RemoteHost")

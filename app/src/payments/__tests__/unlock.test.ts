@@ -7,6 +7,8 @@ import { repo } from '../../data/mmkv';
 import { payments } from '..';
 
 jest.mock('../../analytics', () => ({ track: jest.fn() }));
+const mockFocus = jest.fn(() => true);
+jest.mock('../../../modules/replay-camera', () => ({ isFocusSupported: () => mockFocus() }));
 jest.mock('..', () => ({ payments: { showPaywall: jest.fn(), unlockOption: jest.fn() } }));
 jest.mock('../../data/mmkv', () => ({ repo: { upgradeSession: jest.fn(() => ({ id: 's1', paid: true })) } }));
 
@@ -43,6 +45,16 @@ test('a waiting Pass is spent on this recording only after the player agrees', a
   await expect(done).resolves.toBe(true);
   expect(upgradeSession).toHaveBeenCalledWith('s1', { passTransactionId: 'tx-1' });
   expect(track).toHaveBeenCalledWith('pass_used');
+});
+
+test('the question names Modo Foco only where the phone has it', () => {
+  unlockOption.mockReturnValue({ kind: 'credit', passTransactionId: 'tx-1' });
+  void unlockRecording('s1', t);
+  expect(alert.mock.calls[0][1]).toContain('Modo Foco');
+  mockFocus.mockReturnValueOnce(false);
+  void unlockRecording('s1', t);
+  expect(alert.mock.calls[1][1]).toBe(t('unlock.messageNoFocus'));
+  expect(alert.mock.calls[1][1]).not.toContain('Foco');
 });
 
 test('"Agora não" leaves the Pass and the recording as they were', async () => {
