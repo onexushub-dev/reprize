@@ -71,6 +71,13 @@ object ReplayEngine {
 
   fun setGestureEnabled(enabled: Boolean) = post { gesture?.enabled = enabled }
 
+  /** The save command by voice, heard in the recorder's own audio (see [VoiceTrigger]). */
+  private val voice = VoiceTrigger { message -> emit?.invoke("onDiag", mapOf("message" to message)) }.apply {
+    onCommand = { emit?.invoke("onTrigger", mapOf("source" to "voice", "at" to System.currentTimeMillis().toDouble())) }
+  }
+
+  fun setVoiceEnabled(enabled: Boolean, locale: String) = voice.setEnabled(enabled, locale)
+
   fun signalSaved(sound: Boolean, flash: Boolean) = post {
     val cap = capture
     feedback.saved(sound, flash, if (encoder != null && cap != null) cap::setTorch else null)
@@ -191,6 +198,7 @@ object ReplayEngine {
         rotationDegrees = { gest.rotation },
         onSegment = { segment -> post { onSegment(segment) } },
         onFailure = { error -> post { fail(ReplayException("ENCODER_FAILED", "$error")) } },
+        onPcm = { buf, bytes, rate -> voice.consider(buf, bytes, rate) },
       )
       val rdr = gest.createReader(cap.handler)
       encoder = enc

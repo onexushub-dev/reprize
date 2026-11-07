@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { requestPermissions } from "../../modules/replay-camera";
+import { isVoiceSupported, requestPermissions } from "../../modules/replay-camera";
 import { track } from "../analytics";
 import { Button } from "../components/Button";
 import { repo } from "../data/mmkv";
@@ -25,8 +25,11 @@ import { StoryBars } from "../onboarding/StoryBars";
 import { useStories } from "../onboarding/useStories";
 import { colors, fonts, radius } from "../theme/tokens";
 
+/** Whether this phone can listen for the save command (Android: from Android 12). Read once, like the slides. */
+const VOICE = Platform.OS !== "android" || isVoiceSupported("pt-BR");
+
 /** The stories on this platform (no Apple Watch slide outside iOS). */
-const SLIDES = slidesFor(Platform.OS);
+const SLIDES = slidesFor(Platform.OS, VOICE);
 
 /** How long a finger must stay down to count as a hold (which freezes the story) and not as a tap. */
 const HOLD_MS = 180;
@@ -150,7 +153,7 @@ export default function Onboarding() {
           {slide.id === "saveFree" || slide.id === "savePro" ? (
             <SaveMedia
               key={slide.id}
-              ways={waysOf(slide.id, Platform.OS)}
+              ways={waysOf(slide.id, Platform.OS, VOICE)}
               card={stories.card}
               onPick={stories.pickCard}
             />

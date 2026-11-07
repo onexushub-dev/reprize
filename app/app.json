@@ -116,6 +116,7 @@
       "@bacons/apple-targets",
       "./plugins/withPodsDeploymentTarget",
       "./plugins/withAndroidKeepRules",
+      "./plugins/withAndroidMinSdk",
       "expo-image",
       [
         "expo-localization",

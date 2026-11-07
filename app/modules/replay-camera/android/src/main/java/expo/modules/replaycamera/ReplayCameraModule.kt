@@ -49,7 +49,7 @@ class ReplayCameraModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("ReplayCamera")
 
-    Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus")
+    Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus", "onDiag")
 
     OnCreate {
       ReplayEngine.emit = { name, body -> sendEvent(name, body) }
@@ -113,8 +113,8 @@ class ReplayCameraModule : Module() {
 
     AsyncFunction("createThumbnail") { clipPath: String, atMs: Double -> ClipThumbnail.make(clipPath, atMs) }
 
-    // Voice is iOS-only for now: Android's microphone is already taken by the recorder.
-    Function("setVoiceEnabled") { _: Boolean, _: String -> }
+    // The save command by voice: on-device recognition fed with the recorder's own audio (VoiceTrigger).
+    Function("setVoiceEnabled") { enabled: Boolean, locale: String -> ReplayEngine.setVoiceEnabled(enabled, locale) }
 
     // Wear OS arrives with the Android device stage; until then there is never a watch on Android.
     Function("getWatchStatus") { "unsupported" }
@@ -124,11 +124,21 @@ class ReplayCameraModule : Module() {
 
     Function("watchSignal") { _: Boolean -> }
 
-    Function("isVoiceSupported") { _: String -> false }
+    // Basic-mode recognition exists from Android 12; the language pack downloads the first time voice is turned on.
+    Function("isVoiceSupported") { _: String -> VoiceTrigger.isSupported() }
 
-    Function("getSpeechPermission") { "denied" }
+    // No speech permission of its own on Android: the recorder's microphone permission covers it.
+    Function("getSpeechPermission") {
+      val ctx = appContext.reactContext ?: return@Function "undetermined"
+      if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED) "granted" else "denied"
+    }
 
-    AsyncFunction("requestSpeechPermission") { false }
+    AsyncFunction("requestSpeechPermission") {
+      val ctx = appContext.reactContext ?: return@AsyncFunction false
+      androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
 
     Function("signalSaveFailed") { sound: Boolean -> ReplayEngine.signalSaveFailed(sound) }
 

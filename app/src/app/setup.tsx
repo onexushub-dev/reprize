@@ -260,8 +260,8 @@ export default function Setup() {
   const paidAccess = accessPlan(plan) === "paid";
   // Apple Watch only: no Android smartwatch was tested, so the tile stays visible but disabled there.
   const watchSupported = Platform.OS === "ios";
-  // Saying "salvar" needs the iOS speech model; on Android the voice trigger is not offered at all (hidden, not off).
-  const voiceOffered = Platform.OS === "ios";
+  // Saying "salvar": each platform's on-device recognizer (iOS Speech; Android ML Kit, Android 12+).
+  const voiceOffered = Platform.OS === "ios" || Platform.OS === "android";
   const watchAllowed = triggerAllowed("watch", plan);
   const watchOn = watchSupported && watchAllowed && watch === "ready";
   const watchLocked = watchSupported && !watchAllowed;

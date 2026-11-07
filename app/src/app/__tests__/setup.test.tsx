@@ -406,7 +406,7 @@ test('the Bluetooth remote and the Apple Watch come first, under "Recomendados" 
   ).toBeNull();
 });
 
-test("on Android there is no Apple Watch or voice tile, nor their icons in the summary", async () => {
+test("on Android there is no Apple Watch tile nor its icon in the summary; voice is offered", async () => {
   const os = Platform.OS;
   Platform.OS = "android";
   try {
@@ -414,10 +414,10 @@ test("on Android there is no Apple Watch or voice tile, nor their icons in the s
     await render(<Setup />);
     expect(
       screen.getByLabelText(/^Ajustes:/).props.accessibilityLabel,
-    ).not.toMatch(/voz/i);
+    ).not.toMatch(/watch/i);
     await openSettings();
     expect(screen.queryByLabelText(/^Apple Watch/)).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Voz/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Voz/ })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /^Controle Bluetooth/ }),
     ).toBeTruthy();
