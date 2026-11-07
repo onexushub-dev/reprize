@@ -244,14 +244,6 @@ export function isRemoteControllerSupported(): boolean {
   return typeof ReplayCameraModule.remoteControllerStart === 'function';
 }
 
-/**
- * Whether the remote can show the camera phone's view: the iPhones send it over Apple-only peer-to-peer Wi-Fi, so an
- * Android remote has commands and state but no preview.
- */
-export function isRemotePreviewSupported(): boolean {
-  return Platform.OS === 'ios';
-}
-
 /** Camera phone: wait for paired remotes (and for an open pairing) while the setup screen is in front. */
 export function remoteHostStart(): void {
   if (ReplayCameraModule.remoteHostStart) ReplayCameraModule.remoteHostStart();

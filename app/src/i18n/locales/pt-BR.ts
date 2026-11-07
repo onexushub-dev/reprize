@@ -344,7 +344,6 @@ export const ptBR: Messages = {
     tryNow: 'Tentar agora',
     save: 'SALVAR',
     sending: 'ENVIANDO…',
-    seeCamera: 'Ver câmera',
     connectedTo: 'Conectado a %{name}',
     reconnectingTo: 'Reconectando a %{name}',
     reconnectingScreen: 'Reconectando a %{name}…',

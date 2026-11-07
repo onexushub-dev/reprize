@@ -4,6 +4,7 @@ import android.Manifest
 import expo.modules.replaycamera.remote.DeviceIdentity
 import expo.modules.replaycamera.remote.RemoteBle
 import expo.modules.replaycamera.remote.RemoteController
+import expo.modules.replaycamera.remote.RemoteHost
 import expo.modules.replaycamera.remote.RemoteVoice
 import expo.modules.interfaces.permissions.PermissionsStatus
 import expo.modules.kotlin.Promise
@@ -51,9 +52,25 @@ class ReplayCameraModule : Module() {
   private val context get() = appContext.reactContext ?: throw Exceptions.ReactContextLost()
 
   private fun remote() = RemoteController.shared(context)
+  private fun host() = RemoteHost.shared(context)
 
   /** Runs `work` once the Bluetooth permissions are there, asking for them first if needed (the screen hears the
    * answer through `onRemoteStatus`: `denied`/`unauthorized` when refused). */
+  private fun withHostBluetooth(work: () -> Unit) {
+    if (RemoteBle.hostGranted(context)) return work()
+    val permissions = appContext.permissions ?: return work()
+    permissions.askForPermissions({ _ -> work(); host().permissionsChanged() }, *RemoteBle.hostPermissions())
+  }
+
+  /** Pairing needs the advertise permission first; without it the screen gets null and the status says why. */
+  private fun withHostPairing(): Map<String, Any?>? {
+    if (!RemoteBle.hostGranted(context)) {
+      withHostBluetooth { }
+      return null
+    }
+    return host().beginPairing()
+  }
+
   private fun withBluetooth(work: () -> Unit) {
     if (RemoteBle.granted(context)) return work()
     val permissions = appContext.permissions ?: return work()
@@ -64,16 +81,29 @@ class ReplayCameraModule : Module() {
     Name("ReplayCamera")
 
     Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus", "onDiag",
-      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice")
+      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck")
 
     OnCreate {
       ReplayEngine.emit = { name, body -> sendEvent(name, body) }
       remote().emit = { name, body -> sendEvent(name, body) }
+      host().emit = { name, body -> sendEvent(name, body) }
       RemoteVoice.emit = { name, body -> sendEvent(name, body) }
     }
 
     // ---- This phone as the remote of a camera phone (an iPhone or an Android), over Bluetooth LE. The camera side
     // (remoteHost*) is not on Android yet, so the app offers only "use as remote" here (isRemoteSupported is false).
+    // This phone as the camera phone of a remote (RemoteHost).
+    Function("remoteHostStart") { withHostBluetooth { host().start() } }
+    Function("remoteHostStop") { host().stop() }
+    Function("remoteHostBeginPairing") { withHostPairing() }
+    Function("remoteHostEndPairing") { host().endPairing() }
+    Function("remoteHostPeers") { host().peers.map { mapOf("id" to it.id, "name" to it.name, "connected" to host().isConnected(it.id)) } }
+    Function("remoteHostCheck") { id: String -> host().check(id) }
+    Function("remoteHostRemove") { id: String -> host().remove(id) }
+    Function("remoteHostControllers") { host().controllers }
+    Function("remoteSync") { recording: Boolean, clipCount: Int, startedAt: Double? -> host().sync(recording, clipCount, startedAt) }
+    Function("remoteSignal") { saved: Boolean -> host().signal(saved) }
+
     Function("remoteControllerStart") { withBluetooth { remote().start() } }
 
     Function("remoteControllerStop") { remote().stop() }

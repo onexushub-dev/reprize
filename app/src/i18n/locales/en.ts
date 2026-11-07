@@ -346,7 +346,6 @@ export const en = {
     tryNow: 'Try now',
     save: 'SAVE',
     sending: 'SENDING…',
-    seeCamera: 'View camera',
     connectedTo: 'Connected to %{name}',
     reconnectingTo: 'Reconnecting to %{name}',
     reconnectingScreen: 'Reconnecting to %{name}…',

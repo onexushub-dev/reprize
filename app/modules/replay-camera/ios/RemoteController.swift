@@ -415,7 +415,9 @@ extension RemoteController: CBCentralManagerDelegate {
     if let since = blocked[peripheral.identifier], Date().timeIntervalSince(since) < Self.blockFor { return }
     let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String
     if pairMode != nil {
-      guard name == RemoteHost.advertisedPairingName else { return }
+      let ids = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? [])
+        + (advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? [])
+      guard name == RemoteHost.advertisedPairingName || ids.contains(RemoteHost.pairingServiceUUID) else { return }
     }
     if let current = camera {
       if current.state == .connecting && pairMode == nil {

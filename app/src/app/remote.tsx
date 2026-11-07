@@ -19,7 +19,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   addReplayListener,
   getMicrophonePermission,
-  isRemotePreviewSupported,
   getSpeechPermission,
   isVoiceSupported,
   remoteControllerForget,
@@ -42,11 +41,10 @@ import { Button } from '../components/Button';
 import { ConnectionBar } from '../components/ConnectionBar';
 import { QrScanner } from '../components/QrScanner';
 import { RequirementsChecklist } from '../components/RequirementsChecklist';
-import { RemotePreview } from '../components/RemotePreview';
 import { DeviceNameField } from '../components/DeviceNameField';
 import { EconomyToast } from '../components/EconomyToast';
 import { HoldButton } from '../components/HoldButton';
-import { BatteryIcon, BatteryOffIcon, CameraIcon, MicIcon } from '../components/icons';
+import { BatteryIcon, BatteryOffIcon, MicIcon } from '../components/icons';
 import { PulseRing } from '../components/PulseRing';
 import { ResultFlash } from '../components/ResultFlash';
 import { TriggerTile } from '../components/TriggerTile';
@@ -155,7 +153,6 @@ export default function Remote() {
   const [code, setCode] = useState('');
   const lastSaveRef = useRef<number | null>(null);
   const [lastCode, setLastCode] = useState<string | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [startAskedAt, setStartAskedAt] = useState<number | null>(null);
   const [endAskedAt, setEndAskedAt] = useState<number | null>(null);
   const connectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -722,23 +719,11 @@ export default function Remote() {
         ) : null}
 
         <View style={styles.footer}>
-          {isRemotePreviewSupported() && (screenModel.kind === 'recording' || screenModel.kind === 'waiting') ? (
-            <View style={styles.footerItem}>
-              <Button
-                label={t('remote.seeCamera')}
-                variant="secondary"
-                icon={<CameraIcon />}
-                onPress={() => setPreviewOpen(true)}
-              />
-            </View>
-          ) : null}
           <View style={styles.footerItem}>
             <Button label={t('common.close')} variant="secondary" onPress={leave} />
           </View>
         </View>
       </View>
-      {/* Dim: the picture stops coming (the camera phone stops sending) and comes back with the screen. */}
-      <RemotePreview visible={previewOpen && !economy.asleep} onClose={() => setPreviewOpen(false)} onTouch={economy.wake} />
       {economy.asleep ? (
         // Over everything while dim: the touch that lights the screen up reaches no button under it.
         <Pressable

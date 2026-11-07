@@ -38,6 +38,16 @@ object RemoteBle {
   /** The camera phone's advertised name: paired remotes only, or a pairing open. */
   const val NAME = "Reprize"
   const val PAIRING_NAME = "Reprize+"
+  /** An Android camera phone cannot choose the name it advertises, so an open pairing is a second service id in the scan response. */
+  val PAIRING: UUID = UUID.fromString("6E3F1004-8C1B-4F6E-9D4B-2A7C5E0B1A10")
+
+  /** The camera phone also advertises: Android 12+ "Nearby devices" again (before that nothing extra is asked). */
+  fun hostPermissions(): Array<String> =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) arrayOf(Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT)
+    else emptyArray()
+
+  fun hostGranted(context: Context): Boolean =
+    hostPermissions().all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
 
   /** What scanning and connecting need: Android 12+ "Nearby devices", before that the location permission. */
   fun permissions(): Array<String> =
@@ -145,6 +155,11 @@ class RemoteController(context: Context) {
   fun startRecording() = onMain { send(RemoteMessage.Start) }
 
   /** Permissions or Bluetooth changed (the module asked for them): look again and tell the screen. */
+  /** An iPhone camera says it by name ("Reprize+"); an Android one by the second service id. */
+  private fun isPairingOpen(result: ScanResult): Boolean =
+    result.scanRecord?.deviceName == RemoteBle.PAIRING_NAME ||
+      result.scanRecord?.serviceUuids?.contains(ParcelUuid(RemoteBle.PAIRING)) == true
+
   fun permissionsChanged() = onMain { refresh() }
 
   // ---- Lifecycle
@@ -226,7 +241,7 @@ class RemoteController(context: Context) {
     val since = blocked[device.address]
     if (since != null && SystemClock.elapsedRealtime() - since < BLOCK_MS) return
     // While pairing, only a camera with a pairing open: a nearby one that is not pairing never gets an attempt.
-    if (pairKey != null && result.scanRecord?.deviceName != RemoteBle.PAIRING_NAME) return
+    if (pairKey != null && !isPairingOpen(result)) return
     Log.i(TAG, "connecting to ${device.address.takeLast(5)} (${result.scanRecord?.deviceName})")
     stopScan()
     connect(device)
