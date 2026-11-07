@@ -23,9 +23,18 @@ object ClipThumbnail {
       } else {
         retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let(::scaledDown)
       } ?: error("no frame at $atMs ms")
-      // The segment muxers stored the phone's rotation as metadata; frames come out unrotated.
+      // The segment muxers stored the phone's rotation as metadata. Some devices (Xiaomi) hand the frame back already
+      // turned and others don't, so a quarter turn is applied only when the frame isn't upright yet: turning an upright
+      // frame again made a vertical clip look landscape (wrong shape in the viewer and the export).
       val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toFloatOrNull() ?: 0f
-      val upright = if (rotation == 0f) frame else
+      val stored = Pair(
+        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0,
+        retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0,
+      )
+      val quarter = rotation == 90f || rotation == 270f
+      val alreadyTurned = quarter && stored.first != stored.second &&
+        (frame.width > frame.height) == (stored.second > stored.first)
+      val upright = if (rotation == 0f || alreadyTurned) frame else
         Bitmap.createBitmap(frame, 0, 0, frame.width, frame.height, Matrix().apply { postRotate(rotation) }, true)
       // Write then rename, so a crash never leaves a half-written thumbnail that later views would reuse.
       val tmp = File(out.path + ".tmp")
