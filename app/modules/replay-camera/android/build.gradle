@@ -26,6 +26,8 @@ dependencies {
   implementation 'com.google.mlkit:genai-speech-recognition:1.0.0-alpha2'
   implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
   testImplementation 'junit:junit:4.13.2'
+  // org.json is a stub in JVM unit tests; the real one reads the remote protocol's JSON there.
+  testImplementation 'org.json:json:20240303'
 }
 
 // ML Kit GenAI speech is built with a newer Kotlin (metadata 2.4) than the app's compiler; its API is plain classes

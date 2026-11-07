@@ -117,6 +117,7 @@
       "./plugins/withPodsDeploymentTarget",
       "./plugins/withAndroidKeepRules",
       "./plugins/withAndroidMinSdk",
+      "./plugins/withAndroidBluetooth",
       "expo-image",
       [
         "expo-localization",

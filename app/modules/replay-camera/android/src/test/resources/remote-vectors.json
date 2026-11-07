@@ -1,0 +1,68 @@
+{
+  "frames" : {
+    "frames" : [
+      "AgEABAABAgMEBQYHCAkKCwwNDg8=",
+      "AgEBBBAREhMUFRYXGBkaGxwdHh8=",
+      "AgECBCAhIiMkJSYnKCkqKywtLi8=",
+      "AgEDBDAx"
+    ],
+    "id" : 513,
+    "maxFrame" : 20,
+    "message" : "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDE="
+  },
+  "hkdf" : {
+    "info" : "lance-session",
+    "key" : "IQPC+1BgLjWJUXKUOHS7iuLSgyWIamxyjW2wVHAzbBA=",
+    "salt" : "bGFuY2UtYmxlLTF8dGVzdHwVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8",
+    "secret" : "IyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUI="
+  },
+  "mac" : {
+    "key" : "HB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs=",
+    "label" : "remote|",
+    "mac" : "oWsBMRfMFJoLQMC2uz2f5nsYeZPoCDBUWPPXy6pWbZI=",
+    "transcript" : "bGFuY2UtYmxlLTF8dGVzdHwVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8"
+  },
+  "pair" : {
+    "accept" : "AXsicGFpcmVkIjoiQWdBQUFBQUFBQUFCclA2a3dFTGZpRVBjUzd4UFhTWk5UQ0liMHIrcHZpc3R5Y1pxSnBLOVNsOFFibWtYUEU4NEVCem5sUmxvM3RuV0lZaUxINkxqQllBY1lTdHFRU0h0MXBpQUs0WmV5SGRZdW81bjgxbHhTb0JHeWRiYUZrSHlndDR6WnI1UkkrYUh5dHdHR2UyZTJ4ZzZmYUVvTzNibE53Q3VvdXlxOHc4VGVwM3laTGduT3dHcjN3PT0iLCJob3N0UHJvb2YiOiJBckRMMUM0Y01PSTF3TTV0MkNjZnhxXC96NnFYaXlyQVFsRVBKc21rOEE2VT0iLCJ0IjoiYWNjZXB0In0=",
+    "challenge" : "AXsiaG9zdE5hbWUiOiJpUGhvbmUgMTYjYWIxMiIsInQiOiJjaGFsbGVuZ2UiLCJob3N0SWQiOiJIT1NULUlELTEiLCJub25jZSI6IlRVNVBVRkZTVTFSVlZsZFlXVnBiWEE9PSIsInB1YiI6Im9DQ1FsblIyTkYzK2dMZlljUVZGUVlJNlllRkVIeUZZUzhoUlNQWDU3dzA9In0=",
+    "code" : "042917",
+    "hello" : "AXsidCI6ImhlbGxvIiwibm9uY2UiOiJSa2RJU1VwTFRFMU9UMUJSVWxOVVZRPT0iLCJwdWIiOiJYd20zK1hwQXRRSWdhWEJrdERzblFSc0hwS29mNEZOd3NuVVpnbW1EMHcwPSIsImtpbmQiOiJwYWlyIiwicmVtb3RlSWQiOiJSRU1PVEUtSUQtMSIsInJlbW90ZU5hbWUiOiJQT0NPIFgzI2NkMzQifQ==",
+    "hostId" : "HOST-ID-1",
+    "hostName" : "iPhone 16#ab12",
+    "hostNonce" : "TU5PUFFSU1RVVldYWVpbXA==",
+    "hostPriv" : "ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVlc=",
+    "pairedRemoteId" : "REMOTE-ID-1",
+    "pairKey" : "VFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnM=",
+    "proof" : "AXsicHJvb2YiOiJoWFRiR2xNM0hRMkJIT0xtbDMwYW1OdUlURFwvREVGZ0pTRjdycTNjWHlvbz0iLCJ0IjoicHJvb2YifQ==",
+    "remoteId" : "REMOTE-ID-1",
+    "remoteName" : "POCO X3#cd34",
+    "remoteNonce" : "RkdISUpLTE1OT1BRUlNUVQ==",
+    "remotePriv" : "MTIzNDU2Nzg5Ojs8PT4\/QEFCQ0RFRkdISUpLTE1OT1A=",
+    "secret" : "P0BBQkNERUZHSElKS0xNTg=="
+  },
+  "reconnect" : {
+    "accept" : "AXsidCI6ImFjY2VwdCJ9",
+    "challenge" : "AXsiaG9zdE5hbWUiOiJpUGhvbmUgMTYjYWIxMiIsInQiOiJjaGFsbGVuZ2UiLCJob3N0SWQiOiJIT1NULUlELTEiLCJob3N0UHJvb2YiOiJtZUt1alJzZGVWcUVLRUg0aWVHeTI0dk8zVFpnOVlJNitZN2ZLRCs4czhJPSIsIm5vbmNlIjoiWW1Oa1pXWm5hR2xxYTJ4dGJtOXdjUT09In0=",
+    "hello" : "AXsibm9uY2UiOiJXMXhkWGw5Z1lXSmpaR1ZtWjJocGFnPT0iLCJ0IjoiaGVsbG8iLCJraW5kIjoicmVjb25uZWN0IiwicmVtb3RlSWQiOiJSRU1PVEUtSUQtMSIsInJlbW90ZU5hbWUiOiJQT0NPIFgzI2NkMzQifQ==",
+    "hostNonce" : "YmNkZWZnaGlqa2xtbm9wcQ==",
+    "hostSealedState" : "AgAAAAAAAAAB+vG0tau8IdOTANlkWpd7axom3dxjWnk\/NcsZyC+32FS7d\/t0Pvo\/lRkxJdAjbe4YSFSqApu8jaz4moJocijfGwLwCbnR4SIrNes=",
+    "pairKey" : "VFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnM=",
+    "proof" : "AXsidCI6InByb29mIiwicHJvb2YiOiI4RkdGUEttUGxOa1kxZlhcLzdkenltNFBLZFNyM3k5M1h4T2M2RUxmMUNERT0ifQ==",
+    "remoteNonce" : "W1xdXl9gYWJjZGVmZ2hpag=="
+  },
+  "session" : {
+    "host1" : "AgAAAAAAAAAB1Fb+h8gPr42sN3uq+s8c8umArjuCaGCDKsRCEBvJ",
+    "host2" : "AgAAAAAAAAACmYneaOR1ncFuI1GTd1+QRJMHondK7hr\/8x19jbZSvuYbmSUY7Toyyz9bd2szZDXP",
+    "key" : "KissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSEk=",
+    "plain1" : "eyJjbWQiOiJzYXZlIn0=",
+    "plain2" : "eyJyZWNvcmRpbmciOnRydWUsImNsaXBDb3VudCI6M30=",
+    "remote1" : "AgAAAAAAAAABtiGjKdqMpofD5OZthErXF1BVnvMcNGziBmasujLC"
+  },
+  "x25519" : {
+    "privA" : "BwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSY=",
+    "privB" : "Dg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0=",
+    "pubA" : "B7jFQkh2hqeDAYVfy20\/aoqRHNfxmDqbRNydzSKDnSM=",
+    "pubB" : "FVhuliSCRZy9rdIFUHmqp9RlKklgyFin4WQXM7jFN04=",
+    "shared" : "IAgl3QcpflCXt3lqSxxUqaT4lggVRidM9\/siCT3qG34="
+  }
+}

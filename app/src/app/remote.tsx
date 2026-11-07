@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   addReplayListener,
   getMicrophonePermission,
+  isRemotePreviewSupported,
   getSpeechPermission,
   isVoiceSupported,
   remoteControllerForget,
@@ -721,7 +722,7 @@ export default function Remote() {
         ) : null}
 
         <View style={styles.footer}>
-          {screenModel.kind === 'recording' || screenModel.kind === 'waiting' ? (
+          {isRemotePreviewSupported() && (screenModel.kind === 'recording' || screenModel.kind === 'waiting') ? (
             <View style={styles.footerItem}>
               <Button
                 label={t('remote.seeCamera')}

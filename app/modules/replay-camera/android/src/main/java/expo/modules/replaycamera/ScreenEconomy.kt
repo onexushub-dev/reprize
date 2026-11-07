@@ -14,13 +14,15 @@ import android.view.WindowManager
 object ScreenEconomy {
   /** Brightness while dark (0..1). The black cover does the rest, so this only has to be low. */
   private const val DIM_BRIGHTNESS = 0.02f
+  /** The remote phone's economy: low, but its screen can still be read (iOS `remoteBrightness`). */
+  const val REMOTE_BRIGHTNESS = 0.15f
 
-  fun set(activity: Activity?, on: Boolean) {
+  fun set(activity: Activity?, on: Boolean, brightness: Float = DIM_BRIGHTNESS) {
     val a = activity ?: return
     Handler(Looper.getMainLooper()).post {
       val window = a.window ?: return@post
       val attrs = window.attributes
-      attrs.screenBrightness = if (on) DIM_BRIGHTNESS else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+      attrs.screenBrightness = if (on) brightness else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
       window.attributes = attrs
     }
   }

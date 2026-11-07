@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import ReplayCameraModule from './ReplayCameraModule';
 import type {
   AnalyzeFocusOptions,
@@ -230,11 +231,25 @@ export function concatVideos(paths: string[], outPath: string): Promise<Exported
   return ReplayCameraModule.concatVideos(paths, outPath);
 }
 
-// ---- Second iPhone as a remote (iOS only). Without the native functions every call does nothing.
+// ---- Phone remote: a second phone that saves for the camera phone, over Bluetooth LE. Without the native functions
+// every call does nothing.
 
-/** Whether this phone can pair with another one as camera or as remote. False on Android for now. */
+/** Whether this phone can be the camera phone of a remote (pair one, wait for it). False on Android for now. */
 export function isRemoteSupported(): boolean {
   return typeof ReplayCameraModule.remoteHostStart === 'function';
+}
+
+/** Whether this phone can be the remote of a camera phone (an iPhone, or an Android once it can be a camera). */
+export function isRemoteControllerSupported(): boolean {
+  return typeof ReplayCameraModule.remoteControllerStart === 'function';
+}
+
+/**
+ * Whether the remote can show the camera phone's view: the iPhones send it over Apple-only peer-to-peer Wi-Fi, so an
+ * Android remote has commands and state but no preview.
+ */
+export function isRemotePreviewSupported(): boolean {
+  return Platform.OS === 'ios';
 }
 
 /** Camera phone: wait for paired remotes (and for an open pairing) while the setup screen is in front. */

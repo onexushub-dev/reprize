@@ -5,6 +5,7 @@ import { track } from '../../analytics';
 import Remote from '../remote';
 
 jest.mock('../../../modules/replay-camera', () => ({
+  isRemotePreviewSupported: jest.fn(() => true),
   remoteControllerStart: jest.fn(),
   remoteControllerStop: jest.fn(),
   remoteControllerHost: jest.fn(() => null),

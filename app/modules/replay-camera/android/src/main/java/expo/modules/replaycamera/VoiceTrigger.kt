@@ -118,7 +118,8 @@ class VoiceTrigger(private val log: (String) -> Unit) {
       outBytes.putShort((a + (b - a) * frac).toInt().toShort())
       pos += step
     }
-    resamplePos = pos - inSamples // carry the fraction into the next chunk
+    // carry the fraction into the next chunk; never behind the start (at 1:1 the loop ends one sample short)
+    resamplePos = maxOf(0.0, pos - inSamples)
     if (!chunks.offer(outBytes.array().copyOf(outBytes.position()))) dropped++
   }
 

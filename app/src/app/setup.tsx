@@ -25,6 +25,7 @@ import {
   getSpeechPermission,
   getWatchStatus,
   getZoomRange,
+  isRemoteControllerSupported,
   isRemoteSupported,
   isVoiceSupported,
   remoteControllerForget,
@@ -304,9 +305,11 @@ export default function Setup() {
   };
   // The phone remote (a second iPhone that taps Salvar for this one). The camera phone waits for its paired remotes for
   // as long as the app is open (see the root layout); pairing happens on its own sheet (/pairing).
+  // Android is only a remote for now (no camera side yet): each tile shows where its side exists.
   const [remoteSupported] = useState(() => isRemoteSupported());
+  const [controllerSupported] = useState(() => isRemoteControllerSupported());
   const [controlHost, setControlHost] = useState<RemotePeer | null>(() =>
-    isRemoteSupported() ? remoteControllerHost() : null,
+    isRemoteControllerSupported() ? remoteControllerHost() : null,
   );
   const [remoteLinked, setRemoteLinked] = useState(() =>
     remoteHostControllers(),
@@ -325,9 +328,9 @@ export default function Setup() {
   const [remoteReadFocused, setRemoteReadFocused] = useState(focused);
   if (remoteReadFocused !== focused) {
     setRemoteReadFocused(focused);
-    if (remoteSupported && focused) {
-      setControlHost(remoteControllerHost());
-      setRemoteLinked(remoteHostControllers());
+    if (focused) {
+      if (controllerSupported) setControlHost(remoteControllerHost());
+      if (remoteSupported) setRemoteLinked(remoteHostControllers());
     }
   }
   const disconnectControl = () => {
@@ -809,16 +812,18 @@ export default function Setup() {
         </View>
 
         <View style={styles.triggerPlain}>
-          {remoteSupported ? (
+          {remoteSupported || controllerSupported ? (
             <>
               <View style={styles.gridRow}>
-                <TriggerTile
-                  icon={<QrIcon />}
-                  title={t("setup.connectPhoneRemote")}
-                  status={controllersStatus(t, remoteLinked)}
-                  active={remoteLinked > 0}
-                  onPress={() => router.push("/pairing")}
-                />
+                {remoteSupported ? (
+                  <TriggerTile
+                    icon={<QrIcon />}
+                    title={t("setup.connectPhoneRemote")}
+                    status={controllersStatus(t, remoteLinked)}
+                    active={remoteLinked > 0}
+                    onPress={() => router.push("/pairing")}
+                  />
+                ) : null}
                 <TriggerTile
                   icon={<TapIcon />}
                   title={t("setup.useAsRemote")}

@@ -30,6 +30,12 @@ export const androidOverrides: Record<AppLocale, DeepPartial<Messages>> = {
       noteBluetoothOff:
         "Ligue o Bluetooth do celular nas Configurações rápidas ou em Configurações.",
     },
+    remote: {
+      bluetoothDenied:
+        "Libere o acesso a Dispositivos por perto para o Reprize nas Configurações para usar o controle.",
+      bluetoothOff:
+        "Ligue o Bluetooth para usar o controle (Configurações rápidas ou Configurações).",
+    },
   },
   en: {
     batch: {
@@ -56,6 +62,10 @@ export const androidOverrides: Record<AppLocale, DeepPartial<Messages>> = {
         "Reprize forgets this remote was used here. To unpair it for good: Settings > Connected devices > ⚙ next to the remote > Forget.",
       note: "Nothing yet? Check that the remote shows as connected in Settings > Connected devices. Works with selfie remotes (volume key).",
       noteBluetoothOff: "Turn on Bluetooth in Quick Settings or Settings.",
+    },
+    remote: {
+      bluetoothDenied: "Allow Nearby devices for Reprize in Settings to use the remote.",
+      bluetoothOff: "Turn Bluetooth on to use the remote (Quick Settings or Settings).",
     },
   },
 };

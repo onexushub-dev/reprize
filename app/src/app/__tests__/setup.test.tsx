@@ -22,6 +22,7 @@ jest.mock("../../../modules/replay-camera", () => {
     getZoomRange: jest.fn(() => ({ min: 0.5, max: 5, continuous: true })),
     getDeviceUpright: jest.fn(() => "portrait"),
     isRemoteSupported: jest.fn(() => false),
+    isRemoteControllerSupported: jest.fn(() => false),
     supportsQuality: jest.fn(() => true),
     setScreenEconomy: jest.fn(),
     remoteControllerHost: jest.fn(() => null),
@@ -144,6 +145,7 @@ beforeEach(() => {
   clearRemotePress();
   const module = jest.requireMock("../../../modules/replay-camera");
   module.isRemoteSupported.mockReturnValue(false);
+  module.isRemoteControllerSupported.mockReturnValue(false);
   module.getWatchStatus.mockReturnValue("unsupported");
   module.getZoomRange.mockReturnValue({ min: 0.5, max: 5, continuous: true });
   module.remoteHostPeers.mockReturnValue([]);
@@ -969,6 +971,7 @@ test("on the free tier picking 15s is free and saves it", async () => {
 test("on the free tier the phone remote tiles are free: they open their screens, not the paywall", async () => {
   freeTier();
   camera().isRemoteSupported.mockReturnValue(true);
+  camera().isRemoteControllerSupported.mockReturnValue(true);
   session({});
   await render(<Setup />);
   await openSettings();
@@ -993,6 +996,7 @@ test("on the free tier the phone remote tiles are free: they open their screens,
 test("on the free tier the Bluetooth remote tile is free: no lock, it opens the remote sheet", async () => {
   freeTier();
   camera().isRemoteSupported.mockReturnValue(true);
+  camera().isRemoteControllerSupported.mockReturnValue(true);
   session({});
   await render(<Setup />);
   await openSettings();
@@ -1046,6 +1050,7 @@ test("without a watch the other triggers behave as before", async () => {
 
 function enableRemote(peers: { id: string; name: string }[]) {
   camera().isRemoteSupported.mockReturnValue(true);
+  camera().isRemoteControllerSupported.mockReturnValue(true);
   camera().remoteHostPeers.mockReturnValue(peers);
 }
 
@@ -1100,6 +1105,7 @@ test('"Usar este celular como controle" opens the remote screen', async () => {
 test("a phone already paired as a remote says which camera phone it is paired with, under the title", async () => {
   session({});
   camera().isRemoteSupported.mockReturnValue(true);
+  camera().isRemoteControllerSupported.mockReturnValue(true);
   camera().remoteControllerHost.mockReturnValue({
     id: "h1",
     name: "iPhone XR#1234",
@@ -1178,6 +1184,7 @@ test('"Conectar um celular controle" says how many remotes are connected, and th
 test('"Desconectar deste celular" asks first, then forgets the camera phone and goes back to the first state', async () => {
   session({});
   camera().isRemoteSupported.mockReturnValue(true);
+  camera().isRemoteControllerSupported.mockReturnValue(true);
   camera().remoteControllerHost.mockReturnValue({
     id: "h1",
     name: "iPhone XR#1234",
