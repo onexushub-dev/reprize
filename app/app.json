@@ -115,6 +115,7 @@
       "expo-sharing",
       "@bacons/apple-targets",
       "./plugins/withPodsDeploymentTarget",
+      "./plugins/withAndroidKeepRules",
       "expo-image",
       [
         "expo-localization",
