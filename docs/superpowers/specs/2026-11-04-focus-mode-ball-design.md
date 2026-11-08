@@ -2,7 +2,9 @@
 
 > Date: 2026-11-04. Status: **draft; decisions confirmed by Victor (2026-11-04); two passes at 5 fps chosen
 > 2026-11-05 (amendment after section 5)** (no app code yet). **On hold (Victor, 2026-11-05):** on video only one app
-> clip (basket-rp-1105-v-a) was good enough to use; production keeps today's Modo Foco. Kept for a later ball tracker. Scope:
+> clip (basket-rp-1105-v-a) was good enough to use; production keeps today's Modo Foco. Kept for a later ball tracker.
+> **Still on hold (Victor, 2026-11-06), best path so far recorded in section 11** (detector + EdgeTAM, lab tests
+> 17–19); Victor is testing other methods before any app work. Scope:
 > iPhone, A14 (iPhone 12) or newer.
 > Builds on `2026-10-23-focus-mode-design.md` (Modo Foco, players only), whose framing stays the base and the fallback.
 > Evidence: the Modo Foco lab, `docs/focus-refs/tools/lab/README.md` (tests 1–11, 2026-11-03/04): EdgeTAM one-click
@@ -275,3 +277,27 @@ results), `README.md` (all results). Ground truth: `docs/focus-refs/labels/`.
 5. **One pass instead of two** (Victor, 2026-11-04: to test after the soak test): (a) crops guided by the players' path
    only (`roi.py --guide p`); (b) crops that follow the previous frame's ball as the tracking goes, back to the players'
    path when it is lost. Measure ball mode against the two passes on the lab clips first, then the time.
+
+## 11. Best path so far (lab tests 17–19, 2026-11-05/06; not adopted, on hold)
+
+Evidence and numbers: `docs/focus-refs/tools/lab/README.md`, "Outcome" and tests 17–19. If the feature is reopened,
+this is the starting point; it changes sections 4, 5 and 10.1 as follows.
+
+1. **A per-frame ball detector next to the tracker** (10.1 done in the lab, without replacing the tap): YOLOX-Tiny
+   (Megvii, Apache-2.0, COCO "sports ball", 416 x 416, Core ML ~10 MB) at 5 fps in two stages: every 3rd analysed frame
+   the whole frame + all native 416 px tiles, the ball path over those frames, then the other frames with the whole
+   frame + the 2 tiles nearest that path (~8.3 model calls per frame on 1080p, 14 ms each on the iPhone17,2).
+2. **Mixed track**: the detector's ball where trusted, else the fused EdgeTAM track of section 4 (two passes at 5 fps).
+   Ball cover on the 17 labelled clips: 53% (EdgeTAM alone 43%; YOLOX-S with all tiles 56%).
+3. **Framing** (section 4.5) adds, approved by Victor on video: `v_keep = 0.2` (on a lob the players' centre stays at
+   least 20% of the crop's height above its bottom edge), `min_seg = 10` (a ball found for less than 1 s does not zoom
+   in) and `zoom_rate = 0.5` (zoom changes at most 0.5x per second, both ways).
+4. **Time** (section 5): ~48 s per 30 s of video on the iPhone17,2 in a 15 min soak (detector 21–23 s + two passes
+   26.5 s), thermal state nominal, battery < 5%; ~1.6 s per second of video, so **~16 s for a typical 10 s cut**.
+   The analysis would run on demand in the editor, on the cut range only (today's Modo Foco analyses the whole
+   `bounds` at save time); a change of the cut afterwards needs a re-analysis or a margin (~±2 s), to decide.
+5. **Weak spots**: night at 0.5x (ball ~3 px), the ball in hands (basketball, volleyball: EdgeTAM carries it),
+   broadcast footage.
+6. Not worth it (measured): YOLOX-Nano, Tiny on scaled 640 px tiles, online tile choice, fine-tuning on the lab's 32
+   clips, the detector with EdgeTAM pass 1 only.
+

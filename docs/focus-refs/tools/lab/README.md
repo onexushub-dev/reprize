@@ -1,33 +1,129 @@
-# Modo Foco lab (2026-11-03 to 2026-11-05)
+# Modo Foco lab (2026-11-03 to 2026-11-06)
 
-## Outcome (Victor, 2026-11-05) — read this first
+## Outcome (Victor, 2026-11-06) — read this first
 
 **Nothing from this lab went into the app. Production keeps today's Modo Foco (players only, Vision whole frame +
-9 tiles, `FocusTuning.action` / v15) unchanged.** No variant was accurate enough on video to replace it:
+9 tiles, `FocusTuning.action` / v15) unchanged. Foco na Bola stays on hold** (spec
+`docs/superpowers/specs/2026-11-04-focus-mode-ball-design.md`); Victor is trying other methods. This section keeps where
+the lab got to, so nothing is repeated.
 
-- **Foco na Bola** (EdgeTAM from one tap, two passes; spec `docs/superpowers/specs/2026-11-04-focus-mode-ball-design.md`,
-  status *on hold*): the framing is good when the ball is big and clear (basketball, daylight, YouTube references), but
-  on the app's own clips only one (basket-rp-1105-v-a) was good enough to use. Cost solved (two passes at 5 fps: 26.7 s
-  per 30 s clip on the 16 Pro Max, never `serious` heat in 15 min, test 14); quality not. A rule to offer it only on
-  clips tracked well exists (test 15) but there were too few such app clips.
+### Best path so far for Foco na Bola (tests 17–19, 2026-11-05/06)
+
+**Update 2026-11-07 (tests 27–28)**: for basketball, swapping the COCO YOLOX-Tiny below for a one-class YOLOX-Tiny
+fine-tuned on a public CC BY 4.0 dataset (`lab/models/ball_tiny_pub.onnx`) raises the ball cover of the mix on the 7
+basketball clips 54 → 64% (66% with our labels added), and the detector alone (no tap) 14 → 52%, at the same cost
+(test 28; the dataset's licence risk is to be decided). TrackNetV3 without retraining does not find the basketball
+(test 27).
+
+**Update 2026-11-08 (test 32)**: `lab/models/ball_tiny_hn.onnx` (the same model + "not a ball" crops of heads and
+torsos) raises the mix 64 → 68% and precision +2 at the same cost. On basket-app-1107-a the limit was the two-stage
+tile choice (it never looked where the ball was); all 416 tiles on every analysed frame fixes that clip at ~2.2x the
+detector cost, to be measured on the phone.
+
+**Update 2026-11-08 (test 33)**: trained on our hand labels alone the detector finds about half as many balls (mix 68 →
+57%). Victor's decision: keep the public dataset; `ball_tiny_hn` is the base to improve.
+
+**Update 2026-11-08 (test 34)**: automatic labels on our recordings do not improve it (mix −2 to −5). The detector runs
+on **all 416 tiles of every analysed frame** (Victor's decision: one clip at a time in the app; 64 s of analysis per
+30 s clip on the iPhone 16 Pro Max, thermal nominal for 11 clips in a row). Best recipe: public + "not a ball" + our
+hand labels (mix 70%, precision 81%, by fold).
+
+**Update 2026-11-08 (test 35)**: the ball path's still-object filter at 0.5 for basketball (it threw away the held
+ball): with `ball_tiny_hn` on all tiles the detector alone (no tap) is on the ball at 71% of the labelled points (was
+57%), precision 84%; with EdgeTAM 76%. Next: basketball's remaining loss is the detector (20% of the points with no
+candidate on the ball); then the other sports, each with its own tests.
+
+A per-frame AI ball detector mixed with the EdgeTAM tracker, then the hybrid framing:
+
+1. **Detector**: YOLOX-Tiny (Megvii, Apache-2.0, COCO class 32 "sports ball"; 416 x 416 input) at 5 fps, in **two
+   stages** (`roi_tiles.py --anchor 3 --k 2`): every 3rd analysed frame the whole frame + all native 416 px tiles; the
+   ball path over those frames (`ball_track.py`, dynamic programming); the frames in between only the whole frame + the
+   2 tiles nearest that path. Core ML: `yolox_coreml.py --name tiny` → `lab/coreml/yolox_tiny.mlpackage`.
+2. **EdgeTAM** (from the user's tap), two passes at 5 fps, fused track (tests 14–15).
+3. **Mix** (`low_fps.py fuse --p2 det-<detector> --p1 edgetam-fuse5`): the detector's ball where trusted, else EdgeTAM's.
+4. **Framing**: `hybrid.py` round 6 + `v_keep=0.2` (lob fix, approved) + `min_seg=10 zoom_rate=0.5` (no quick zoom in /
+   out on short finds, approved 2026-11-06: "very good, no losses").
+
+| | ball cover (17 labelled clips) | phone, 30 s clip (iPhone17,2, 15 min soak) | heat |
+|---|---|---|---|
+| EdgeTAM alone (2 passes at 5 fps) | 43% | 26.7 s | `fair` at 7 min |
+| + YOLOX-S, all tiles (test 17) | 56% | 80.3 s | nominal |
+| + YOLOX-S, two stages (test 19) | 55% | 58.4 s | nominal |
+| **+ YOLOX-Tiny 416, two stages (test 19, best)** | **53%** | **~48 s** (detector 21–23 s + 2 × 13.3 s) | **nominal, < 5% battery** |
+
+- Cost scales with the analysed length: ~1.6 s per second of video, so **~16 s for a typical 10 s cut**. Today's app
+  analyses a clip's whole `bounds` when it is saved (`onClipSaved` → `focusQueue`), before the user's cut; Foco na Bola
+  needs the tap in the editor anyway, so it would analyse only the cut range on demand (a margin of ~±2 s, or a
+  re-analysis when the cut changes, to decide).
+- Strong: night beach tennis at 1x (the detector finds what EdgeTAM lost). Weak: night at 0.5x (ball ~3 px; with Tiny
+  mostly today's framing on bt-rz-1105-v), the ball in hands (basketball, volleyball: EdgeTAM carries it), broadcast
+  footage (yt1105-bt, 0%).
+- Videos (Victor's reviews): `lab/tests/framing/<clip>.compare.mix-keep-vs-mix-tiny.mp4` (12 app clips, S all tiles vs
+  Tiny two stages) and `<clip>.compare.mix-tiny-vs-mix-tiny-zoom.mp4` (bt-rz-1105-v / -a / -b, bt-wa-1028: the zoom fix).
+- Phone bench: FocusBench soak "Detector em 2 etapas + 2 passadas a 5 fps (teste 19)" with "YOLOX-Tiny (416, recortes
+  416)"; results in `lab/tests/ios/soak.ball5deta3*.json`. In FocusBench the path between anchor frames is the best
+  candidate per anchor frame (same model calls as the lab's path).
+- Not worth it (measured): YOLOX-Nano (cover 49%), Tiny on 640 px tiles scaled down (52%), choosing tiles online frame
+  by frame (46–51%), tiles around EdgeTAM's ball (47–51%), only EdgeTAM pass 1 with the detector (46%), fine-tuning the
+  detector on the lab's 32 labelled clips (test 18: does not generalise).
+- Open ideas: EdgeTAM pass 2 only where the detector has no trusted ball (the passes are now the larger cost); more
+  labelled clips or a licensed public ball dataset for a fine-tune (done for basketball in test 28: works);
+  TrackNetV3 (MIT; tested without retraining in test 27: does not find the basketball; retraining needs labelled
+  consecutive frames).
+
+Reproduce (cloud workspace or Mac, CPU): `ball_detect.py --model lab/models/yolox_tiny.onnx --tag tiny-n5 --tile 416
+--step 2` and `--no-tiles --tag tiny-w5`; `roi_tiles.py --src tiny-n5 --whole tiny-w5 --anchor 3 --k 2 --out
+tiny-n-a3k2`; `ball_track.py --det tiny-n-a3k2`; `low_fps.py fuse --p2 det-tiny-n-a3k2 --p1 edgetam-fuse5 --out
+mix-tiny-n-a3k2`; `hybrid.py --model mix-tiny-n-a3k2 --tag mix-tiny-zoom --set v_keep=0.2 --set min_seg=10 --set
+zoom_rate=0.5`; `compare_tracks.py`. Models: YOLOX release 0.1.1rc0 on GitHub (`yolox_tiny.onnx`, `yolox_tiny.pth`,
+`yolox_s.onnx`, `yolox_s.pth`), downloaded to `lab/models/` when needed (not kept locally).
+
+### Earlier conclusions (2026-11-05)
+
+- **Foco na Bola with EdgeTAM alone**: good when the ball is big and clear (basketball, daylight, YouTube references),
+  but on the app's own clips only one (basket-rp-1105-v-a) was good enough. A rule to offer it only on clips tracked
+  well exists (test 15).
 - **Faster / closer camera from the players alone** (tests 13 and 16: σx, pan speed, zoom up to 2.0x, feet anchor,
   lead on the play, runner pull, optical flow): measurable gains in "ball in crop" (85 → 91%) but not liked on video.
 - **One EdgeTAM pass, sparser pass 1, classical detection, Vision trajectories**: worse (tests 3, 4, 12, 14).
 
 **Do not repeat** (results below, with the numbers): SAM 2 / EdgeTAM at 20–30 fps (test 8), one-pass EdgeTAM variants
 (test 12), pass 1 at 2.5 / 3.3 fps (test 14), optical flow as a framing signal (test 13), zoom above ~1.5x driven by the
-players alone without headroom (test 13: loses the ball above the crop), players-only "broadcast" tunings (13, 16).
-**Worth trying if this is reopened**: a light per-frame ball detector (YOLOX, Apache-2.0) instead of a tracker
-(spec 10.2 of the base spec); recording at 1x at night (test 15: 0.5x at night never tracked the ball; 1x sometimes);
-the ball spec's two fixes (tap inside the crop, fused pass 1 / pass 2 track) and the gate rule, already designed.
+players alone without headroom (test 13: loses the ball above the crop), players-only "broadcast" tunings (13, 16),
+headroom alone (16), and the detector variants listed above (tests 18–19).
+
+**Findings about today's Modo Foco itself** (none applied; checked on the 17 labelled clips, 2026-11-05):
+- **v14's tiles are right and needed**: with the whole-frame detector alone, 3 of the 13 new clips get no framing at all
+  (night beach tennis at 0.5x, sand clips) and the night beach tennis clips keep fewer balls in the crop
+  (bt-rz-1105-a 89 → 95%, bt-rz-1105-b 74 → 86%, yt1105-bt 71 → 100% with tiles). Side effect: people on other courts
+  or in the stands widen the framing (zoom 1.31 → 1.13x on bt-rz-1105-a, 1.58 → 1.32x on basket-rp-1105-v-b). A filter
+  for those (e.g. far people diluting the "10 tallest" reference of rule 1) is a possible refinement, not verified.
+- **The ball is mostly lost above the crop** (lobs, sets, shots): today 88.5% of labelled balls in the crop; volleyball
+  is the weak sport (yt1105-volei-a/-b 64 / 72%, yt1105-voleipraia 70%). The only isolated change that helps without
+  touching speed or zoom is headroom: the crop's bottom half way to just under the players' feet (`anchorFeet=1
+  anchorShare=0.5`): 88.5 → 91.7% (full anchor 93.3%), same zoom and jerk, vertical direction changes 0.08 → 0.18 per
+  10 s. Seen on video only bundled with other changes (tests 13, 16), never alone. Videos of it alone (2026-11-05, deleted 2026-11-06,
+  `broadcast.py render headroom ... --var headroom:anchorFeet=1,anchorShare=0.5`, `summary-headroom.md`) on the 9 app
+  clips + yt1105-voleipraia: `lab/tests/broadcast/<clip>.compare.headroom.mp4`; labelled balls in the crop 89 → 94%
+  (bt-rz-1105-b 86 → 97%, bt-0AE39B33 63 → 73%, bt-E5003B6B 78 → 88%, yt1105-voleipraia 70 → 86%; the rest unchanged),
+  same zoom; vertical direction changes 0 → 1.3 per 10 s on bt-E5003B6B, 0 → 0.4 on basket-rp-1105-v-a. **Verdict (Victor,
+  2026-11-05): today's Modo Foco is better; headroom not adopted.**
+- **Lab note**: the "current" framings of the clips before 2026-11-05 were computed from the whole-frame boxes only
+  (`focus_variant.py --boxes full`), not the app's whole frame + tiles; the 2026-11-05 clips use `--boxes tiled`. Use
+  tiled (and re-run vision-probe for old people files without `tilesFixed`) when comparing with the app again.
+- `evaluate.clip_meta` now rebuilds a clip's metadata from `clips.txt` and the video when its frames were deleted, so
+  the scores and reports run without `lab/frames`.
 
 **Kept for re-testing** (in git): the tools in `tools/` and `tools/lab/`, the ball labels (`labels/`, 32 clips), the clip
 list (`clips.txt`), FocusBench (`ios-bench/`), this README, the specs. Kept locally (not in git): the source videos
-(`clips/`, `raw-dump/`, `refs/`), the people files (`renders/**/*.people.json`), the lab's Python envs, checkpoints and
-Core ML models (`lab/.venv*`, `lab/models/`, `lab/coreml/`) and every result file (`lab/tests/**/*.json|md`). The extracted
-frames, the comparison videos, the old renders and FocusBench's data were deleted on 2026-11-05 to free space (~6.6 GB;
-see "Regenerate" at the end).
-
+(`clips/`, `raw-dump/`, `refs/`), the people files (`renders/**/*.people.json`), the lab's Python envs and checkpoints
+(`lab/.venv*`, `lab/models/`), the Core ML models in use (`lab/coreml/`: EdgeTAM encoder / attention / attention_pairs_soft /
+decoder / memory, `yolox_s`, `yolox_tiny`), every result file (`lab/tests/**/*.json|md`, incl. the best path's
+detections, tracks and framings) and the best path's videos (above). Deleted to free space: on 2026-11-05 the extracted
+frames, old comparison videos and renders (~6.6 GB); on 2026-11-06 the superseded videos (`compare.mix`,
+`compare.mix-keep`, `compare.headroom`), the rejected / unused Core ML exports (`yolox_nano`, attention `halves_soft*`,
+`v1*`), `lab/frames` again, and the variant detections of test 19 other than the best path (numbers in the tables);
+see "Regenerate" at the end.
 ---
 
 Test bench for the next Modo Foco round. **Nothing here goes into the app.** The goal is to compare, on the same
@@ -44,6 +140,27 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 6 | Hybrid framing: the ball while SAM 2 is sure of it, today's Modo Foco when not (`hybrid.py`, videos in `lab/tests/framing/`) | **first round done** (below) |
 | 10 | iPhone step 1: EdgeTAM as 4 fixed-shape Core ML models + the tracking loop (`loop.py`, `coreml_export.py`, `coreml-mac.sh`) | **done: same quality as EdgeTAM, 45 ms/frame on the Mac's Neural Engine** (below) |
 | 11 | iPhone step 2: time and check the Core ML models on the phones (16 Pro Max, XR) with FocusBench, a throwaway test app (`ios-bench/`, `ios_bench.py`) | **done: 16 Pro Max 122 ms/frame, all on the Neural Engine, same track as the Mac; XR 0.55–0.72 s/frame with GPU, same track, heats up** (below) |
+| 37 | Do tests 32–35 hold on 12 newly labelled clips from our own gym (1107 + 1108, never used for tuning)? | **yes: detector alone (no tap) 59% (test 32's path) → 75% cover now, precision 89%; all tiles +9, still filter 0.5 +7; our old hand labels make it worse here (72%), so the app's model is `ball_tiny_hn`; story camera 1.2x ball in crop 75% today → 92%. Left: ball behind the railing / players 14%, a ball held still > 2 s 5%, torso taken for the ball 4%** (below) |
+| 36 | Are the ball labels in time with the detector's frames (ffmpeg versions, Mac vs cloud)? (`frame_sync.py`, `label_sync.py`) | **yes: the labelling frames and the detector's frames are identical on all 7 clips; a first "~33 ms late" reading was an error of the reference grid. About a third of the "blind" points are imprecise clicks on a blurred ball, the rest real misses (ball in hands, in the net, behind a player, under the watermark)** (below) |
+| 35 | Basketball: where does the ball path lose the ball (ceiling 80% vs cover 57%)? (`path_diag.py`, `ball_track.py` `SPORT_P`) | **the still-object filter threw away the held / dribbled ball (13% of the points); at 0.5 for basketball: detector alone, no tap, 57 → 71% cover, precision 79 → 84%; mix 68 → 76%; story camera ball in crop 95 → 96% (1.2x) / 90 → 95% (closer zoom), a little more movement. Default for basketball** (below) |
+| 34 | `ball_tiny_hn` + 2,764 automatic labels on our 36 app recordings (self-training), and the phone cost of the detector on all 416 tiles (`ball_train_pub.py --extra`, `yolox_coreml.py --ball`, FocusBench `ball5det` + `ball_tiny_hn@416`) | **automatic labels: mix cover 68 → 63% (70 → 68% with our hand labels), not adopted; best stays public + "not a ball" + our labels, all tiles (mix 70%, precision 81%). Phone, all tiles: 64 s per 30 s clip (two stages 48 s), nominal for the first 10 min / 11 clips, serious after 13 min nonstop; Victor: use is one clip at a time → all tiles adopted** (below) |
+| 33 | How good is a basketball detector trained only on our own recordings (no public dataset)? (`ball_train_pub.py --no-yt`, `pseudo_label.py`) | **our hand labels only: ceiling 76 → 37%, detector alone 55 → 30%, mix 68 → 57%, same precision (77–79%); automatic labels on 36 app recordings prepared (2,764 balls) but stopped: Victor keeps the public dataset, `ball_tiny_hn` stays the base (attribution CC BY 4.0)** (below) |
+| 32 | Basket-app-1107-a followed a bald head: retrain test 28's detector with "not a ball" examples (heads/torsos of the public data + our own false candidates) and a head filter on Vision people boxes (`hard_neg.py`, `ball_train_pub.py --fp`) | **"not a ball" examples: mix cover 64 → 68% (66 → 69% with our labels), precision +2, same cost → `ball_tiny_hn`; head filter −1 to −2 points, not adopted. 1107-a: the detector sees the real ball, the cheap two-stage tiles never look there; all tiles every analysed frame fixes it (19 vs 8.6 inferences): phone cost to measure** (below) |
+| 31 | The story's zoom per clip: min(today's Modo Foco zoom x1.0 H / x1.2 V, x2.2 scale-up, the detector's own ball kept in the crop but 3%), safe zoom when the detector sees the ball in < 35% of the clip (`story.py auto`) | **horizontal 1.0–1.2x per clip: ball 90% (fixed 1x 91%, 1.25x 86%) with more movement; vertical 1.05–1.95x: ball 99%, like the fixed 1.65x but per clip; in 4K the zoom barely rises (the ball decides) but the scale-up halves; no lens rule needed** (below) |
+| 30 | A "story" (9:16) export option with Foco na Bola: today's Modo Foco 9:16 vs camera A / C at several zooms, horizontal and vertical recordings, exported 1080x1920 with the app's mark (`story.py`) | **horizontal: C at full height keeps the ball 91% (today 61%) with 2x the pan, 608 px scaled x1.8 from 1080p (native from 4K); more zoom loses ball and sharpness. Vertical: C at 2x moves 2.5x more, ball 97%, x2.0 from 1080p. Option for >= 1080p60; 4K for extra zoom** (below) |
+| 29 | A camera that moves with the ball: test 24's camera with zoom (today / 1.5x / 1.75x / 2x) x dead zone (0.20 / 0.10 / 0.05) x smoothing x anticipation, ball = test 28's detector with no tap (`cam_sweep.py`, 72 configs, 7 basketball clips) | **smaller dead zone at today's zoom doubles the camera's travel with the ball still in 99%; 1.5x triples it at 98% (698p from 1080p); 2x loses the ball (worst clip 81%) and drops to 540p; anticipation does not help; more direction changes (1.5 → 2.3–2.8 /10 s): videos for Victor** (below) |
+| 28 | A basketball detector of our own: YOLOX-Tiny (one class) fine-tuned on a public CC BY 4.0 dataset (Roboflow cvsense, ~4.3k originals), then + our labels by fold; same two-stage path and mix as test 19 (`ball_train_pub.py`, `ball_eval28.sh`, cloud CPU) | **ceiling 26 → 75%, detector alone 14 → 52% (no tap), mix with EdgeTAM 54 → 64% (66% with our labels), precision 71 → 76–78%, same phone cost; dataset has scraped web photos: licence risk to decide before shipping. Camera at today's zoom: same as today's mix with a tap (the ball is already in the wide crop); the gain is a no-tap camera about as good (94–100%)** (below) |
+| 27 | TrackNetV3 (MIT; 8 consecutive frames + median background, trained on badminton) without retraining as the ball detector on the basketball clips (`tracknet_eval.py`, cloud CPU) | **not usable as is: its answer is on the basketball in 0–1% of the labelled frames; all its weak blobs together 4–23% vs YOLOX-Tiny's 10–42%; would need retraining on basketball sequences** (below) |
+| 26 | The ball TRAIL with no camera (Victor, after Ball AI): link the ball offline, robust fit, still objects out, gaps filled/bridged; raw vs clean video; on the mix, EdgeTAM, detector-path and raw detector tracks (`trail.py`) | **cleaning adds ~nothing on the existing tracks (the DP path already does it); the YOLOX-Tiny candidates contain the labelled ball in only 34% of the frames: the limit is detection; videos for Victor** (below) |
+| 25 | Victor on test 24: the camera barely moves now. Horizontal clips both ways: 16:9 at a fixed 1.5x zoom (`sg_lazy3.py --zoom 1.5`) and the 9:16 export of test 22 (`--aspect portrait`) | **16:9 at 1.5x: 91% today → 93% EdgeTAM / 98% mix, 1.0 / 1.3 direction changes; 9:16: 79% → 94% / 97%; videos for Victor** (below) |
+| 24 | Test 23 fixed after Victor's review: on y the camera stays at the players' height and rises only as far as the ball needs (15% top / 10% bottom margin, no hold on y); output in the orientation recorded (horizontal -> 16:9) (`sg_lazy3.py`) | **ball in crop 91% today → 95% EdgeTAM alone / 98% mix, direction changes 1.7 → 0.8 / 1.2; videos for Victor** (below) |
+| 23 | Test 22's calm camera on every labelled app clip, horizontal and vertical (x and y, today's zoom), EdgeTAM alone vs YOLOX-S + EdgeTAM (`sg_lazy2.py`) | **ball in crop 79% today → 97% EdgeTAM alone / 98% mix; direction changes 2.0 → 1.0 per 10 s; videos for Victor** (below) |
+| 22 | A calm camera for test 21: dead zone (still while the ball is in the crop's central band) + the smoothest path that keeps it there, solved offline (`sg_lazy.py`) | **dead zone 0.20, a 10, b 1000: ball in crop 81% (no tap) / 92% (1 tap) vs 61% today, direction changes 0.8 / 1.1 per 10 s vs today's 2.3; videos for Victor** (below) |
+| 21 | The offline Savitzky-Golay framing (test 20's idea: a centred filter that looks ahead) on every ball engine the lab has, 9:16 output, fallback to today's framing or to the last ball (`sg_framing.py`, `sg_render.py`) | **numbers: ball in the 9:16 crop 61% today → 82% YOLOX-S alone (no tap), 91–95% detector + EdgeTAM; ~3x more direction changes; videos for Victor** (below) |
+| 20 | The "YOLOv8 + Savitzky-Golay + 9:16 crop" script (Victor, 2026-11-06): YOLOv8n `sports ball` per frame (`model.track`), first box, last position on a miss, savgol(15, 2), crop centred on it (`yolo_reframe_test.py`, cloud CPU; Ultralytics is AGPL: lab only) | **done: not good enough** (below) |
+| 19 | A cheaper detector: the whole frame + only a few 640 px tiles where the ball should be, instead of all ~9 regions (`roi_tiles.py`, offline simulation on test 17's detections) | **two-stage `--anchor 3 --k 2` (all tiles on every 3rd analysed frame, 2 tiles around that path in between): 4.8 regions per frame instead of 8.5, mix cover 55% vs 56%; 58.4 s per 30 s clip measured on the phone vs 80.3 s (ball5 alone 26.7 s); YOLOX-Tiny matches S only with native 416 tiles (17 regions), phone cost to measure** (below) |
+| 18 | Fine-tune the detector (YOLOX-S, one class "ball") on the lab's labels, 3 folds by clip (`ball_train.py`, CPU in the cloud workspace) | **does not generalise with this data: on held-out clips the ball is the best box on 25/60 crops vs 28/60 for COCO YOLOX (train clips 50/60); needs many more clips** (below) |
+| 17 | AI that FINDS the ball in every frame (no tap): YOLOX-S (Apache-2.0, COCO "sports ball", ONNX) on the whole frame + native 640 px tiles at 5 fps, a dynamic-programming ball path; alone and mixed with EdgeTAM (`ball_detect.py`, `ball_track.py`, `det_report.py`; run in the cloud workspace, CPU) | **night beach tennis much better (bt-rz-1105-b cover 3 → 86%, bt-0AE39B33 50 → 90%); basketball / volleyball worse alone (the COCO detector misses a ball in hands or blurred); detector + EdgeTAM mixed: mean cover 43 → 56%; videos for Victor** (below) |
 | 16 | Today's Modo Foco a little faster and closer (`broadcast.py scores --all`) | **not adopted (Victor, 2026-11-05): today's framing stays** (below) |
 | 15 | When is a clip good enough for the ball framing? A rule from the phone's own signals after the two passes (`ball_gate.py`) | **Foco na Bola on hold (only 1 app clip good enough on video). Rule round 2 on the fused track (ball mode ≥ 50%, speed ≥ 0.10, slow ≤ 15%, confirmed ≥ 50%): right on 22 clips incl. 7 validation clips; two tracking fixes (click inside the crop, pass 1 where pass 2 is not trusted)** (below) |
 | 14 | Foco na Bola at 5 fps (EdgeTAM on every 2nd 100 ms frame, interpolated back), two passes and one pass, to bring its cost near today's Modo Foco (`low_fps.py`, `mac-lowfps.sh`) | **done: two passes at 5 fps chosen (quality of v6 on 13 of 15 clips; 26.7 s per 30 s clip on the phone, never serious heat); pass 1 at 2.5/3.3 fps and one pass worse** (below) |
@@ -51,6 +168,580 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 12 | Foco na Bola in ONE EdgeTAM pass instead of two: crops guided by the players only (`roi.py --guide p`), or following the previous frame's ball as tracking goes (`single_pass.py`) | **done: no one-pass variant ties with the two passes on every clip; keep two passes** (below) |
 
 Run the Mac tests with `bash tools/lab/mac-tests.sh` (ball) or `bash tools/lab/mac-tests.sh person`.
+
+### Test 37 result (2026-11-08) — 12 new labelled clips from our gym: an independent check of tests 32–35
+
+Victor labelled (2026-11-08, `server.py`, all clicks) the 4 basket-app-1107 clips and 8 new ones,
+`basket-app-1108-a..h` (`refs/2026-11-08/`, app exports with the "@reprize.app" mark, 1080p, landscape, 4.6–11.5 s,
+the same gym as 1107 from two camera spots, behind a railing): 455 samples, 326 with the ball in play and visible
+(`labels/basket-app-110{7,8}-*.ball.json`). None of these clips was used to train or to choose any setting, so they
+check tests 32–35 independently. Detector alone (no tap; the story camera's input), means of the 12 clips (reports
+`lab/tests/detect/report.t37-*.md`):
+
+| Detector, path | ceiling | precision | **cover** |
+|---|---|---|---|
+| `ball_tiny_hn`, two stages (`a3k2`), still filter 0.2 (test 32's path) | 74% | 84% | **59%** |
+| `ball_tiny_hn`, two stages, still 0.5 | 74% | 81% | 63% |
+| `ball_tiny_hn`, all tiles, still 0.2 (test 34) | 85% | 87% | 68% |
+| **`ball_tiny_hn`, all tiles, still 0.5 (test 35, current)** | **85%** | **89%** | **75%** |
+| `ball_tiny_hnownA` / `B` (+ our old hand labels, test 32), all tiles, still 0.5 | 84% / 83% | 84% / 85% | 72% / 72% |
+
+- **All three decisions hold on new clips**: all tiles (+11 ceiling, +9 cover), still filter 0.5 (+7 cover, +3
+  precision), and the current path does better here (75% / 89%) than on the 7 old clips (71% / 84%).
+- **Our old hand labels do not help in our gym**: the fold models trained with them (mostly YouTube and other courts)
+  are 3 points worse in cover and 4–5 in precision than `ball_tiny_hn` alone. The app's model is `ball_tiny_hn`.
+- Story camera C at 1.2x, ball inside the 9:16 crop, on the 4 1107 clips (the 1108 clips have no "today" framing file,
+  which needs the Mac): today's Modo Foco 75%, two stages 83%, all tiles 92% (still 0.2 or 0.5 alike; at 1.5x 87 vs
+  85%, 2 points of 110). Direction changes per 10 s 1.1 (today) → 2.4 (all tiles, 0.2) → 3.1 (0.5).
+- Where the current path still loses the ball (`path_diag.py`, 325 points): **blind 14%** (no candidate on the ball:
+  behind the railing's bars, behind players; 1107-d 29%, 1108-b 24%, 1108-c 22%), **still filter 5%** (a ball held
+  in place for over 2 s: 1108-g 5.0–7.0 s, 22% of that clip), **another candidate 4%** (1108-c 1.0–2.8 s: the path
+  stays on a shirtless player's torso while the ball comes in from the left edge and then shows only weakly through
+  the railing, scores 0.06–0.14), `trusted` 2%, empty path 1%.
+
+### Test 36 result (2026-11-08) — are the ball labels in time with the detector's frames? (`label_sync.py`, `frame_sync.py`)
+
+Why: many of test 35's "blind" points (no candidate on the labelled ball, 20% of the points) show the ball clearly a
+little away from its label, in passes, shots and dribbles. Suspicion: the labelling frames (extracted on Victor's Mac)
+and the detector's frames (decoded here) are not the same moments.
+
+- **They are the same frames.** `frame_sync.py` compares a frame with this machine's decode at 30 / 60 fps around its
+  tick (pixel difference): Victor's frames (ffmpeg 9.0.2 on macOS, `lab/frames/<clip>/`, re-extracted 2026-11-08) and
+  the detector's frames (ffmpeg 6.1 in the cloud; 4.4 on the Mac's Linux VM) land on the same frame on all 7 clips (4
+  ticks each). Neither the ffmpeg version nor the machine moves the frames.
+- A first check (`label_sync.py`: the detector on 30 fps frames shifted -133..+133 ms, hit share per shift) seemed to
+  say the labels were ~33 ms late on 4 of 7 clips. **That was wrong**: the `fps=30` grid's frame 3k is NOT the `fps=10`
+  frame k (the filter rounds differently; the 10 fps frame is 30 fps frame 3k+1, i.e. "+33 ms" in that table). Read
+  against the detector's own frame, the labels are in time on 6 clips (yt1105-basket-b 77%, v-a 93%, h 76%, v-01 88%,
+  yt1105-basket-a 83% at the detector's frame; v-b within noise) and yt-basket-04 is 10 points better one frame later
+  (30 points, within noise).
+- So the "blind" points are partly **imprecise clicks**: on a sample of 30, about a third show the ball clearly visible
+  one to three lab radii from the click, in fast moments where the ball is blurred (all 98 labels of yt1105-basket-b
+  are clicks, none from SAM). The rest are real detector misses: the ball held in hands and half covered (most of
+  yt-basket-04's), in the net, behind a player, and once under the app's watermark (basket-rp-1105-v-a 14.2 s: the
+  clip is an app export with the mark burnt in). The scores are slightly pessimistic, the same for every method.
+
+### Test 35 result (2026-11-08) — where the ball path loses the ball, and a fix (`path_diag.py`, `ball_track.py`)
+
+Why: with all tiles (test 34's choice) the detector has a candidate on the ball at 80% of the labelled points
+(ceiling) but the path is on it at only 57% (cover, detector alone): the gap is the path, not the detector. Victor
+(2026-11-08): make basketball as good as possible first, then beach tennis / tennis / the other sports, each with its
+own tests.
+
+**Diagnosis** (`path_diag.py --det bhn-n5 --track det-bhn-n5`): per labelled point, the first stage that loses the ball.
+All 7 clips, 500 points:
+
+| | blind (no candidate on the ball) | shape filter | **still-object filter** | path on another candidate | path empty | `trusted` | outside ball mode | **hit** |
+|---|---|---|---|---|---|---|---|---|
+| `ball_track` as in test 17 | 20% | 1% | **13%** | 2% | 1% | 2% | 0% | **60%** |
+| still filter 0.5 for basketball | 20% | 1% | **1%** | 4% | 1% | 2% | 0% | **70%** |
+
+The still-object filter (a candidate with another candidate within 2% of the long side on ≥ `still_share` of the
+analysed frames within ±2 s is a lamp, a logo, a spare ball) was set at 0.2 in test 17 for the COCO detector, which
+fired on many still things. With our basketball detector it throws away the REAL ball while it is held, dribbled in
+place or waits for a free throw: up to 30% of the points on basket-rp-1105-v-b, 29% on basket-v-01.
+
+**Sweep** (all tiles, `bhn-n5`; means of the 7 clips; det = detector alone, no tap; mix = with EdgeTAM from a tap):
+
+| `still_share` | det prec / cover | mix prec / cover |
+|---|---|---|
+| 0.2 (test 17) | 79% / 57% | 79% / 68% |
+| 0.4 | 84% / 70% | 85% / 77% |
+| **0.5 (adopted for basketball)** | **84% / 71%** | **84% / 76%** |
+| 0.6 / 0.8 | 84% / 71%, 82% / 70% | 84% / 76%, 83% / 75% |
+| off (1.01) | 58% / 50% | 60% / 55% |
+
+- A plateau from 0.4 to 0.8, on both folds' clips (fold A clips 65/52/63 → 77/72/73%, fold B clips 44/50/63/63 → 70/75/66/63%), and
+  on every model: `bhnown` (by fold) 57 → 68% detector alone, 70 → 76% mix; two stages (`a3k2`) 55 → 68% / 68 → 75%.
+  Turning the filter off is much worse (the rim and the spare balls come back). Per clip, detector alone: v-a 65 → 77,
+  v-b 44 → 70, h 52 → 72, v-01 50 → 75, yt-04 63 → 66, yt-a 63 → 73, yt-b 63 → 63%.
+- The other knobs do not pay: box size (`box_max` 0.06 → 0.10: nothing), a cost for standing still (`still_cost` 0.05
+  → 1.0: ±0.2), longer windows (`still_win` 40 / 80: −0.5 to −1). A higher cost per distance moved (`move_cost` 4–6)
+  raises precision to 86–87% but cuts the detector-alone cover (71 → 55% at 12) and is not stable across models; kept at 1.
+- What is left is mostly the detector (20% of the points have no candidate on the ball) and 4% wrong candidates.
+- **Default now** (`ball_track.py`, `SPORT_P`): `still_share` 0.5 for basketball; the other sports keep 0.2 until their
+  own tests. The app's version of the path must use the same value. Unlabelled 1107 clips: the path changes on few
+  frames; on 1107-d it now follows the shot into the net (5.0–5.8 s; before, it lost the ball after 5.0 s) and 1107-c
+  gets the ball in a player's hands at 4.4 s; on 1107-b it takes a ball lying by the goal for 0.2 s (1.4–1.6 s), and on
+  1107-d at 7.8 s a player's back (checked by eye on the frames).
+
+**Story camera** (camera C, the detector alone, no tap; ball inside the 9:16 crop at the labelled points, `story.py`;
+horizontal at 1.2x / 1.5x, vertical at 1.65x / 2.0x):
+
+| Ball track | ball in crop, lower zoom | higher zoom | direction changes per 10 s |
+|---|---|---|---|
+| today's Modo Foco 9:16 | 76% | — | 1.4 |
+| test 34 (`det-bhn-n5`) | 95% | 90% | 2.0 / 2.7 |
+| **test 35 (`det-bhn-n5-s50`)** | **96%** | **95%** | 2.6 / 2.8 |
+
+The gain shows most at the higher zoom (90 → 95%): the camera can come closer. It also moves a bit more (it follows the
+ball where it used to fall back to the players' framing; basket-rp-1105-v-b 1.4 → 3.5 direction changes per 10 s).
+Videos (Hoje | T34 | T35, camera C): `lab/tests/story/<clip>.story-compare-t35.mp4` for basket-app-1107-d and
+yt1105-basket-a (1.2x), basket-rp-1105-v-b and basket-v-01 (1.65x).
+
+### Test 34 result (2026-11-08) — `ball_tiny_hn` + automatic labels on our recordings, and its phone cost with all tiles (`ball_train_pub.py --extra`, `yolox_coreml.py --ball`, FocusBench)
+
+Two questions after Victor kept the public dataset (test 33): (A) does `ball_tiny_hn` get better with the 2,764 balls
+that it labelled itself on the 36 app recordings (test 33b's `lab/train/pl-own-*`, a "self-training" step on our
+courts)? (B) What does the detector on ALL 416 tiles of every analysed frame (the variant that fixed basket-app-1107-a
+in test 32) cost on the phone?
+
+**(A) Models** (init `ball_tiny_hn`, 1000 iters, lr 0.0005, frozen BN, the same `pub-lbacg` + `neg-lbacg` at weight
+0.5, plus `--extra <36 pl-own sets> --extra-weight 1.0`; cloud CPU ~22 min each): `ball_tiny_hnpl` (no hand labels,
+scored on all 7 clips) and `ball_tiny_hnownpl{A,B}` (+ our hand labels and false candidates of the other fold, `--fold
+--fp`, as `bhnown`). Detection on all 416 tiles (`<tag>-n5`, the variant chosen below), path on it, mix with EdgeTAM;
+reports `lab/tests/detect/report.{det,mix}-<tag>full.md` (the two-stage `a3k2` reports without `full` too); `bhnown`'s
+all-tiles reports were added for the comparison. Means of the 7 clips:
+
+| Model, all tiles | ceiling | detector alone: prec / cover | **mix with EdgeTAM: prec / cover** |
+|---|---|---|---|
+| `bhn` (test 32) | 80% | 79% / 57% | 79% / **68%** |
+| `bhn` + automatic labels (`bhnpl`) | 83% | 76% / 52% | 77% / **63%** |
+| `bhnown` (test 32, by fold) | 80% | 82% / 57% | 81% / **70%** |
+| `bhnown` + automatic labels (`bhnownpl`, by fold) | 83% | 82% / 57% | 82% / **68%** |
+
+- **The automatic labels do not help**: the detector sees the ball among its candidates a bit more often (ceiling
+  +3), but the path picks wrong candidates more often: mix cover −5 without hand labels (`bhnpl`: v-01 50 → 33%,
+  yt1105-basket-a 74 → 65%, yt-basket-04 80 → 89%) and −2 with them. The two-stage path gives the same picture (mix
+  68 → 62%, 69 → 67%). About 10% of the automatic labels are not the ball (test 33b's sample sheet), and they come from
+  the very model being trained, so it learns its own mistakes; and our recordings add few new looks to a dataset of
+  ~10.8k balls. Not adopted; the `pl-own-*` sets and the `hnpl`/`hnownpl` models can be deleted.
+- basket-app-1107-a/-d (no labels): `bhnpl` leaves the bald head 0.2 s earlier on 1107-a (2.0 s instead of 2.2 s) and
+  otherwise follows the same path; on 1107-b it has fewer frames with a ball (61 → 51%). No change worth the loss above.
+- **Best so far stays `bhnown`'s recipe** (public + "not a ball" + our hand labels) with all tiles: mix 70%, precision
+  81%. The fold models only exist for scoring; the app's model is that recipe trained on all our own labelled
+  recordings (an estimate of its quality is the fold result above).
+
+**(B) Phone cost of all tiles** (FocusBench `ball5det` = all 416 tiles + whole frame on every analysed frame at 5 fps +
+the two EdgeTAM passes; detector `ball_tiny_hn@416`; iPhone 16 Pro Max, iOS 27.0.1, unplugged, brightness 51%, Low
+Power Mode off, Neural Engine, the 3 bench clips in a loop for **30 min**;
+`lab/tests/ios/soak.ball5det-hn416.iPhone17_2.20261108-1309.json`). FocusBench changes: `yolox_coreml.py --ball
+ball_tiny_hn` → `lab/coreml/ball_tiny_hn.mlpackage` (same objectness as the ONNX, max diff 1e-7), copied by `ios_bench.py
+prepare`; `BallDetector.scan` reads the class column from the output's width (85 = COCO class 32, 6 = the lab's one
+class); Detector picker "Bola basquete ball_tiny_hn (416, recortes 416, teste 34)".
+
+| Part of the run | per 30 s clip (yt-basket-04 / yt-bt-06, 19 regions per frame) | detector | ms per region | thermal |
+|---|---|---|---|---|
+| 0–10 min (11 clips) | **64 s** | 38 s | 13.3 | nominal |
+| 10–15 min | 38 s | 15 s | 5.2 | nominal → fair → serious (13.4 min) |
+| 15–30 min | 41 s | 17 s | 5.9 | serious to the end |
+
+- Worst case (the first 10 min) 64 s per 30 s clip vs **48 s** for test 19's two stages (YOLOX-Tiny COCO): +16 s
+  (+33%). The one-class model costs the same as COCO's Tiny (12 ms per region in the slow state). After 10 min the
+  Neural Engine went to ~5 ms per region (the fast state seen in test 19's 5 min run, gone in its 15 min run): not
+  something to count on.
+- Battery 65 → 60% in 30 min. Thermal "serious" from 13 min on, after 17 clips with no pause; test 19's two stages
+  stayed nominal for 15 min (slower state, shorter run).
+- **Victor (2026-11-08)**: in the app the work is not continuous — the user picks one clip, exports/sends/saves the
+  story, then moves on — so the nominal first 10 minutes (11 clips back to back) cover real use. What matters is the final
+  result (the ball framed, the camera following it) without heating the phone over a few clips. **Decision: all
+  tiles** (the quality of 1107-a), ~64 s of analysis per 30 s clip at worst. No two-stage 30 min control run needed.
+
+### Test 33 result (2026-11-08) — a basketball detector trained only on our own recordings (`ball_train_pub.py --no-yt`, `pseudo_label.py`)
+
+Question (Victor): how much worse or better is the detector without the public dataset (test 28's licence risk)?
+
+**33a, strict: our hand labels only** (`ball_train_pub.py train --model tiny --fold A|B --no-yt --out own --iters
+2000 --lr 0.002`, COCO init as test 28, no public data, no YouTube clips: those are not ours to train on). Per fold
+that is very little: 176 balls (fold A model) / 296 (fold B model), plus the labelled clips' crops without a ball.
+Models `lab/models/ball_tiny_own{A,B}`; same two-stage path and mix as tests 28/32 (tag `bown33`, reports
+`lab/tests/detect/report.{det,mix}-bown33.md`), means of the 7 clips:
+
+| Model | ceiling | detector alone (no tap): prec / cover | mix with EdgeTAM: prec / cover |
+|---|---|---|---|
+| COCO "sports ball", no training (test 28 baseline) | 26% | — / 14% | — / 54% |
+| **ours only (`bown33`, by fold)** | **37%** | **77% / 30%** | **79% / 57%** |
+| public + heads/torsos (`bhn`, test 32) | 76% | 77% / 55% | 78% / 68% |
+| public + heads/torsos + our labels (`bhnown`, test 32) | 76% | 80% / 55% | 80% / 69% |
+
+- **Without the public dataset the detector loses about half of its balls**: ceiling 76 → 37%, cover alone 55 → 30%,
+  mix 68 → 57% (barely above the untrained COCO detector's 54%). Precision is the same (77–79%): what it finds is
+  the ball, it just finds it much less often. Per clip, detector alone: v-a 40%, v-b 32%, h 40%, v-01 38%, yt-04 40%,
+  and the two YouTube clips 7% / 11% (a broadcast-like look our recordings never show).
+- Same conclusion as test 18 (our 32 clips alone did not generalise): a few hundred hand-labelled balls are far from
+  the public dataset's ~10.8k.
+
+**33b, started and stopped: automatic labels on the app's own recordings** (`pseudo_label.py`): 36 basketball
+recordings from the app (`clips/basket-*.mp4`, 720p/1080p, 60 s each; `basket-v-corner-normal-01` left out because
+it holds the eval clip basket-v-01) got labels from `ball_tiny_hn` all tiles + ball path, kept only where a candidate
+≥ 0.5 and the path agree and the point is not a still object: 2,764 balls + 1,422 crops without a ball
+(`lab/train/pl-own-*`, ~90% real balls on a sample sheet). The images are ours but the labels come from a teacher
+trained on the public data, so it does not remove the dependency; and the 36 recordings share courts with some eval
+clips and with the 1107 clips. `ball_tiny_ownplA` was trained (3000 iters, COCO init); fold B and the evaluation were
+**stopped by Victor's decision** below.
+
+**Decision (Victor, 2026-11-08)**: keep the public dataset. The base for further work is `ball_tiny_hn` (public CC BY
+4.0 data + "not a ball" crops, test 32); training is internal, the images are not shown or shipped (only the model
+weights). CC BY 4.0 asks for attribution: credit "basketball_detection (cvsense, Roboflow Universe), CC BY 4.0" in
+the app's licences screen when a model trained on it ships.
+
+### Test 32 result (2026-11-08) — "not a ball" examples and a head filter for the basketball detector (`hard_neg.py`)
+
+Why: in test 31 the story of basket-app-1107-a followed a yellow shirt (0.8–1.8 s) and then a bald head on the right
+(x 0.82–0.91, 2.2–3.6 s) while the real ball was dribbled behind the railing on the left (x 0.33–0.50) and shot at
+3.2 s. Two ideas: (A) retrain test 28's detector with "not a ball" examples; (B) lower the score of candidates that sit
+on a head (Vision people boxes, which today's Modo Foco already computes).
+
+**(A) Hard negatives** (`hard_neg.py public|mine`, `ball_train_pub.py --fp --neg-weight`):
+- `lab/train/neg-lbacg`: 3,977 crops of heads (60%) and torsos (40%) of the public dataset's "person" boxes, at the
+  ball's scale (a head 8–32 px); upright people only (the dataset rotates a third of its images); a ball inside a crop
+  stays a positive (723 crops without any ball). Sampled at weight 0.5 next to `pub-lbacg`.
+- `lab/train/fp-<clip>`: the detector's own false candidates (score ≥ 0.2, > 3 lab radii from the labelled ball) on
+  the labelled clips: 191 crops (shoes, hands, heads, a rim while the camera moves). Still objects (seen at the same
+  place on ≥ 30% of the labelled frames: spare balls, the fixed rim) are left out on purpose: a spare ball IS a ball,
+  and the ball path already ignores still objects. With `--fold`, only the training fold's clips are added.
+- Models (init `ball_tiny_pub`, 1000 iters, lr 0.0005, frozen BN, cloud CPU ~25 min each): `ball_tiny_hn` (public +
+  heads/torsos) and `ball_tiny_hnown{A,B}` (+ our labels and our false candidates of the other fold). Same size and
+  cost as test 28's (YOLOX-Tiny 416, 20 MB ONNX).
+
+**(B) Head filter** (`hard_neg.py heads --factor 0.3`): a candidate inside the head zone of a person box (top 22% of
+the box, middle 80% in x; above the head, i.e. a shot, untouched) gets its score x0.3.
+
+7 labelled basketball clips, same two-stage path and mix as test 28 (`ball_eval28.sh`; the fold models each scored
+only on the clips they never saw); means of the clips, `lab/tests/detect/report.{det,mix}-<tag>.md`:
+
+| Model | ceiling | detector alone (no tap): prec / cover | mix with EdgeTAM: prec / cover |
+|---|---|---|---|
+| test 28 public (`bpub`) | 75% | 75% / 52% | 76% / 64% |
+| **+ heads/torsos (`bhn`)** | **76%** | **77% / 55%** | **78% / 68%** |
+| `bhn` + head filter (`bhnhf`) | 76% | 75% / 53% | 78% / 66% |
+| test 28 + our labels (`bown`, by fold) | 76% | 79% / 54% | 78% / 66% |
+| **+ heads/torsos + our false candidates (`bhnown`, by fold)** | **76%** | **80% / 55%** | **80% / 69%** |
+| `bhnown` + head filter | 76% | 80% / 54% | 80% / 68% |
+| `bhn` with ALL tiles on every analysed frame (`bhnfull`, 19 inferences) | 80% | 79% / 57% | 79% / 68% |
+
+- **The "not a ball" examples help a little everywhere**: mix cover 64 → 68% (public data only) and 66 → 69% (with our
+  labels), precision +2 points. Per clip it is not all up: worst −5 (yt-basket-04 83 → 78%) for `bhn` and −6
+  (yt1105-basket-b 70 → 64%) for `bhnown`, best +12 (basket-v-01 38 → 50%) and +16 (basket-rp-1105-h 68 → 84%).
+  Same phone cost. `ball_tiny_hn` replaces `ball_tiny_pub` as the lab's basketball detector.
+- **The head filter does not pay**: −1 to −2 points on the labelled clips, and on 1107-a it does not remove the bald
+  head at 2.4–3.6 s (his Vision box does not put that point in the head zone on those frames). Not adopted.
+
+**basket-app-1107-a, the clip that started this** (no labels; checked by eye on the frames, ball track per 0.2 s):
+- The new detector alone does not fix it: the track still sits on the bald head at 1.8–3.6 s (the head's score even
+  rises, 0.43 → 0.62 at 3.2 s).
+- **The real cause is the cheaper two-stage path, not the detector**: the detector (old and new) DOES see the real
+  ball on several frames — behind the railing at 1.6 / 2.2 s (0.15–0.16), at 2.8 s (0.84) and in the shot at
+  3.2–3.6 s (0.51–0.79), verified on the image. But `roi_tiles --anchor 3 --k 2` runs all the tiles only every 0.6 s,
+  and those anchor frames fell where the ball was hidden; in between, its 2 tiles follow the current path (the head),
+  so the ball's tile is never run.
+- With all the tiles on every analysed frame (`bhn-n5`, 19 inferences per analysed frame instead of 8.6), the track
+  leaves the head at 2.2 s and follows the real ball 2.2–3.6 s (x 0.36–0.50). Cheaper variants tried on 1107-a do NOT
+  get there: anchors every 2nd frame (`a2k2`), 3–4 tiles (`a3k3`, `a3k4`, `a2k4`: 9.2–12.2 inferences), a rolling
+  scan of 4–6 tiles per frame (`--k 6..8 --scan 4..6`: 7–9 inferences; it keeps the ball at 2.2 / 2.8 / 3.4 s, too
+  sparse for the path to leave the head's steady 0.4–0.6 candidates).
+- The other three app clips of 2026-11-07 (no labels): share of frames with a ball, test 28 / `bhn` two-stage / `bhn`
+  all tiles: b 39 / 47 / 57%, c 68 / 68 / 75%, d 72 / 66 / 62%. On 1107-d the all-tiles track differs from test 28's on
+  14% of the frames: by eye better at 2.0–4.0 s (test 28 sat on an orange shirt and on the mural's painted ball), worse
+  at 0 s (the painted ball).
+- Videos `lab/tests/story/basket-app-1107-{a,d}.story-compare-t32.mp4` (today | T31 = test 31 | T32 a3k2 = new detector,
+  same cost | T32 tiles = new detector, all tiles; all C at 1.2x, the zoom test 31 chose), and the export with the mark
+  `basket-app-1107-a.story-C-z1.2-det-bhn-n5.mp4`. `story.py` takes the ball track per panel: `--cam "C@1.2#det-bhn-n5"`.
+
+**Next**: (1) the phone cost of all 416 tiles at 5 fps with YOLOX-Tiny (19 vs 8.6 inferences per analysed frame,
+~2.2x; test 19's 58.4 s per 30 s clip was for YOLOX-S 640 tiles) — FocusBench; if it is too slow, a smarter tile
+choice that keeps a second hypothesis (tiles around the best candidate AWAY from the current path) instead of only the
+path; (2) labels for the four 2026-11-07 clips (indoor court, railing, mural) to measure this instead of judging by eye.
+
+### Test 31 result (2026-11-08) — the story's zoom chosen per clip (`story.py auto`)
+
+Victor after test 30: liked C at 1x, 1.25x (horizontal) and 1.65x (vertical) and could not pick one; asked whether the
+zoom should differ by orientation or lens (0.5x / 1x), since the distances vary. Proposal (accepted): no rule by
+orientation or lens — one zoom per clip from what the camera sees, limited by quality and by the ball. The recordings
+carry no lens metadata (ffprobe: no lens / focal tags); the app would know it at recording time, but the rule below
+does not need it.
+
+**Rule** (camera C, one zoom for the whole clip so the picture does not "breathe"): zoom = min of
+- **content**: today's Modo Foco zoom in the recording's own framing (median over the clip; 1.1x near → 1.65x far,
+  the distance signal) x 1.0 for horizontal recordings (the players as big as in today's Modo Foco, now in 9:16) and
+  x 1.2 for vertical ones (Victor: more zoom / movement there);
+- **quality**: at most x2.2 scale-up to 1080 wide (what Victor accepted in C 1.25x horizontal): 1080p horizontal ≤
+  1.24x, 1080p vertical ≤ 2.2x, 4K horizontal ≤ 2.47x;
+- **ball**: the largest zoom (0.05 steps) at which the camera keeps the detector's OWN ball points inside the crop
+  but 3% (no labels needed);
+- **guard**: when the detector finds the ball in under 35% of the clip its own points cannot judge the zoom: stay at
+  the safe zoom (horizontal: full height; vertical: today's Modo Foco zoom).
+Calibration runs (`lab/tests/story/story-auto-t31_*.md`): vertical factor 1.0 left the verticals at 1.42x on average,
+less movement than the 1.65x Victor liked (→ 1.2); ball tolerance 6% / 10% instead of 3% only cost ball
+(yt1105-basket-b 78 → 69%) for little movement; without the guard, yt1105-bt "in 4K" went to 1.3x and the labelled
+ball fell to 54% (the detector finds it in 33% of that clip).
+
+Table `lab/tests/story/story-auto-t31.md` (+ `.json`); means, zoom / ball in crop (labelled clips) / pan on screen
+(crop widths per 10 s) / scale-up to 1080 wide:
+
+| Recordings | rule, 1080p | rule, same clips in 4K | fixed 1x H / 1.65x V | fixed 1.25x H / 1.65x V |
+|---|---|---|---|---|
+| horizontal (16, 11 labelled) | **1.10x / 90% / 2.1 / x2.1** | 1.16x / 90% / 2.3 / x1.1 | 1.00x / 91% / 1.9 / x1.9 | 1.25x / 86% / 2.5 / x2.4 |
+| vertical (4 + yt-bt-06) | **1.60x / 99% / 0.6 / x1.6** | 1.60x / 99% / 0.6 / x0.8 | 1.65x / 98% / 0.7 / x1.6 | 1.65x / 98% / 0.7 / x1.6 |
+
+- The rule picks per clip what Victor picked by eye overall: horizontal 1.0x where the ball gets lost
+  (yt1105-basket-b, beach volleyball, footvolley, basket-app-1107-c) up to 1.2x where it is safe (yt-basket-04,
+  volleyball a/b, basket-app-1107-a/b/d); vertical 1.05x (bt-rz-1105-v: the detector sees the ball in 16% → guard)
+  to 1.95x (basket-rp-1105-v-a). Against the fixed 1x it keeps the ball (90 vs 91%) with more movement (2.1 vs 1.9);
+  against 1.25x it loses 4 points less ball.
+- **4K mostly buys sharpness, not zoom**: with the same clips in 4K the rule goes only from 1.10x to 1.16x on average
+  (the ball limit, not the resolution, decides) but the scale-up drops from x2.1 to x1.1.
+- The low-resolution sources (basket-rp-1105-h 1024x576, yt1105-bt 720p) stay at 1x by the quality limit; they are
+  below the option's 1080p60 floor anyway.
+- Videos `lab/tests/story/<clip>.story-compare-t31.mp4` (today | FIXO = fixed 1x H / 1.65x V | REGRA = the rule)
+  for yt-basket-04, yt1105-volei-b, basket-app-1107-a, basket-app-1107-d, basket-rp-1105-v-a, bt-rz-1105-v, yt-bt-06;
+  exports with the mark at the rule's zoom: `basket-app-1107-d.story-C-z1.2.mp4`, `yt1105-volei-b.story-C-z1.2.mp4`,
+  `basket-rp-1105-v-a.story-C-z1.95.mp4`.
+- For the app: the inputs are already there at export time (today's Modo Foco rows, the ball track, the source
+  resolution); the zoom search is ~20 camera solves per clip (offline, on the phone: to be measured).
+
+### Test 30 result (2026-11-07) — a "story" (9:16) export with Foco na Bola (`story.py`)
+
+Victor after test 29 (at today's zoom C barely differs from the Modo Foco): try a story mode — 9:16 — where the tighter
+crop should move more, and see the quality. Decisions (Victor, 2026-11-07): an **export option, not the default**
+(test 25's "no horizontal → vertical conversion" stays for the normal export); **offered only for clips recorded at
+1080p60 or more**; the **watermark must be on the story too**; vertical recordings may also take more zoom.
+
+- Crop: 9:16 of the source; zoom relative to the largest 9:16 crop (horizontal source: full height, 31.6% of the width
+  = z1.0; vertical source: the whole frame). Cameras on test 24's band path: **today** = today's Modo Foco 9:16 rows
+  (players only, the "portrait" rows of `current.focus.json`); **A** = calm (dead zone 0.20, s10); **C** = Victor's
+  test 29 pick (dead zone 0.10, s3). Ball: test 28's basketball detector with no tap for basketball, today's mix
+  (tap) for the other sports. "Pan on screen" = crop-centre movement in crop widths per 10 s.
+- Export as the app would: crop scaled to 1080x1920 (Lanczos) + the export mark of `app/src/share/ShareOverlay.tsx`
+  rebuilt at frame pixels (bottom gradient, dark pill, `reprize-mark.png` + "@reprize.app" in Manrope SemiBold, sizes
+  from the frame's short side). The mark is drawn by the export overlay, not at recording, so a 1080x1920 story export
+  gets it as is (checked against the mark in Victor's exported clips: same look). The `basket-app-1107-*` sources are
+  exported clips that already carry the mark (bottom right of the landscape frame): a story crop there can show part
+  of the old mark; the app would crop the clean recording.
+- No 4K source yet: the 3 YouTube basketball clips are 1920x1080 (the YouTube originals may exist in 4K; not
+  downloadable from the cloud workspace). The 4K column is computed (same framing, 2x the source pixels).
+
+Table `lab/tests/story/story-sweep-t30.md` (+ `.json`); means (ball in crop / direction changes per 10 s / pan on
+screen), labelled clips only for the ball:
+
+| Recording | today (players) | A z1.0 | C z1.0 | C z1.25 | C z1.5 |
+|---|---|---|---|---|---|
+| horizontal (15 clips, 11 labelled) | 61% / 2.0 / 1.0 | 89% / 1.3 / 1.2 | **91% / 2.2 / 1.9** | 86% / 2.9 / 2.5 | 81% / 3.1 / 3.1 |
+| crop width from 1080p → 1080 output; from 4K | 607 px (x1.8); 1214 px | 608 px (x1.8); 1216 px | 608 px (x1.8); 1216 px | 486 px (x2.2); 972 px | 405 px (x2.7); 810 px |
+
+| Recording | today (players, ~1.4x) | C z1.65 | C z2.0 | C z2.5 |
+|---|---|---|---|---|
+| vertical (4 clips + yt-bt-06 with 1 point) | 100% / 1.3 / 0.4 | 99% / 1.8 / 0.7 | **97% / 2.0 / 1.0** | 90% / 2.2 / 1.4 |
+| crop width from 1080p → 1080 output; from 4K | 755 px (x1.4); 1510 px | 655 px (x1.6); 1310 px | 540 px (x2.0); 1080 px | 432 px (x2.5); 864 px |
+
+- **Horizontal → story: C at full height is the best trade**: ball in the crop 61% (today's Modo Foco 9:16) → 91%,
+  about 2x the pan on screen; more zoom loses the ball (86% / 81%) and resolution. Weakest clips: yt1105-basket-a / -b
+  (88 / 78% at z1.0; the detector's gaps), yt1105-bt (76%), yt1105-futevolei (83%, = today).
+- **Vertical recordings: C at 2x** moves 2.5x more than today with the ball still in 97% (basket-v-01 and bt-rz-1105-v
+  barely move: the play is spread / static); 2.5x drops to 90%.
+- **Quality from 1080p**: every option upscales — the horizontal story at full height is 608 px wide scaled x1.8,
+  2x on a vertical recording is x2.0. From 4K the full-height horizontal story is native (1216 px for 1080) and 1.25x
+  still near native (972 px). So **1080p60 is the floor for the option; 4K is what makes the extra zoom sharp**.
+- Videos `lab/tests/story/`: comparisons (`<clip>.story-compare.mp4`, 540x960 panels with ball % and source px):
+  horizontal today | A z1.0 | C z1.0 | C z1.25 for yt-basket-04, yt1105-basket-a, basket-app-1107-c, bt-rz-1105-a,
+  yt1105-volei-b; vertical today | C z1.65 | C z2 | C z2.5 for basket-rp-1105-v-a, bt-rz-1105-v. Exports as the app
+  would make them (1080x1920 with the mark, to watch full screen on the iPhone): `<clip>.story-C-z1.mp4` and
+  `-C-z1.25.mp4` for yt-basket-04, basket-app-1107-c, bt-rz-1105-a; `basket-rp-1105-v-a.story-C-z2.mp4` and
+  `-today.mp4`.
+- Next: 4K recordings (Victor) to judge the extra zoom; the story option's quality floor (1080p60) in the app.
+
+### Test 29 result (2026-11-07) — a camera that moves with the ball (`cam_sweep.py`)
+
+Victor after test 28: how do we get more camera movement following the ball? Test 24's calm camera barely moves on
+basketball because today's crop is 61–87% of the frame width (zoom 1.15–1.65x: only 13–39% of the width to travel),
+the dead zone is ±20% of the crop and the smoothing is heavy; on vertical clips y stays at the players by design.
+Offline sweep of test 24's camera, ball = test 28's basketball detector alone, no tap (`det-bpub-n-a3k2`), 7 basketball
+clips: zoom (today's crop / 1.5x / 1.75x / 2x, `min(today, 1/zoom)` in both orientations, centred where today's is) x
+dead zone (0.20 / 0.10 / 0.05 of the crop width) x smoothing (`s10` = a 10, b 1000 as test 24; `s3` = 3 / 300; `s1` =
+1 / 100) x anticipation (aim at the ball 0 or 0.4 s ahead): 72 configs, 45 s on CPU. App recording: 1080p 60 fps
+(Victor; lower when the phone heats up), so `px` = the output's short side from a 1080p recording.
+Table `lab/tests/sg/cam-sweep-t29.md` (+ `.json` per clip); means over the 7 clips:
+
+| Camera | ball in crop (worst clip) | direction changes /10 s | travel (frame widths /10 s) | ball off-centre (0 = centred, 0.5 = edge) | px at 1080p |
+|---|---|---|---|---|---|
+| Modo Foco today (players) | 97% (83%) | 1.9 | 0.26 | 0.19 | 782 |
+| A: test 24 calm (today's zoom, dz 0.20, s10) | 99% (94%) | 1.5 | 0.18 | 0.18 | 782 |
+| B: today's zoom, dz 0.05, s3 | 99% (97%) | 2.8 | 0.38 | 0.15 | 782 |
+| C: 1.5x, dz 0.10, s3 | 98% (93%) | 2.3 | 0.39 | 0.16 | 698 |
+| D: 1.5x, dz 0.05, s1 | 98% (92%) | 2.8 | 0.52 | 0.15 | 698 |
+| 2x, dz 0.10, s3 | 96% (81%) | 2.7 | 0.53 | 0.18 | 540 |
+
+- **Test 24's calm camera moves less than today's players-only Modo Foco** (0.18 vs 0.26 frame widths per 10 s).
+- **The dead zone is the cheapest lever**: at today's zoom (no resolution lost), dz 0.05 + lighter smoothing (B)
+  doubles the travel (0.18 → 0.38) and keeps the ball in the crop 99% (worst clip 97%), the ball more centred
+  (0.18 → 0.15); the cost is more direction changes (1.5 → 2.8 per 10 s).
+- **Zoom 1.5x** adds travel (D: 0.52, ~3x the calm camera) with the ball still in 98% (worst 92–93%), at 698p from a
+  1080p recording. **2x is too much**: 540p, and the worst clip drops to 81% (yt1105-basket-b: the detector's misses
+  are no longer covered by a wide crop).
+- **Anticipation (0.4 s ahead) does not help** with this ball: same travel, worst clip 1–4 points lower (the detector
+  at 5 fps with gaps gives too few positions ahead to aim at); not pursued.
+- Per clip (ball in crop / travel): the moving cameras gain most where the ball crosses the court — yt1105-basket-a
+  (A 98% / 0.29 → D 98% / 0.65), yt1105-basket-b (A 94% / 0.15 → C 93% / 0.68), basket-rp-1105-v-a (A 98% / 0.31 → D
+  97% / 0.77); basket-v-01 barely moves in any config (the play stays in the crop).
+- Videos (Hoje | A | B | C | D, label = ball in crop; horizontal = 2 columns): `lab/tests/sg/<clip>.cam-t29.mp4` for
+  yt1105-basket-a, yt1105-basket-b, basket-rp-1105-v-a (`cam_sweep.py render --clip <clip> --cfg <cfg> ...`). For
+  Victor's review: how much movement looks good, and whether B (no zoom) is enough or the 1.5x of C / D is worth the
+  resolution.
+- **Victor (2026-11-07): picks C (1.5x, dead zone 0.10, s3).** C on other clips (videos `<clip>.cam-t29.mp4`, panels
+  today | A | C; ball in crop / travel, frame widths per 10 s):
+
+| Clip | Ball source | Modo Foco today | A calm | C |
+|---|---|---|---|---|
+| yt1105-voleipraia | today's mix (tap) | 70% / 0.06 | 100% / 0.06 | **100% / 0.27** |
+| yt1105-futevolei | today's mix (tap) | 100% / 0.23 | 100% / 0.01 | 91% / 0.22 |
+| yt1105-bt | today's mix (tap) | 100% / 0.14 | 100% / 0.00 | 100% / 0.02 |
+| yt-bt-06 (1 labelled point) | today's mix (tap) | — / 0.28 | — / 0.28 | — / 0.58 |
+| yt-basket-04 | basketball detector, no tap | 100% / 0.20 | 100% / 0.16 | 100% / 0.27 |
+| basket-app-1107-a | basketball detector, no tap | — / 0.23 | — / 0.26 | — / 0.24 |
+| basket-app-1107-b | basketball detector, no tap | — / 0.43 | — / 0.08 | — / 0.28 |
+| basket-app-1107-c | basketball detector, no tap | — / 1.05 | — / 0.26 | — / 0.68 |
+| basket-app-1107-d | basketball detector, no tap | — / 0.21 | — / 0.40 | — / 0.50 |
+
+  - Beach with a tap: C keeps the ball (beach volleyball 70% today → 100%) and moves 4–5x more than A; footvolley
+    loses the ball on 9% of the labelled points; beach tennis yt1105-bt does not move (the rally fits in the crop).
+    Beach with no tap (COCO detector alone): weak (beach volleyball 76%, footvolley still) — a beach ball detector
+    (test 28's recipe) would be needed to drop the tap there.
+  - `basket-app-1107-a..d`: 4 clips Victor recorded with the app on 2026-11-07 (basketball, horizontal 1080p, 3 at
+    60 fps and 1 at 30 fps, 5.7–8.5 s, from the raised side of the gym; `refs/2026-11-07/`, added to `clips.txt`).
+    No ball labels yet (visual review only). People: `vision-probe` on the Mac (Victor); today's framing:
+    `focus_variant.py --preset acao --boxes tiled` (zoom already 1.4–1.65x, the players are far, so C's 1.5x crop is
+    close to today's). Ball: test 28's detector, no tap (`bpub-n5`/`bpub-w5` → `bpub-n-a3k2` → `ball_track.py`),
+    ball in 39–72% of the analysed frames. The scripts read a label file for the image size: the cloud runs used a
+    stub with no samples (not kept); label these clips to get numbers.
+  - Not used: `refs/h264/ref-basket-01..03` and `ref-beach-01..05` are vertical YouTube shorts where the camera is
+    already operated (pans / zooms) on most of them, so C on top of them tests nothing.
+
+### Test 28 result (2026-11-07) — a basketball detector of our own: YOLOX-Tiny fine-tuned on a public dataset (`ball_train_pub.py`, `ball_eval28.sh`)
+
+Test 26's conclusion: the limit is detection (the COCO "sports ball" class finds the basketball in 10–42% of frames).
+Test 18 (fine-tune on our 32 clips alone) did not generalise. Here: YOLOX-Tiny (Apache-2.0, COCO weights from the
+release 0.1.1rc0), one class, fine-tuned on a public basketball dataset, then optionally on our labels too.
+
+- **Data**: Roboflow Universe `cvsense/basketball_detection-lbacg` v3 "BBD_NEW_OPTIMIZED" (CC BY 4.0, licence in the
+  export's `README.dataset.txt`; COCO JSON zip in `lab/datasets/basketball_detection-lbacg/`, sha256 `68eeebff…3ee66b4a`,
+  downloaded by Victor). 10,912 images = ~4,330 originals x 3 augmentations (90° rotations, crop, shear, brightness),
+  all stretched to 640x640; classes ball / person / rim / shoot / made, only "ball" used (10,825 boxes, median 54 px).
+  Mixed content: amateur outdoor courts filmed from the side (close to our clips), broadcast frames and web photos —
+  some with stock-agency watermarks (VEER, Sohu), i.e. scraped images: the CC BY is the uploader's, **decide whether
+  that is acceptable before a model trained on it ships**. Not usable as a second dataset:
+  `basketball-6vyfz/basketball-detection-srfkd` (also CC BY 4.0) is a copy of the same 4,330 originals and copies,
+  class names "0".."4"; the other "similar projects" with ~9.5k images are probably copies too. `toothless-zone/
+  basketball-mo7dc` has no published version (0 images).
+- **Crops** (`ball_train_pub.py dataset`): every image resized so its ball is 8–32 px (our balls: 14–48 px median per
+  clip at native resolution), 320x320 crop around it (13,693 crops, 9,399 with the ball; negatives at scale 0.6–1.2
+  away from the balls). Augmentation in training: flips, brightness/contrast, motion blur (30%).
+- **Training** (cloud CPU, 2 threads, ~1.5 s per batch of 16): head from COCO's "sports ball" row, BatchNorm frozen,
+  SGD lr 0.001 cosine, 3,000 iterations (~75 min) → `lab/models/ball_tiny_pub.{pth,onnx}` (416 input, one class;
+  `ball_detect.py` reads it unchanged). With our labels (`--fold A|B --init ball_tiny_pub`, 1,000 more iterations, lr
+  0.0005, public crops and test 18's crops of our basketball clips sampled 1:1): fold A trained on v-b, v-01, yt-04,
+  yt-b + basket-app-1031-a/-b and scored on v-a, h, yt-a; fold B the other way round → `ball_tiny_pubown{A,B}`.
+- **Scoring** (`ball_eval28.sh <onnx> <tag>`): exactly the best path of tests 19 / 26 with the model swapped — 416
+  tiles + whole frame at 5 fps, two stages `a3k2`, `ball_track.py`, mix with `edgetam-fuse5`, `det_report.py`. The chain
+  reproduces `tiny-n-a3k2` / `mix-tiny-n-a3k2` exactly from the saved COCO detections (checked). Reports
+  `lab/tests/detect/report.{det,mix}-{bpub1k,bpub,bown}.md`.
+
+| Clip | pts | ceiling: COCO / pub / pub+own | detector alone cover: COCO / pub / pub+own | mix cover: COCO / pub / pub+own | mix prec: COCO / pub / pub+own |
+|---|---|---|---|---|---|
+| basket-rp-1105-v-a | 109 | 38% / 83% / 88% | 17% / 64% / 53% | 82% / 82% / 77% | 89% / 86% / 84% |
+| basket-rp-1105-v-b | 57 | 19% / 72% / 68% | 5% / 40% / 49% | 37% / 47% / 60% | 58% / 66% / 71% |
+| basket-rp-1105-h | 25 | 20% / 84% / 76% | 16% / 52% / 60% | 32% / 68% / 68% | 67% / 94% / 89% |
+| basket-v-01 | 24 | 21% / 79% / 71% | 17% / 38% / 38% | 33% / 38% / 38% | 50% / 47% / 60% |
+| yt-basket-04 | 101 | 42% / 70% / 78% | 34% / 59% / 61% | 87% / 83% / 78% | 92% / 88% / 87% |
+| yt1105-basket-a | 86 | 31% / 74% / 88% | 7% / 58% / 59% | 49% / 71% / 69% | 71% / 80% / 80% |
+| yt1105-basket-b | 98 | 10% / 62% / 65% | 0% / 50% / 58% | 59% / 58% / 70% | 73% / 71% / 78% |
+| **mean** | | **26% / 75% / 76%** | **14% / 52% / 54%** | **54% / 64% / 66%** | **71% / 76% / 78%** |
+
+- **The detection limit moves a lot**: some candidate on the ball in 75% of the frames instead of 26%, with the same
+  number of candidates per frame (3–5); the best-scored candidate is on the ball 40–58% vs 8–21% (first 4 clips).
+- **The detector alone (no tap) now covers 52–54%**, about what today's best mix (detector + EdgeTAM from a tap) does
+  (54%). In the mix: 54 → 64% (public only) / 66% (+ our labels), precision 71 → 76 / 78%; big gains on
+  basket-rp-1105-h (32 → 68%), yt1105-basket-a (49 → 71%), basket-rp-1105-v-b (37 → 47 / 60%); yt-basket-04 −4 / −9 and
+  basket-rp-1105-v-a 0 / −5 (EdgeTAM was already strong there).
+- **Our labels add little on top** (+2 points of mix cover, +2 precision, mixed per clip): the public dataset does most
+  of it. The 1,000-iteration checkpoint of the public model (`bpub1k`) had a lower ceiling (68%) but a higher mix cover
+  (67%) than the final one: `ball_track.py` and the mix rules were tuned on the COCO model's scores and were not retuned
+  here (7 clips are too few to tune and score on).
+- **Same phone cost**: same network, same 416 input, 7.8 inferences per analysed frame for all three models (the
+  two-stage tile choice does not change). The Core ML export is `yolox_coreml.py` with the new weights (not done).
+- **The camera barely changes (2026-11-07, `compare28.py`)**: test 24's calm camera in the app's format (native
+  orientation, today's zoom) driven by each ball, "ball inside the crop" on the labelled samples (direction changes
+  per 10 s), `lab/tests/sg/lazy3-summary-t28.md`:
+
+| Clip | Output | Modo Foco today (players) | today's ball, with a tap | trained + EdgeTAM, tap | trained, no tap |
+|---|---|---|---|---|---|
+| basket-rp-1105-h | 16:9 | 100% (1.2) | 100% (0.0) | 100% (0.0) | 100% (0.0) |
+| yt1105-basket-a | 16:9 | 83% (3.6) | 98% (2.8) | 99% (2.8) | 98% (2.8) |
+| yt1105-basket-b | 16:9 | 94% (3.0) | 100% (1.3) | 98% (1.3) | 94% (1.7) |
+| yt-basket-04 | 16:9 | 100% (1.7) | 100% (2.7) | 100% (2.7) | 100% (2.7) |
+| basket-rp-1105-v-a | 9:16 | 100% (2.9) | 100% (2.1) | 100% (2.1) | 98% (2.1) |
+| basket-rp-1105-v-b | 9:16 | 100% (0.7) | 100% (0.7) | 100% (1.4) | 100% (1.4) |
+| basket-v-01 | 9:16 | 100% (0.0) | 100% (0.0) | 100% (0.0) | 100% (0.0) |
+
+  At today's zoom the crop is wide enough that the ball is already inside it 83–100% of the time **with today's
+  players-only Modo Foco** (100% on 5 of the 7 basketball clips); a better ball changes the result only on
+  yt1105-basket-a and -b. With a tap, the trained detector and today's give the same camera (0–3 points apart, also at
+  a fixed 1.5x or 2x zoom on the horizontal clips). The detector's gain shows as **the no-tap camera**: the trained
+  model alone keeps the ball in the crop about as well as today's tap + EdgeTAM (94–100%), i.e. it could replace the
+  tap and the EdgeTAM passes (the larger cost of the path) for basketball. Videos (3 panels: Modo Foco today | today's
+  ball with a tap | trained, no tap; label = ball in crop): `lab/tests/sg/<clip>.lazy3-t28.mp4` for basket-rp-1105-h,
+  yt1105-basket-a, yt1105-basket-b, basket-rp-1105-v-a, basket-rp-1105-v-b.
+- Not done yet: YOLOX-S on the same data; retuning the track / mix to the new scores (needs more labelled clips to
+  avoid tuning on the test set); the other sports; the FocusBench run (expected equal to test 19's Tiny).
+
+### Test 27 result (2026-11-06) — TrackNetV3 without retraining, basketball (`tracknet_eval.py`)
+
+Question from test 26: does a detector that looks at several consecutive frames find the small, fast ball better than
+YOLOX on one frame? TrackNetV3 (MIT, `github.com/qaz812345/TrackNetV3`, commit 6eda442 of 2026-09-03; official
+weights `TrackNetV3_ckpts.zip` from the README's Google Drive link, sha256 `8de68d34…4571bcc4`, downloaded by Victor)
+sees 8 consecutive frames + the clip's median background at 512 x 288 and outputs a ball heatmap per frame. It was
+trained on broadcast badminton (the shuttlecock), so this is the zero-shot check before any retraining.
+
+- Safety: both `.pt` files load with `torch.load(..., weights_only=True)` (tensors only: TrackNet epoch 18, seq_len 8,
+  bg_mode concat; InpaintNet epoch 281). The repo's own `predict.py` calls `torch.load` without `weights_only`; the lab
+  script never uses it. Code and weights live in `lab/src/TrackNetV3/` and `lab/models/tracknetv3/` (not in git).
+- Set-up: the analysis window decoded at 30 fps, upright, RGB; landscape = the whole frame (already 16:9, ball ~5–10 px
+  at 512 wide, like the shuttle in its training data); portrait = 4 stacked 16:9 windows at native scale (each with its
+  own median); one forward pass per 8 frames (no overlap ensemble), every blob of the heatmap kept with its peak as
+  score. The input was checked on basket-rp-1105-h: the median background comes out clean (players removed), the ball
+  is visible where the label is; the heatmap there peaks at 0.2–0.29 and not on the ball.
+- CPU in the cloud workspace, 2 threads: ~0.17 s per frame per window (a 30 s portrait clip ~10 min). 5 of the 7
+  basketball clips (basket-rp-1105-v-a and basket-v-01 stopped: the result was already clear and the CPU was needed
+  for test 28). Report `lab/tests/detect/report.tn3-tiles.md`:
+
+| Clip | pts | ceiling: any blob | ceiling: blob ≥ 0.5 | TrackNet answer given | on the ball | false alarm | YOLOX-Tiny ceiling (tiny-n-a3k2) |
+|---|---|---|---|---|---|---|---|
+| basket-rp-1105-v-b | 57 | 11% | 0% | 5% | 0% | — | 19% |
+| basket-rp-1105-h | 25 | 8% | 0% | 0% | 0% | — | 20% |
+| yt-basket-04 | 101 | 21% | 0% | 2% | 0% | 2% | 42% |
+| yt1105-basket-a | 86 | 23% | 1% | 5% | 1% | 7% | 31% |
+| yt1105-basket-b | 98 | 4% | 1% | 5% | 1% | — | 10% |
+
+- **Not usable as is**: TrackNet's own answer (largest blob ≥ 0.5) is on the basketball in 0–1% of the labelled frames;
+  even every weak blob (peak ≥ 0.1) reaches only 4–23%, below YOLOX-Tiny's 10–42%. The badminton model does not know a
+  basketball (big, orange, often in hands) — expected for a shuttlecock model; the multi-frame idea is untested until it
+  is retrained on basketball.
+- Retraining TrackNet needs labelled consecutive frames (its loss is per frame, sequences of 8 at 30 fps); our labels
+  are every 200 ms and the public basketball datasets are single images, so it is a bigger job than test 28. Left for
+  after test 28.
+
+### Test 26 result (2026-11-06) — the ball trail on its own (`trail.py`)
+
+Victor, after Ball AI (an iPhone basketball training app that draws clean ball trails): those trails are drawn after
+the clip with the whole clip in hand, from a phone on a tripod close to one hoop and one player (ball big in frame).
+Question: is our gap the post-processing or the detection? `trail.py` builds the best offline path from any track or
+detector file (frame-to-frame linking, robust local fit, outliers and still objects out, gaps filled and bridged up to
+1 s; kept detections stay where seen) and renders raw | clean trail. Scores on the labels (`evaluate.score_track`,
+recall raw → clean), summaries `lab/tests/trail/summary-t26-*.md`:
+
+- **On the existing tracks the cleaning adds ~nothing**: mix-tiny-n-a3k2 (best) mostly within ±5 points, a few up
+  (bt-E5003B6B 72 → 78%, basket-v-01 33 → 42%, yt1105-volei-a 79 → 85%), some down where it drops short or slow runs
+  (basket-rp-1105-h 32 → 0%, yt1105-futevolei 6 → 0%). `ball_track.py`'s DP path already does what a trail app does.
+- **On the raw YOLOX-Tiny candidates**, its linking is a strong cleaner (night beach tennis bt-0AE39B33 3 → 50%,
+  bt-rz-1105-a 12 → 32%, false alarm 100 → 20%) but stays below `ball_track.py` (det-tiny-n-a3k2): keep the DP.
+- **The ceiling is detection**: some YOLOX-Tiny candidate is on the labelled ball in 34% of the analysed frames
+  (basketball 10–42%, volleyball 22–28%, futevôlei 7%, broadcast 0%; night beach tennis 67–74%). No offline path can
+  find a ball the detector never proposes. The ball is ~1–2% of the picture's long side on our clips (12–15 px at night
+  beach tennis), much smaller than in Ball AI's close tripod set-up.
+- Next, by expected gain: a detector trained for the sport's ball (fine-tune YOLOX on a public dataset with a
+  commercial-friendly licence + our labels; test 18 failed on 32 clips alone), or TrackNetV3 (MIT, uses consecutive
+  frames, made for small fast balls; weights must be downloaded by hand).
+- Videos (raw | clean): `lab/tests/trail/<clip>.t26-mix.trail.mp4` for basket-rp-1105-v-a, basket-rp-1105-v-b,
+  bt-rz-1105-a, yt1105-volei-a, yt1105-basket-b.
 
 ### Test 6 result (2026-11-03, hybrid framing from the SAM 2 one-click track, 4 clips)
 
@@ -111,6 +802,183 @@ rounder masks (aspect <= 2, fill >= 0.6); a mask that suddenly grows x2.5 is sus
 
 Left for later: SAM 2 does not come back from a racket by itself every time. An automatic correction (a negative
 prompt on the rejected object and a positive one on a ball candidate, then propagate again) would re-acquire it.
+
+### Test 19: a cheaper ball detector, fewer tiles (2026-11-06) — `roi_tiles.py`
+
+The phone bench of test 17 (`ball5det`) put the cost in the tiles: ~9 detector regions per frame at 39 ms each =
+53.8 s per 30 s clip. Here: the whole frame always (a new whole-frame-only run, `ball_detect.py --no-tiles --step 2`,
+tag `yolox-s-w5`), plus K tiles chosen per frame. Simulated offline from the full run (`yolox-s-t5`): a candidate is
+kept if the whole-frame run has it or it lies inside a chosen tile. Then `ball_track.py`, `low_fps.py fuse --p2
+det-<tag> --p1 edgetam-fuse5 --out mix-<tag>` and test 17's ground-truth numbers, 17 labelled clips.
+
+| Variant (tag) | regions per frame | detector finds the ball | detector cover | **mix cover** |
+|---|---|---|---|---|
+| all tiles (test 17, `t5`) | 8.45 | 48% | 35% | **56%** |
+| whole frame only (`w5`) | 1 | 9% | 4% | 43% (= EdgeTAM alone) |
+| online, K tiles around the last ball + speed, players' crop when lost (`r1`/`r2`/`r3`) | 2 / 3 / 3.95 | 26 / 33 / 37% | 15 / 22 / 24% | 46 / 49 / 50% |
+| online + scanning tiles in turn (`r2s`, `r3s`, `r3s2`, `r4s`) | 3–4.9 | 31–41% | 20–27% | 47–51% |
+| tiles around EdgeTAM's fused ball (`gk1`/`gk2`/`gk3`) | 2.1 / 3.1 / 4.0 | 39 / 42 / 45% | 27 / 29 / 31% | 47 / 50 / 51% |
+| **two-stage: all tiles on every 3rd analysed frame, path over those, 2 tiles around it in between (`a3k2`)** | **4.84** | 45% | 32% | **55%** |
+| two-stage every 2nd / 4th / 5th (`a2k2`, `a4k2`, `a5k2`), K = 1 (`a2k1`, `a3k1`) | 4.1–5.7 | 40–45% | 28–32% | 53–55% |
+| two-stage every 5th + EdgeTAM's ball where the path has none (`ga5k2`) | 4.10 | 46% | 33% | 54% |
+
+- Online choices lose the ball: night beach tennis has many look-alike candidates and the online guess locks on the
+  wrong one (bt-rz-1105-b mix cover 86 → 23–67%). Tiles around EdgeTAM's ball add little: they find the ball where
+  EdgeTAM already has it.
+- The clip is processed after recording, so two stages are allowed: `a3k2` stays within 5 points of all tiles on
+  every clip (night beach tennis 90/56/95/84 vs 90/59/95/86).
+- **Measured on the phone (2026-11-06, iPhone17,2, 15 min, FocusBench "Detector em 2 etapas + 2 passadas a 5 fps
+  (teste 19)" = `ball5deta3`, YOLOX-S, `lab/tests/ios/soak.ball5deta3.iPhone17_2.20261106-0911.json`)**: yt-basket-04 /
+  yt-bt-06 **58.4 s per 30 s clip** (detector 31.9 s at 5.0 regions per frame, as in the lab, + 13.2 + 13.2 s),
+  bt-wa-1028 37.6 s (4.3 regions); all tiles was 80.3 s. Thermal nominal for 15 min, battery 70 → 65%. In the app's
+  version the path between the anchor frames is the best candidate of each anchor frame (ball_track.py's path in the
+  lab; same number of model calls). FocusBench modes `det5a3` / `ball5deta3` (anchor 3, k 2) and a "Detector" picker
+  (`yolox_s@640`, `yolox_tiny@640`, `yolox_tiny@416` = model @ tile side in video px; Nano removed 2026-11-06).
+- **Smaller detectors** (YOLOX-Tiny / Nano, Apache-2.0, release 0.1.1rc0, 416 x 416 input; `ball_detect.py --tile`;
+  Core ML by `tools/lab/yolox_coreml.py` from the .pth, checked on a frame: same detections as the release ONNX):
+
+  | Detector (tag) | regions per frame | detector finds the ball | **mix cover** |
+  |---|---|---|---|
+  | YOLOX-S, all 640 tiles (`yolox-s-t5`) | 8.45 | 48% | **56%** |
+  | YOLOX-S, two stages (`yolox-s-a3k2`) | 4.84 | 45% | **55%** |
+  | Tiny, 640 tiles scaled to 416 (`tiny-t5`) | 8.45 | 39% | 52% |
+  | Tiny, native 416 tiles (`tiny-n5`) | 17.1 | 42% | **55%** |
+  | Tiny, 416 tiles, two stages k 2 / 3 / 4 (`tiny-n-a3k2/3/4`) | 7.7 / 8.4 / 9.1 | 34–37% | 53% |
+  | Tiny, 640 tiles, two stages (`tiny-a3k2`) | 4.84 | 33% | 50% |
+  | Nano, 640 tiles scaled to 416 (`nano-t5`) | 8.45 | 33% | 49% |
+
+  Tiny needs native 416 tiles (twice as many regions) to match S; Nano loses too much.
+- **Measured: Tiny, 416 tiles, two stages (`ball5deta3`, `yolox_tiny@416`, 5 min, 10 clips,
+  `lab/tests/ios/soak.ball5deta3-tiny416.iPhone17_2.20261106-0957.json`)**: 7.5–8 ms per region once warm (14 ms on
+  the first 3 clips; S: 38 ms), 8.3 regions per frame. yt-basket-04 / yt-bt-06 **~35.3 s per 30 s clip** (detector
+  12.0 s + 11.6 + 11.6 s; the first clip 48 s), bt-wa-1028 20.5 s. The EdgeTAM passes also got faster after clip 3
+  (13.2 → 11.6 s, mask summary 6.1 → 2.4 ms), as in the `ball35` soak (test 14). Thermal nominal, battery 65 → 65%; 5 min
+  only (15 min still to run for heat). Lab cover of this variant: 53% (S two stages 55%, all tiles 56%, EdgeTAM alone
+  43%). Estimate for Tiny with all 416 tiles (17 regions, cover 55%): ~21 s detector, ~45 s per clip.
+- **Measured, 15 min (`soak.ball5deta3-tiny416.iPhone17_2.20261106-1035.json`, 22 clips)**: Tiny stayed at **14 ms per
+  region the whole time** (the 7.5 ms of the 5 min run did not come back; the faster state seen there and in `ball35`
+  is not something to count on). yt-basket-04 / yt-bt-06 **~48 s per 30 s clip** (detector 21–23 s + 13.3 + 13.2 s),
+  bt-wa-1028 ~28 s. Thermal nominal all 15 min, battery 65 → 65% (less than one 5% step). So: all tiles S 80.3 s →
+  S two stages 58.4 s → **Tiny two stages ~48 s** (ball5 alone 26.7 s); the two EdgeTAM passes are now the larger part.
+  Lab check: Tiny two stages + only EdgeTAM pass 1 (no pass 2, ~13 s less) = mix cover 46% vs 53% with both passes: pass 2 still pays.
+
+- Videos for Victor (2026-11-06): `lab/tests/framing/<clip>.compare.mix-keep-vs-mix-tiny.mp4` on the 12 app clips:
+  the test 17 mix (YOLOX-S, all tiles; orange, left) vs the Tiny two-stage mix (`mix-tiny-n-a3k2`; green, right), both
+  `hybrid.py --set v_keep=0.2` (basket-app-1031-a/b with ball_zoom 1.25); `tools/lab/compare_tracks.py`. Ball-in-crop
+  and ball mode about the same on 11 clips; bt-rz-1105-v (night, 0.5x) ball mode 87 → 19% with Tiny (mostly today's
+  framing there).
+
+- Victor (2026-11-06) on bt-rz-1105-v with Tiny: the ball is found only in short bursts (3–11 frames), so the zoom
+  opens and closes quickly. `hybrid.py` options (off by default): `min_seg` (drop ball segments shorter than N frames)
+  and `zoom_rate` (max zoom change per second, both ways, the centre kept). This clip only, `--set min_seg=10 --set
+  zoom_rate=0.5` (tag `mix-tiny-zoom`): zoom travel 6.7 → 1.5, fastest zoom change 2.7 → 0.8 per second, zoom
+  reversals 2 → 0; ball mode 19 → 8% (only the first, longest find; the rest is today's framing). Videos:
+  `bt-rz-1105-v.compare.mix-tiny-vs-mix-tiny-zoom.mp4`, `bt-rz-1105-v.compare.mix-keep-vs-mix-tiny-zoom.mp4`.
+  Then on bt-wa-1028, bt-rz-1105-b, bt-rz-1105-a (Victor's pick; `<clip>.compare.mix-tiny-vs-mix-tiny-zoom.mp4`): ball
+  mode unchanged (85 / 73 / 87%: their ball segments are long), fastest zoom change 1.6 / 1.7 / 2.7 → 0.8 per second;
+  ball in crop 100 / 86 / 92% (bt-rz-1105-b 85 → 86%).
+- Victor (2026-11-06): the zoom fix "very good, no losses" (`min_seg=10`, `zoom_rate=0.5` kept for the Tiny mix). 15 min soak done: ~48 s per 30 s clip, no heat.
+
+### Test 18: fine-tune the ball detector on the lab's labels (2026-11-06) — `ball_train.py`
+
+Victor: "worth testing" (after test 17). YOLOX-S from the COCO weights, one class, trained on 320 px crops at full
+resolution: 17 labelled clips, 5,514 crops (2,412 with the ball; box sizes from EdgeTAM masks or COCO-detector boxes near
+the label, else the clip's median), negatives = random crops + the COCO detector's false candidates. Folds by clip
+(`FOLDS` in the script) so every clip is scored by a model that never saw it. CPU in the cloud workspace, ~0.9 s per
+batch of 8. YOLOX code: the PyPI sdist yolox-0.3.0 (Apache-2.0), unpacked (`--yolox`); weights `yolox_s.pth` from its
+GitHub release. `ball_detect.py` reads the one-class ONNX too.
+
+Check (`ball_train.py check`): on 60 crops with the ball, is it the best box, and its score:
+
+| Model (fold A: trained on folds B + C) | train clips: best box / score at the ball | held-out clips |
+|---|---|---|
+| COCO YOLOX-S, no training (head = COCO's "sports ball") | 21/60, 0.001 | 28/60, 0.003 |
+| 2,000 iters, lr 0.004, new head (first run) | 0/60, 0.004 | 0/60, 0.006 (objectness collapsed) |
+| 400 iters, lr 0.0005, head from COCO's ball row, BatchNorm frozen, grad clip | 27/60, 0.089 | 30/60, 0.061 |
+| **3,000 iters, same settings** | **50/60, 0.389** | **25/60, 0.045** |
+
+It learns the training clips (their courts, lights, balls) and not the ball: worse than COCO on clips it never saw.
+With ~1,400 balls from 11 clips per fold the data is far too small and too uniform per clip; a detector of our own needs
+tens of clips per sport (or a public ball dataset with a commercial licence). Not pursued further for now; the folds
+B and C were not trained.
+
+### Test 17: an AI detector that finds the ball in every frame (2026-11-05) — `ball_detect.py`, `ball_track.py`
+
+Victor: "use AI to find the ball and anticipate its movement for the camera, to get close to v6". The framing rules of
+v6 (hybrid round 6) work on any ball track; what failed was finding the ball on the app's clips (EdgeTAM is a tracker:
+it drifts or sticks). So: a per-frame detector instead, no tap.
+
+- Detector: YOLOX-S (Megvii, Apache-2.0; the ONNX of its GitHub release 0.1.1rc0), COCO class 32 "sports ball", score
+  ≥ 0.05, on the whole frame (letterboxed 640) + native-resolution 640 px tiles (8 on 1080p), NMS, at 5 fps
+  (`--step 2`); CPU in the cloud workspace, ~0.9 s per analysed frame (not a phone number).
+- Ball path (`ball_track.py`, offline): shape filter; still things out (a candidate with another within 2% of the long
+  side in ≥ 20% of the frames within ±2 s: balls lying, lamps); then dynamic programming over all candidates: the path
+  with the best total score that moves like a ball (≤ 0.12 long sides per 100 ms, a cost per distance, gaps up to 1 s),
+  repeated for other rallies; back to 100 ms by interpolation (`low_fps.upsample`). Output = oneclick-style track, so
+  `hybrid.py` / `ball_gate.py` frame and score it.
+- Mixed tracks (`low_fps.py fuse`): `mix-det-fuse5` = the detector where its ball is trusted, else EdgeTAM's fused track
+  (test 15); `mix-fuse5-det` = the other way round.
+
+Ground truth, 17 labelled clips (mode / prec / cover as in test 15; `lab/tests/detect/report.{det,mix,mixdet}.md`):
+
+| Clip | detector finds the ball | EdgeTAM fused | detector alone | **detector + EdgeTAM** |
+|---|---|---|---|---|
+| bt-rz-1105-a (night, 1x) | 89% | 75 / 100 / 81 | 94 / 100 / 84 | **87 / 100 / 95** |
+| bt-rz-1105-b (night, 1x) | 96% | 61 / 8 / 3 | 75 / 100 / 86 | **76 / 98 / 86** |
+| bt-0AE39B33 (night) | 90% | 14 / 94 / 50 | 37 / 100 / 83 | **37 / 100 / 90** |
+| bt-E5003B6B (night) | 84% | 27 / 93 / 44 | 30 / 76 / 41 | **34 / 83 / 59** |
+| bt-rz-1105-v (night, 0.5x) | 26% | 9 / 0 / 0 | 84 / 40 / 11 | 87 / 35 / 13 |
+| yt1105-voleipraia | 54% | 56 / 88 / 42 | 59 / 92 / 46 | 75 / 88 / 56 |
+| yt1105-futevolei | 39% | 36 / 25 / 6 | 28 / 100 / 24 | 34 / 88 / 26 |
+| yt1105-bt (broadcast) | 0% | 72 / 30 / 7 | 0 / — / 0 | 72 / 30 / 7 |
+| yt-basket-04 | 61% | 96 / 94 / 89 | 56 / 96 / 50 | 100 / 92 / 87 |
+| basket-rp-1105-v-a | 46% | 100 / 89 / 82 | 57 / 83 / 27 | 100 / 87 / 80 |
+| basket-rp-1105-v-b | 23% | 99 / 51 / 32 | 35 / 89 / 14 | 99 / 61 / 40 |
+| basket-rp-1105-h | 24% | 50 / 50 / 16 | 9 / 100 / 16 | 62 / 67 / 32 |
+| basket-v-01 | 17% | 12 / 78 / 29 | 21 / 31 / 17 | 24 / 47 / 38 |
+| yt1105-basket-a | 51% | 95 / 74 / 50 | 71 / 89 / 38 | 100 / 82 / 57 |
+| yt1105-basket-b | 26% | 87 / 73 / 59 | 16 / 65 / 13 | 87 / 75 / 60 |
+| yt1105-volei-a | 49% | 84 / 91 / 80 | 46 / 68 / 24 | 90 / 83 / 62 |
+| yt1105-volei-b | 42% | 92 / 72 / 64 | 48 / 67 / 27 | 92 / 73 / 59 |
+| **mean cover / prec** | | **43% / 65%** | 35% / 81% | **56% / 76%** |
+
+- The COCO detector is strong where EdgeTAM was weakest: **night beach tennis at 1x** (it finds 84–96% of the labelled
+  balls among ~14 candidates per frame; the path picks the right one). It is weak where EdgeTAM was strong: basketball
+  and volleyball (17–61%: the ball in hands, near heads, blurred, is not a COCO "sports ball"). Night at 0.5x (ball
+  ~3 px) and the broadcast clip (yt1105-bt, 0%) fail for both.
+- Mixed, the two cover 56% of the labelled balls on average vs 43% for EdgeTAM alone and 35% for the detector alone.
+- Framing (`hybrid.py --model mix-det-fuse5 --tag mix`): videos today | ball framing on the 13 app clips (the 9
+  labelled + bt-wa-1028, volei-app-1102, basket-app-1031-a/b with ball zoom 1.25), `lab/tests/framing/<clip>.compare.mix.mp4` (deleted 2026-11-06).
+  On the 4 unlabelled app clips the mixed track keeps EdgeTAM's ball mode (78–99%; detector alone: bt-wa-1028 34%). Camera jerk on night beach tennis ~1.0–1.7 (EdgeTAM fused 0.3–1.4; v6 on
+  the approved clips 0.45): to check on video.
+- Victor (2026-11-05): "overall good, satisfying; at times (lobs) the camera goes too high and loses the players".
+  `hybrid.py --set v_keep=0.2`: the players' centre stays at least 20% of the crop's height above its bottom edge (a
+  high lob may leave the top). 9 app clips, ball-mode frames: players' centre out of the crop 3.4 → 0%, in the bottom
+  15% 8.6 → 0%; labelled balls in the crop 94.8 → 91.9% (v_keep 0.1: 93.5%, players out 0%, bottom 15% 6.4%). Videos:
+  `<clip>.compare.mix-keep.mp4` (night beach tennis + bt-wa-1028; deleted 2026-11-06, the same framing is the left side of `compare.mix-keep-vs-mix-tiny`).
+- Victor (2026-11-05): lob fix "excellent" (`v_keep=0.2` kept for the ball framing).
+- **Phone cost bench (2026-11-06)**: `lab/coreml/yolox_s.mlpackage` (YOLOX-S COCO converted with coremltools 9 in the
+  cloud workspace: image 640x640 BGR, output [1, 8400, 85], FP16, iOS 16); FocusBench soak modes **"Detector de bola a
+  5 fps (teste 17)"** (`det5`: the detector alone, whole frame + 640 px tiles, every 2nd 100 ms tick through the click,
+  read from the video) and **"Detector + 2 passadas a 5 fps (teste 17)"** (`ball5det`: the detector, then `ball5`);
+  `ios_bench.py prepare` copies the model, `results` shows the detector's seconds per clip and ms per 640 px region.
+- **Measured (2026-11-06, iPhone17,2, iOS 27.0.1, Neural Engine, attention_pairs_soft, 15 min `ball5det`,
+  `lab/tests/ios/soak.ball5det.iPhone17_2.20261106-0810.json`)**: 13 clips, identical times every round.
+  | clip | detector | pass 1 + pass 2 | total |
+  |---|---|---|---|
+  | yt-basket-04 (30 s) | 53.8 s | 13.2 + 13.2 s | **80.3 s** |
+  | yt-bt-06 (30 s) | 53.8 s | 13.2 + 13.2 s | **80.3 s** |
+  | bt-wa-1028 (~20 s) | 28.2 s | 10.4 + 8.9 s | **47.6 s** |
+  The detector costs 39 ms per 640 px region (model 38.1, prep 1.2, decode 0.1) and ~9 regions per frame (whole frame
+  + tiles) = ~360 ms per frame at 5 fps: **2x the two EdgeTAM passes; the mix is ~3x `ball5` (80 s vs 26.7 s per 30 s
+  clip)**. Thermal state nominal for all 15 min (the `ball5` soak reached fair at 7.2 min on 2026-11-05; ambient may
+  differ), battery 75% → 75% (iOS reports 5% steps). Verdict: works, but too slow for the app as it is; the cost is in
+  the tiles (8 of the ~9 inferences).
+- Cheaper detector: test 19 (two stages: 58.4 s per 30 s clip measured, mix cover 55%).
+- Next if worth it: fine-tune the detector on the sports (labels: `labels/`, 32 clips; plus public data with a
+  commercial-friendly licence) so it sees the ball in hands and in volleyball; TrackNetV3 (MIT, code and checkpoints;
+  checkpoints on Google Drive, not reachable from the lab's workspaces: Victor would download them) for small fast
+  balls from consecutive frames.
 
 ### Test 16: today's Modo Foco, a little faster and closer (2026-11-05) — `broadcast.py scores --all`
 
@@ -746,6 +1614,9 @@ the labels in `docs/focus-refs/labels/`, which is allow-listed in `docs/focus-re
 | `tools/lab/single_pass.py` | test 12: one pass with the crop following the ball; `report` scores tracks side by side | yes |
 | `tools/lab/broadcast.py`, `tools/lab/flow-probe.swift` | test 13: broadcast-camera variants (scores, renders, OpenCV flow) and the Vision optical-flow probe (Mac) | yes |
 | `tools/lab/low_fps.py`, `tools/lab/mac-lowfps.sh` | test 14: Foco na Bola at 5 fps (frames, simulation, report; the Mac run) | yes |
+| `tools/lab/ball_detect.py`, `ball_track.py`, `det_report.py`, `ball_train.py` | tests 17–18: per-frame ball detector (YOLOX ONNX), ball path, report, fine-tuning | yes |
+| `lab/tests/detect/`, `lab/train/` | test 17 detections and reports; test 18 crops (regenerable by `ball_train.py dataset`) | no |
+| `tools/lab/ball_train_pub.py`, `hard_neg.py`, `pseudo_label.py`, `path_diag.py`, `story.py`, `yolox_coreml.py` | tests 28–35: basketball detector training (public data, "not a ball" crops, automatic labels), where the path loses the ball, the 9:16 story export, Core ML for FocusBench | yes |
 | `tools/lab/ball_gate.py` | test 15: per-clip signals and the proposed rule for offering the ball framing | yes |
 | `lab/tests/gate/` | test 15 reports | no |
 | `lab/tests/lowfps/` | test 14 reports | no |
@@ -782,7 +1653,7 @@ result.
 `--model tiny | small | base_plus` picks the SAM 2.1 size (default tiny; `setup-mac.sh small` downloads another). A click recomputes only from the clicked frame on, and a newer click stops a running pass; `--backend none` runs the page without a
 model (the proposal is the last click).
 
-## Regenerate (what was deleted on 2026-11-05)
+## Regenerate (what was deleted on 2026-11-05 and 2026-11-06)
 
 Deleted to free space, all remade by the tools (run from `docs/focus-refs`):
 
@@ -794,8 +1665,166 @@ Deleted to free space, all remade by the tools (run from `docs/focus-refs`):
 | comparison videos (`lab/tests/framing/*.mp4`, `lab/tests/broadcast/*.mp4`, old `renders/*.mp4`) | `hybrid.py --model <tag> --render`, `compare_runs.py`, `broadcast.py render` |
 | `tools/lab/ios-bench/FocusBench/Data/` | `lab/.venv-edgetam/bin/python tools/lab/ios_bench.py prepare` |
 | `lab/_to_delete/`, `lab/cache/` | scratch, nothing to remake |
+| `lab/coreml/yolox_nano.mlpackage`, `yolox_tiny`, `yolox_s` | YOLOX release 0.1.1rc0 `.pth` into `lab/models/`, then `yolox_coreml.py --yolox <YOLOX source, PyPI sdist yolox-0.3.0> --name nano/tiny/s` (needs coremltools + torch) |
+| `lab/coreml/edgetam_attention_halves_soft*`, `_v1*` | `EXPORT=1 bash tools/lab/coreml-mac.sh` with the attention `--variants` (test 11) |
+| test 19 variant detections (`lab/tests/detect/*.yolox-s-r*`, `-a*`, `-g*`, `tiny-t5`, `nano-t5`, ...) | `ball_detect.py` (+ `--tile`, `--no-tiles`) and `roi_tiles.py` with the flags in test 19 |
 
 Kept (not deleted): `lab/.venv`, `lab/.venv-edgetam`, `lab/models/`, `lab/coreml/` (if removed later: `setup-mac.sh`,
 `setup-edgetam.sh`, `coreml_export.py export`); `lab/tests/**/*.json` and `*.md` (tracks, framings, reports: every number in this README), `renders/**/*.people.json`
 (Vision people per clip; remade by `tools/vision-probe.swift` on the Mac), the source videos.
+
+### Test 20 result (2026-11-06) — YOLOv8n per frame + Savitzky-Golay + 9:16 crop (`yolo_reframe_test.py`)
+
+The proposed script as written writes an empty file on 1920x1080 video (its fixed 1080x1920 crop does not fit in a
+1080-high frame, OpenCV drops every frame) and keeps every frame in RAM (killed at ~7 GB on a 20 s 1080p60 clip). Run
+with the crop at 9:16 of the source height and a second read of the video for the render; otherwise as proposed.
+11 horizontal labelled clips; "ball in crop" against a fixed centred 9:16 crop (no tracking).
+
+| Clip | Frames with a detection | Detection on the labelled ball | Ball in 9:16 crop | Fixed centre crop |
+|---|---|---|---|---|
+| basket-rp-1105-h | 0% | 0% | 88% | 88% |
+| bt-rz-1105-a | 73% | 1% | 32% | 70% |
+| bt-rz-1105-b | 95% | 5% | 36% | 71% |
+| yt-basket-04 | 5% | 8% | 83% | 57% |
+| yt1105-basket-a | 14% | 9% | 56% | 39% |
+| yt1105-basket-b | 4% | 2% | 57% | 53% |
+| yt1105-bt | 2% | 2% | 41% | 56% |
+| yt1105-futevolei | 33% | 0% | 52% | 57% |
+| yt1105-volei-a | 40% | 11% | 84% | 28% |
+| yt1105-volei-b | 22% | 22% | 92% | 55% |
+| yt1105-voleipraia | 11% | 0% | 62% | 84% |
+| **mean** | | **6%** | **62%** | **60%** |
+
+YOLOv8n finds the real ball in 6% of the labelled samples; most detections are static round things (on the night beach
+tennis clips two lamps/signs behind the court, `lab/tests/yolo-reframe/bt-rz-1105-b.detections.jpg`), so the crop
+follows them and loses the play. With no ball found the crop sits still where it last was. Wins only on the YouTube
+volleyball/basketball, where the big ball is often seen. 75–120 ms/frame on CPU. Same conclusion as test 17 (a COCO
+detector alone, here a smaller one without tiles or a path): not usable as the camera signal. Videos and scores:
+`lab/tests/yolo-reframe/`.
+
+### Test 21 result (2026-11-06) — offline Savitzky-Golay 9:16 framing per ball engine (`sg_framing.py`)
+
+Same 11 horizontal labelled clips as test 20; crop = 9:16 of the full height (today's portrait crop size); the engines'
+existing tracks (`lab/tests/oneclick/`), kept where `hybrid.trusted` accepts them; gaps up to 1 s bridged by a straight
+line; longer gaps -> today's portrait centre ("players") or the last ball ("hold"); centred Savitzky-Golay, order 2.
+Means (full table and per clip: `lab/tests/sg/summary.md`):
+
+| Engine | Ball in crop | Speed p95 (widths/s) | Direction changes /10 s |
+|---|---|---|---|
+| today's portrait Modo Foco | 61% | 0.06 | 2.3 |
+| fixed centre | 60% | 0 | 0 |
+| YOLOv8n script (test 20) | 62% | — | — |
+| YOLOX-Tiny cheap tiles, no tap, players, 1.5 s | 73% | 0.20 | 4.1 |
+| YOLOX-S + tiles, no tap, players, 1.5 s | 82% | 0.31 | 5.7 |
+| EdgeTAM 1 tap (Foco na Bola), hold, 1.0 s | 93% | 0.35 | 5.7 |
+| YOLOX-S + EdgeTAM, hold, 1.0 s | 94% | 0.36 | 6.0 |
+| hand labels (ceiling), hold, 1.0 s | 99% | 0.38 | 4.8 |
+
+- The window (0.5–1.5 s) barely changes ball in crop and lowers speed and flips: 1.0–1.5 s is free smoothness.
+- With the tap engines, "hold" beats "players" (93–95% vs 87–91%): between points the ball is near where it was.
+- Today's portrait framing is no better than a fixed centre at keeping the ball (players-only framing, test 16 note).
+- yt1105-bt stays ~50% for every engine (no engine tracks that ball); basket-rp-1105-h only with EdgeTAM.
+- Caveat: in-sample for the app clips (the trust filter and the mix were tuned on them); the yt1105 clips are validation.
+- More movement than today (even the labels' ceiling flips 4.8 per 10 s): judge on video. Side-by-side videos (today |
+  YOLOX-S players 1.5 s | YOLOX-S + EdgeTAM hold 1.0 s): `lab/tests/sg/<clip>.compare.mp4` for bt-rz-1105-b,
+  yt1105-basket-a, yt1105-volei-a, basket-rp-1105-h.
+
+### Test 22 result (2026-11-06) — dead zone + smoothest path (`sg_lazy.py`)
+
+Victor on test 21's videos: the camera looked uncontrolled and abrupt. Here the crop centre minimises (ball outside a
+central band of +-dz crop widths)^2 + a (speed)^2 + b (acceleration)^2, offline (active-set least squares); target as
+test 21 with fallback "hold" (weight 0.2 on fallback frames). Grid dz 0.10/0.20/0.30, a 1/10, b 100/1000/10000:
+`lab/tests/sg/lazy-summary.md`. Picked dz 0.20, a 10, b 1000:
+
+| Engine | Ball in crop | Speed p95 (widths/s) | Direction changes /10 s |
+|---|---|---|---|
+| today's portrait Modo Foco | 61% | 0.06 | 2.3 |
+| YOLOX-S + tiles, no tap | 81% | 0.08 | 0.8 |
+| YOLOX-S + EdgeTAM, 1 tap | 92% | 0.09 | 1.1 |
+
+Ball in crop costs 1–2 points vs test 21 while the camera moves about as fast as today's and changes direction less.
+b = 10000 is calmer still (0.7 flips) for ~2–4 points less. Videos (today | no tap | 1 tap):
+`lab/tests/sg/<clip>.lazy.mp4` for bt-rz-1105-b, yt1105-basket-a, yt1105-volei-a, basket-rp-1105-h.
+
+**Verdict (Victor, 2026-11-06): very good on video, especially "1 toque - zona 0.20" (YOLOX-S + EdgeTAM, dz 0.20,
+a 10, b 1000): the version to take forward. No tap loses the ball at times.** Same camera on the cheaper 1-tap engines
+(`lazy-summary-cheap.md`): EdgeTAM alone (edgetam-fuse5, 26.7 s per 30 s clip on the 16 Pro Max) 89% / 1.3 flips;
+YOLOX-Tiny cheap tiles + EdgeTAM (mix-tiny-n-a3k2, phone cost not measured) 91% / 1.5; YOLOX-S all tiles + EdgeTAM
+(80.3 s; 58.4 s with test 19's two stages) 92% / 1.1.
+
+### Test 23 result (2026-11-06) — the calm 1-tap camera on the app clips (`sg_lazy2.py`)
+
+Test 22's camera (dz 0.20, a 10, b 1000, fallback hold) on the 9 labelled app clips. Crop size per frame = today's
+portrait Modo Foco crop (vertical sources keep today's zoom); the lazy path runs on x and on y. Ball in crop counts both.
+| Clip | Source | Labels | Ball in crop: today | EdgeTAM alone | YOLOX-S + EdgeTAM | Direction changes /10 s: today | EdgeTAM | mix |
+|---|---|---|---|---|---|---|---|---|
+| bt-rz-1105-a | horizontal | 73 | 55% | 93% | 97% | 3.2 | 2.1 | 1.1 |
+| bt-rz-1105-b | horizontal | 73 | 44% | 88% | 96% | 2.5 | 1.0 | 1.0 |
+| basket-rp-1105-h | horizontal | 25 | 72% | 100% | 100% | 0.0 | 0.0 | 0.0 |
+| bt-rz-1105-v | vertical | 54 | 100% | 100% | 94% | 1.4 | 0.0 | 0.0 |
+| bt-0AE39B33 | vertical | 30 | 63% | 100% | 97% | 3.3 | 0.3 | 1.3 |
+| bt-E5003B6B | vertical | 32 | 78% | 91% | 100% | 4.3 | 3.0 | 3.3 |
+| basket-v-01 | vertical | 24 | 100% | 100% | 100% | 0.0 | 0.0 | 0.0 |
+| basket-rp-1105-v-a | vertical | 109 | 100% | 100% | 100% | 2.9 | 1.7 | 1.7 |
+| basket-rp-1105-v-b | vertical | 57 | 100% | 100% | 100% | 0.7 | 0.7 | 0.7 |
+| **mean** | | | 79% | 97% | 98% | 2.0 | 1.0 | 1.0 |
+
+Same quality for both engines (the mix wins on night beach tennis bt-rz-1105-b, loses on bt-rz-1105-v where the detector
+took something else); EdgeTAM alone is 2–3x cheaper on the phone (26.7 s vs 58–80 s per 30 s clip). Vertical clips:
+today's zoomed framing already keeps the ball on most; the gain is on horizontal clips and beach tennis. Videos (today |
+EdgeTAM alone | YOLOX-S + EdgeTAM): `lab/tests/sg/<clip>.lazy2.mp4` for bt-0AE39B33, bt-E5003B6B, bt-rz-1105-a,
+basket-rp-1105-v-a, basket-rp-1105-v-b.
+
+### Test 24 result (2026-11-06) — y at the players' height, native orientation (`sg_lazy3.py`)
+
+Victor on test 23: the camera sat too high on some clips (bt-0AE39B33); and why was everything vertical (test 20's script
+cropped 9:16; kept for comparison only, the app frames in the orientation recorded). Fix: x unchanged (dead zone 0.20);
+y = today's height (anchor weight 0.05) moved only to keep a trusted / bridged ball 15% below the crop's top and 10%
+above its bottom; no ball -> back to the players. Output: today's landscape crop for horizontal sources, portrait for
+vertical (`--aspect portrait` for test 23's 9:16 everywhere).
+| Clip | Output | Labels | Ball in crop: today | EdgeTAM alone | YOLOX-S + EdgeTAM | Direction changes /10 s: today | EdgeTAM | mix | Crop centre y, mean: today | EdgeTAM | mix |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| bt-rz-1105-a | landscape | 73 | 95% | 96% | 100% | 0.5 | 0.5 | 2.1 | 0.53 | 0.53 | 0.49 |
+| bt-rz-1105-b | landscape | 73 | 86% | 88% | 100% | 1.0 | 0.5 | 1.5 | 0.53 | 0.52 | 0.45 |
+| basket-rp-1105-h | landscape | 25 | 100% | 100% | 100% | 1.2 | 0.0 | 0.0 | 0.58 | 0.58 | 0.58 |
+| bt-rz-1105-v | portrait | 54 | 100% | 100% | 94% | 1.4 | 0.0 | 0.0 | 0.48 | 0.48 | 0.48 |
+| bt-0AE39B33 | portrait | 30 | 63% | 83% | 97% | 3.3 | 1.0 | 2.0 | 0.54 | 0.54 | 0.51 |
+| bt-E5003B6B | portrait | 32 | 78% | 84% | 91% | 4.3 | 2.7 | 2.7 | 0.52 | 0.50 | 0.50 |
+| basket-v-01 | portrait | 24 | 100% | 100% | 100% | 0.0 | 0.0 | 0.0 | 0.54 | 0.54 | 0.54 |
+| basket-rp-1105-v-a | portrait | 109 | 100% | 100% | 100% | 2.9 | 2.1 | 2.1 | 0.66 | 0.66 | 0.66 |
+| basket-rp-1105-v-b | portrait | 57 | 100% | 100% | 100% | 0.7 | 0.7 | 0.7 | 0.53 | 0.53 | 0.53 |
+| **mean** | | | 91% | 95% | 98% | 1.7 | 0.8 | 1.2 | | | |
+
+Horizontal clips in 16:9: today's landscape Modo Foco already keeps the ball well (86–100%); the mix reaches 100% on all
+three. Vertical: the lower camera costs EdgeTAM alone some high balls (bt-0AE39B33 100 → 83%), the mix keeps 97%.
+Videos (today | EdgeTAM alone | YOLOX-S + EdgeTAM; stacked for 16:9): `lab/tests/sg/<clip>.lazy3.mp4` for bt-0AE39B33,
+bt-E5003B6B, bt-rz-1105-a, bt-rz-1105-b.
+
+### Test 25 result (2026-11-06) — horizontal clips: 16:9 at 1.5x and the 9:16 export
+
+Victor on test 24: the camera barely moved. Cause: today's landscape crop is wide (zoom ~1.1–1.3x), so the ball rarely
+leaves a 0.20 dead zone of it; on vertical clips y now stays at the players. Test 22 (the version Victor picked) was the
+9:16 crop (32% of the width) with YOLOX-S + EdgeTAM. Two outputs for horizontal clips, same camera as test 24:
+
+| Clip | 16:9 at 1.5x: today / EdgeTAM / mix | flips /10 s | 9:16 export: today / EdgeTAM / mix | flips /10 s |
+|---|---|---|---|---|
+| bt-rz-1105-a | 95% / 90% / 100% | 0.5 / 1.6 / 2.6 | 55% / 93% / 97% | 3.2 / 2.1 / 1.1 |
+| bt-rz-1105-b | 86% / 77% / 96% | 1.0 / 1.0 / 2.0 | 44% / 88% / 96% | 2.5 / 1.0 / 1.0 |
+| basket-rp-1105-h | 100% / 100% / 100% | 1.2 / 0 / 0 | 72% / 100% / 100% | 0 / 0 / 0 |
+
+("today" in the 16:9 column is today's own landscape framing at its own zoom.) Videos: `lab/tests/sg/<clip>.lazy3-z15.mp4`
+(16:9, panels stacked) and `<clip>.lazy3-916.mp4` (9:16) for bt-rz-1105-a and bt-rz-1105-b. Summaries:
+`lazy3-summary-native-z15.md`, `lazy3-summary-portrait-916.md`.
+
+**Victor (2026-11-06): no horizontal -> vertical conversion in the app, so the 9:16 export is out.** Evaluation set for
+the candidate (test 22's "1 toque - zona 0.20" = YOLOX-S + EdgeTAM, dz 0.20, a 10, b 1000, with test 24's height fix,
+native orientation, today's zoom): today | candidate on all 9 labelled app clips, `lab/tests/sg/<clip>.lazy3-final.mp4`
+(`sg_lazy3.py --render <clip> --only mix-det-fuse5 --suffix=-final`). Scores = the mix column of
+`lazy3-summary-native.md` (ball in crop 91% today → 98%, direction changes 1.7 → 1.2 per 10 s).
+
+Horizontal clips, candidate at today's zoom vs a fixed 1.5x (`--zoom 1.5 --suffix=-final-z15`), 11 horizontal labelled
+clips (3 app + 8 YouTube): today's landscape zoom is already 1.13–1.43x (mean ~1.27). Ball in crop / direction changes
+per 10 s: today 88% / 2.2; candidate at today's zoom 99% / 1.7; candidate at 1.5x 98% / 1.8. Videos (today on top):
+`lab/tests/sg/<clip>.lazy3-final-z15.mp4` for bt-rz-1105-a, bt-rz-1105-b, basket-rp-1105-h, yt1105-volei-a,
+yt1105-voleipraia.
 

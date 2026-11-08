@@ -36,8 +36,31 @@ def labelled_clips(mode: str = "ball") -> list[str]:
 
 
 def clip_meta(name: str) -> dict:
-    with open(os.path.join(FRAMES, name, "frames.json")) as f:
-        return json.load(f)
+    """The clip's frames.json (extract.sh); when the frames were deleted (2026-11-05 cleanup), the same fields from
+    clips.txt and the video (no frames needed for the scores and reports)."""
+    path = os.path.join(FRAMES, name, "frames.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    import subprocess
+    with open(os.path.join(HERE, "clips.txt")) as f:
+        rows = [l.strip().split("|") for l in f if l.strip() and not l.startswith("#")]
+    row = next((r for r in rows if r[0] == name), None)
+    if row is None:
+        raise FileNotFoundError(f"{name}: not in clips.txt and no frames.json")
+    _, video, start, dur, sport = row[:5]
+    st = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_streams", "-of", "json",
+                                    os.path.join(ROOT, video)], capture_output=True, text=True, check=True).stdout)["streams"][0]
+    w, h = st["width"], st["height"]
+    rot = int(st.get("tags", {}).get("rotate", 0))
+    for side in st.get("side_data_list", []):
+        if "rotation" in side:
+            rot = int(side["rotation"])
+    if abs(rot) % 180 == 90:
+        w, h = h, w
+    size = [1280, round(h * 1280 / w / 2) * 2] if w >= h else [round(w * 1280 / h / 2) * 2, 1280]
+    return {"name": name, "video": video, "startMs": int(start), "durMs": int(dur), "sport": sport, "stepMs": 100,
+            "fps": 10, "count": int(dur) // 100, "size": size}
 
 
 def load_truth(name: str, mode: str = "ball", long_none_ms: int = 2000) -> dict:

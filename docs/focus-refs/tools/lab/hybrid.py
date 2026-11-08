@@ -71,6 +71,15 @@ ROUND5 = dict(main_min=0.0, jump_cap=10 ** 6, bridge_near=0)
 # the ramps in and out as smoothstep (slow start, slow end) instead of a straight line; try with a longer ramp_out,
 # e.g. --set ease=1 --set ramp_out=7. Off by default (round 6 unchanged).
 T.update(ease=0)
+# Test 17 (Victor, 2026-11-05, mixed detector + EdgeTAM videos: "on lobs the camera goes too high and loses the players"):
+# v_keep > 0 caps how high the ball rect may go: the players' centre (today's framing) stays at least v_keep of the
+# crop's height above its bottom edge; on a high lob the ball may leave the top instead. 0 = off (round 6).
+T.update(v_keep=0.0)
+# Test 19 (Victor, 2026-11-06, bt-rz-1105-v with the Tiny detector: the ball found in short bursts makes the zoom open
+# and close quickly): min_seg > 0 drops ball segments shorter than min_seg frames (100 ms each), so a short find does
+# not zoom in; zoom_rate > 0 limits how fast the crop's size may change (zoom factor per second, both ways), the centre
+# unchanged. 0 = off (round 6).
+T.update(min_seg=0, zoom_rate=0.0)
 
 
 def gauss(values, sigma):
@@ -235,7 +244,7 @@ def ball_mode(tr, size=None):
             merged[-1][1] = s[1]
         else:
             merged.append(list(s))
-    return [s for s in merged if sum(ok[s[0]:s[1] + 1]) >= T["enter"]]
+    return [s for s in merged if sum(ok[s[0]:s[1] + 1]) >= T["enter"] and s[1] - s[0] + 1 >= T["min_seg"]]
 
 
 def vertical_camera(by, segs, players=None, h=None):
@@ -259,6 +268,10 @@ def vertical_camera(by, segs, players=None, h=None):
                 env[j] = hi if lo > hi else min(max(py, lo), hi)
         else:
             env = top
+        if T["v_keep"] and players is not None:
+            for j, k in enumerate(range(a, b + 1)):
+                py = players[k][1] + players[k][3] / 2
+                env[j] = max(env[j], py - h / 2 + T["v_keep"] * h)  # y grows downwards: not higher than this
         y = np.empty_like(env)
         y[0] = env[0]
         for k in range(1, len(env)):
@@ -328,6 +341,18 @@ def hybrid_rects(players, tr, size, zoom):
         arr[:, j] = gauss(arr[:, j], T["final_sigma"])
     arr[:, 2] = np.clip(arr[:, 2], 1 / max(zoom, bz), 1)
     arr[:, 3] = np.clip(arr[:, 3], 1 / max(zoom, bz), 1)
+    if T["zoom_rate"] > 0:  # limit the zoom speed (on the log of the size: the same feel zooming in and out)
+        for j in (2, 3):
+            lz = np.log(arr[:, j])
+            step = math.log(1 + T["zoom_rate"]) * 0.1
+            fw, bw = lz.copy(), lz.copy()
+            for k in range(1, n):
+                fw[k] = min(max(lz[k], fw[k - 1] - step), fw[k - 1] + step)
+            for k in range(n - 2, -1, -1):
+                bw[k] = min(max(fw[k], bw[k + 1] - step), bw[k + 1] + step)
+            cx = arr[:, j - 2] + arr[:, j] / 2
+            arr[:, j] = np.exp(bw)
+            arr[:, j - 2] = cx - arr[:, j] / 2
     arr[:, 0] = np.clip(arr[:, 0], 0, 1 - arr[:, 2])
     arr[:, 1] = np.clip(arr[:, 1], 0, 1 - arr[:, 3])
     return arr.tolist(), mode, segs
@@ -374,7 +399,8 @@ def rect_at(t_ms, rects):
     return [rects[i][k] + (rects[i + 1][k] - rects[i][k]) * f for k in range(4)]
 
 
-def render(name, meta, cur, hyb, tr, mode, truth, out_path):
+def render(name, meta, cur, hyb, tr, mode, truth, out_path, labels=("Modo Foco atual", "Hibrido (bola)"),
+           legend="laranja: atual  verde: hibrido  ponto: bola do SAM 2  anel: gabarito"):
     import cv2
 
     video = os.path.join(ev.ROOT, meta["video"])
@@ -446,18 +472,18 @@ def render(name, meta, cur, hyb, tr, mode, truth, out_path):
         if tr[i] is not None:
             cv2.circle(left, (int(tr[i][0] * W * s), int(tr[i][1] * H * s)), 6, (63, 242, 214), -1, cv2.LINE_AA)
         text(left, f"{t / 1000:4.1f}s  {'BOLA' if mode[i] else 'jogadores'}", (12, 28))
-        text(left, "laranja: atual  verde: hibrido  ponto: bola do SAM 2  anel: gabarito", (12, ph - 14), 0.45)
+        text(left, legend, (12, ph - 14), 0.45)
         if portrait:
             a = crop(frame, rc, pw, ph)
             b = crop(frame, rh_, pw, ph)
-            text(a, "Modo Foco atual", (12, 28))
-            text(b, "Hibrido (bola)", (12, 28))
+            text(a, labels[0], (12, 28))
+            text(b, labels[1], (12, 28))
             img = np.hstack([left, a, b])
         else:
             a = crop(frame, rc, 640, 360)
             b = crop(frame, rh_, 640, 360)
-            text(a, "Modo Foco atual", (12, 28))
-            text(b, "Hibrido (bola)", (12, 28))
+            text(a, labels[0], (12, 28))
+            text(b, labels[1], (12, 28))
             img = np.vstack([left, np.hstack([a, b])])
         enc.stdin.write(np.ascontiguousarray(img).tobytes())
         n += 1
