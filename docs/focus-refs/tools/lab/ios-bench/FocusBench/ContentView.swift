@@ -90,6 +90,7 @@ final class BenchModel: ObservableObject {
     @Published var files: [URL] = []
     @Published var error = ""
     @Published var soakMode = "ball"
+    @Published var detectorChoice = "yolox_s@640"  // lab test 19: model @ tile side in video px
     @Published var soakMinutes = 30
     @Published var soakLines: [String] = []
     private var stopFlag = false
@@ -245,6 +246,7 @@ final class BenchModel: ObservableObject {
         let first = UnitChoice.all.first { selectedUnits.contains($0.key) } ?? UnitChoice.all[0]
         let config = mixed ? RunConfig.mixed(perModel) : RunConfig.same(first)
         let attentionFile = self.attentionFile
+        let detectorChoice = self.detectorChoice
         let brightness = Double(UIScreen.main.brightness)
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmm"
@@ -260,6 +262,20 @@ final class BenchModel: ObservableObject {
                     models = try EdgeTAMModels(units: config.units, attentionFile: attentionFile)
                 }
                 let context = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
+                // lab test 17: the per-frame ball detector (alone, or before the two EdgeTAM passes at 5 fps)
+                // lab test 19: the detector's model and tile side ("yolox_tiny@416"), and the two-stage modes (a3)
+                var detector: BallDetector?
+                let detectorParts = detectorChoice.split(separator: "@").map(String.init)
+                let detectorName = detectorParts.isEmpty ? "yolox_s" : detectorParts[0]
+                var detectorTile = 640
+                if detectorParts.count > 1, let t = Int(detectorParts[1]) {
+                    detectorTile = t
+                }
+                let detectorAnchor = mode.hasSuffix("a3") ? 3 : 0
+                if mode.hasPrefix("det5") || mode.hasPrefix("ball5det") {
+                    self.post("loading the ball detector (\(detectorName), tiles \(detectorTile) px)...")
+                    detector = try BallDetector(context: context, name: detectorName, tile: detectorTile)
+                }
                 let start = now()
                 let startBattery = batteryPercent()
                 var rows: [[String: Any]] = []
@@ -277,7 +293,35 @@ final class BenchModel: ObservableObject {
                     while outcome == nil {
                       do {
                         outcome = try autoreleasepool { () throws -> SoakResult in
+                        if let d = detector, mode.hasPrefix("det5") {
+                            let r = try ballDetectPass(clip, detector: d, step: 2, anchor: detectorAnchor, k: 2,
+                                                       shouldStop: { self.stopFlag })
+                            var res = SoakResult()
+                            res.seconds = r.seconds
+                            res.frames = r.frames
+                            res.detail["detS"] = round1(r.seconds)
+                            res.detail["detCandidates"] = r.candidates
+                            res.detail["detRegions"] = round1(Double(r.regions) / Double(max(r.frames, 1)))
+                            res.detail["detMs"] = ["prep": d.timing.stats("detPrep")["median"] ?? 0,
+                                                   "model": d.timing.stats("detModel")["median"] ?? 0,
+                                                   "decode": d.timing.stats("detDecode")["median"] ?? 0]
+                            return res
+                        }
                         if let m = models {
+                            if let d = detector, mode.hasPrefix("ball5det") {
+                                let r = try ballDetectPass(clip, detector: d, step: 2, anchor: detectorAnchor, k: 2,
+                                                           shouldStop: { self.stopFlag })
+                                var res = try ballClip(clip, models: m, noMem: constants.noMemEmbed, context: context,
+                                                       steps: (2, 2), shouldStop: { self.stopFlag })
+                                res.seconds += r.seconds
+                                res.detail["detS"] = round1(r.seconds)
+                                res.detail["detCandidates"] = r.candidates
+                                res.detail["detRegions"] = round1(Double(r.regions) / Double(max(r.frames, 1)))
+                                res.detail["detMs"] = ["prep": d.timing.stats("detPrep")["median"] ?? 0,
+                                                       "model": d.timing.stats("detModel")["median"] ?? 0,
+                                                       "decode": d.timing.stats("detDecode")["median"] ?? 0]
+                                return res
+                            }
                             if mode == "ball1" || mode == "ball1_5" {
                                 return try ballOnePassClip(clip, models: m, noMem: constants.noMemEmbed, context: context,
                                                            step: mode == "ball1_5" ? 2 : 1,
@@ -319,6 +363,7 @@ final class BenchModel: ObservableObject {
                     let report: [String: Any] = [
                         "kind": "soak", "mode": mode, "device": machineName(), "os": UIDevice.current.systemVersion,
                         "units": config.key, "attentionFile": attentionFile, "minutes": minutes,
+                        "detector": mode.contains("det") ? detectorChoice : "",
                         "brightness": round1(brightness * 100) / 100,
                         "lowPower": ProcessInfo.processInfo.isLowPowerModeEnabled, "startBattery": startBattery,
                         "rows": rows,
@@ -507,6 +552,16 @@ struct ContentView: View {
                         Text("Bola: 2 passadas a 5 fps (teste 14)").tag("ball5")
                         Text("Bola: passada 1 a 3,3 fps + passada 2 a 5 fps (teste 14)").tag("ball35")
                         Text("Bola: 1 passada a 5 fps (teste 14)").tag("ball1_5")
+                        Text("Detector de bola a 5 fps (teste 17)").tag("det5")
+                        Text("Detector + 2 passadas a 5 fps (teste 17)").tag("ball5det")
+                        Text("Detector em 2 etapas a 5 fps (teste 19)").tag("det5a3")
+                        Text("Detector em 2 etapas + 2 passadas a 5 fps (teste 19)").tag("ball5deta3")
+                    }
+                    Picker("Detector", selection: $bench.detectorChoice) {
+                        Text("YOLOX-S (640)").tag("yolox_s@640")
+                        Text("YOLOX-Tiny (416, recortes 640)").tag("yolox_tiny@640")
+                        Text("YOLOX-Tiny (416, recortes 416)").tag("yolox_tiny@416")
+                        Text("Bola basquete ball_tiny_hn (416, recortes 416, teste 34)").tag("ball_tiny_hn@416")
                     }
                     Stepper("Minutes: \(bench.soakMinutes)", value: $bench.soakMinutes, in: 5...90, step: 5)
                     Button("Start soak") {

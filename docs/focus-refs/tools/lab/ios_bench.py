@@ -72,6 +72,13 @@ def cmd_prepare(a):
         shutil.copytree(os.path.join(COREML, f"edgetam_attention_{v}.mlpackage"),
                         os.path.join(DATA, f"edgetam_attention_{v}.mlpackage"))
     shutil.copy(os.path.join(COREML, "edgetam_constants.json"), DATA)
+    # lab test 17: the per-frame ball detector (YOLOX-S COCO, made in the cloud workspace with coremltools)
+    # test 19: also YOLOX-Tiny / Nano (tools/lab/yolox_coreml.py)
+    # test 34: and the lab's one-class ball detectors (yolox_coreml.py --ball ball_tiny_hn -> ball_tiny_hn.mlpackage)
+    balls = sorted(x[:-len(".mlpackage")] for x in os.listdir(COREML) if x.startswith("ball_") and x.endswith(".mlpackage"))
+    for name in ("yolox_s", "yolox_tiny", "yolox_nano", *balls):
+        if os.path.isdir(os.path.join(COREML, f"{name}.mlpackage")):
+            shutil.copytree(os.path.join(COREML, f"{name}.mlpackage"), os.path.join(DATA, f"{name}.mlpackage"))
     done = []
     for clip in a.clips:
         src = os.path.join(ev.FRAMES, f"{clip}@{a.variant}")
@@ -149,6 +156,13 @@ def passes(rows):
 
 def work_ms(rows):
     """The last column: the ball passes, or (test 13, mode peopleflow) Vision flow + scaling ms per tick."""
+    if "detS" in rows[0]:
+        det = (f"detector {np.median([x['detS'] for x in rows]):.1f} s per clip "
+               f"(model {np.median([x['detMs']['model'] for x in rows]):.1f} ms, prep "
+               f"{np.median([x['detMs']['prep'] for x in rows]):.1f} ms per region"
+               + (f", {np.median([x['detRegions'] for x in rows]):.1f} regions per frame" if "detRegions" in rows[0] else "")
+               + ")")
+        return det + ("; " + passes(rows) if "pass1S" in rows[0] else "")
     if "flowMsMedian" in rows[0]:
         return (f"flow {np.median([x['flowMsMedian'] for x in rows]):.1f} ms + scale "
                 f"{np.median([x['flowScaleMsMedian'] for x in rows]):.1f} ms per tick")
