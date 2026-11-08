@@ -79,8 +79,12 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   const watchOn = Platform.OS === 'ios' && watch === 'ready' && triggerAllowed('watch', state.paid ? 'paid' : 'free');
   const { t, locale } = useT();
   const [now, setNow] = useState(() => Date.now());
-  const [dismissed, setDismissed] = useState<string>();
+  // The saved card, keyed by the save's moment: it shows as the save starts (with the sound and the torch) and stays
+  // the same card when the file is written.
+  const [dismissed, setDismissed] = useState<number>();
   const last = state.lastSaved;
+  const pending = state.pendingSave;
+  const shown = pending !== undefined ? pending : last;
   // Screen economy (thermal work, item 2): dark after a while without a touch; any touch brings it back. The tap that
   // wakes the screen only wakes it (the player checking it still records), so it saves no clip; the triggers keep saving.
   // TEMP(diag-remote): the Diagnóstico screen can turn it off, to compare the remote with and without it.
@@ -168,11 +172,24 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   }, [stepFor]);
   const showStep = stepKey !== undefined && stepFor === stepKey && stepGone !== stepKey;
 
+  const shownAt = shown === undefined ? undefined : shown.at;
   useEffect(() => {
-    if (!last) return;
-    const hide = setTimeout(() => setDismissed(last.clipId), OVERLAY_MS);
+    if (shownAt === undefined) return;
+    const hide = setTimeout(() => setDismissed(shownAt), OVERLAY_MS);
     return () => clearTimeout(hide);
-  }, [last]);
+  }, [shownAt]);
+
+  // Desfazer tapped before the file was written: done as soon as the clip exists.
+  const undoAt = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (undoAt.current === undefined || last === undefined || last.at !== undoAt.current) return;
+    undoAt.current = undefined;
+    undoLast();
+  }, [last, undoLast]);
+  function undoShown() {
+    if (pending !== undefined) undoAt.current = pending.at;
+    else undoLast();
+  }
 
   /**
    * After a game: its summary, or — with no clip to show — straight to Minhas gravações, the empty game removed. The
@@ -253,7 +270,7 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
     );
   }
 
-  const showOverlay = last !== undefined && dismissed !== last.clipId;
+  const showOverlay = shown !== undefined && dismissed !== shown.at;
   // The other ways that are on, one short tag each (2026-11-01: a line of "ou … ou … ou" was hard to read). Tapping the
   // screen always works, so it is the main line; a way that is off is not shown at all.
   const ways = [
@@ -370,7 +387,7 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
         </View>
       </SafeAreaView>
 
-      {showOverlay ? <SavedOverlay number={last.number} source={last.source} cutMs={last.cutMs} onUndo={undoLast} /> : null}
+      {showOverlay ? <SavedOverlay number={shown.number} source={shown.source} cutMs={shown.cutMs} onUndo={undoShown} /> : null}
     </View>
   );
 }

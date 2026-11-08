@@ -73,6 +73,24 @@ test('tapping the screen saves a clipe', async () => {
   expect(s.trigger).toHaveBeenCalledWith('screen');
 });
 
+test('the saved card shows as the save starts, with the sound and the torch, before the file is written', async () => {
+  session({ clipCount: 3, saving: true, pendingSave: { number: 4, source: 'remote', at: Date.now(), cutMs: 15000 } });
+  await render(<Recording />);
+  expect(screen.getByText('CLIPE #4 SALVO')).toBeTruthy();
+});
+
+test('Desfazer tapped before the file is written undoes the clip once it exists', async () => {
+  const at = Date.now();
+  const s = session({ clipCount: 0, saving: true, pendingSave: { number: 1, source: 'remote', at, cutMs: 15000 } });
+  const view = await render(<Recording />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Desfazer' }));
+  expect(s.undoLast).not.toHaveBeenCalled();
+  session({ clipCount: 1, lastSaved: { clipId: 'c1', number: 1, source: 'remote', at, cutMs: 15000 } });
+  const again = jest.requireMock('../../session/SessionContext').useSession();
+  await view.rerender(<Recording />);
+  expect(again.undoLast).toHaveBeenCalledTimes(1);
+});
+
 test('a saved clipe shows the overlay with its number and source', async () => {
   session({ clipCount: 3, lastSaved: { clipId: 'c3', number: 3, source: 'gesture', at: Date.now(), cutMs: 30000 } });
   await render(<Recording />);

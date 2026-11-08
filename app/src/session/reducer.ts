@@ -13,6 +13,11 @@ export type SessionState = {
   clipCount: number;
   /** `cutMs`: how much of the video the clip actually holds (can be less than the length asked for). */
   lastSaved?: { clipId: string; number: number; source: TriggerSource; at: number; cutMs: number };
+  /**
+   * A save under way: shown at once, with the sound and the torch, while the file is still being written (the card
+   * waiting for the file came a beat after them, 2026-11-07). Gone when the save ends either way.
+   */
+  pendingSave?: { number: number; source: TriggerSource; at: number; cutMs: number };
   saving: boolean;
   paused: boolean;
   /** `quality`: what the camera records now, when the native side says (it steps down as the phone heats up). */
@@ -34,7 +39,7 @@ export type SessionAction =
   | { type: 'startRequested' }
   | { type: 'started'; sessionId: string; startedAt: number; paid: boolean; bufferSeconds: number }
   | { type: 'startFailed'; code: ReplayErrorCode }
-  | { type: 'saveStarted' }
+  | { type: 'saveStarted'; source: TriggerSource; at: number; cutMs: number }
   | { type: 'saved'; sessionId: string; clipId: string; source: TriggerSource; at: number; cutMs: number }
   | { type: 'saveFailed'; sessionId: string }
   | { type: 'undone'; clipId: string }
@@ -87,7 +92,11 @@ export function reducer(state: SessionState, action: SessionAction): SessionStat
     case 'startFailed':
       return { ...initialState, camera: state.camera, error: action.code };
     case 'saveStarted':
-      return { ...state, saving: true };
+      return {
+        ...state,
+        saving: true,
+        pendingSave: { number: state.clipCount + 1, source: action.source, at: action.at, cutMs: action.cutMs },
+      };
     case 'saved': {
       // A save that finished after its game ended (stop → Nova gravação) must not touch the new game.
       if (action.sessionId !== state.sessionId) return state;
@@ -95,12 +104,13 @@ export function reducer(state: SessionState, action: SessionAction): SessionStat
       return {
         ...state,
         saving: false,
+        pendingSave: undefined,
         clipCount: number,
         lastSaved: { clipId: action.clipId, number, source: action.source, at: action.at, cutMs: action.cutMs },
       };
     }
     case 'saveFailed':
-      return action.sessionId === state.sessionId ? { ...state, saving: false } : state;
+      return action.sessionId === state.sessionId ? { ...state, saving: false, pendingSave: undefined } : state;
     case 'undone':
       return {
         ...state,

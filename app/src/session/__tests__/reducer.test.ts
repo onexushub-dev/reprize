@@ -33,7 +33,7 @@ test('start failure returns to idle with the error code', () => {
 });
 
 test('saved increments the count and sets lastSaved', () => {
-  const s = reducer(reducer(recording(), { type: 'saveStarted' }), {
+  const s = reducer(reducer(recording(), { type: 'saveStarted', source: 'screen', at: 1, cutMs: 3000 }), {
     type: 'saved',
     sessionId: 's1',
     clipId: 'c1',
@@ -42,6 +42,16 @@ test('saved increments the count and sets lastSaved', () => {
     cutMs: 7000,
   });
   expect(s).toMatchObject({ saving: false, clipCount: 1, lastSaved: { clipId: 'c1', number: 1, source: 'gesture', at: 5, cutMs: 7000 } });
+});
+
+test('a save under way shows at once as the next clip, and leaves when it ends either way', () => {
+  const started = reducer(recording({ clipCount: 2 }), { type: 'saveStarted', source: 'remote', at: 9, cutMs: 15000 });
+  expect(started.pendingSave).toEqual({ number: 3, source: 'remote', at: 9, cutMs: 15000 });
+  const saved = reducer(started, { type: 'saved', sessionId: 's1', clipId: 'c3', source: 'remote', at: 9, cutMs: 15000 });
+  expect(saved.pendingSave).toBeUndefined();
+  const failed = reducer(started, { type: 'saveFailed', sessionId: 's1' });
+  expect(failed.pendingSave).toBeUndefined();
+  expect(failed.clipCount).toBe(2);
 });
 
 test('undone decrements the count and clears lastSaved', () => {
