@@ -41,6 +41,7 @@ import { freeLosses } from "../../share/exportOptions";
 import { useBatchActions } from "../../share/useBatchActions";
 import { useT } from "../../i18n/useT";
 import { useSession } from "../../session/SessionContext";
+import { focusQueue } from "../../focus/appFocusQueue";
 import { colors, fonts } from "../../theme/tokens";
 
 export default function SessionSummary() {
@@ -61,6 +62,9 @@ export default function SessionSummary() {
   );
 
   const plan = useViewPlan(id);
+
+  // Modo Foco analyses this recording's clips while its screen is open (and the camera is off), not before.
+  useEffect(() => focusQueue.openRecording(id), [id]);
 
   const [name, setName] = useState(() => session?.name ?? "");
   const saveName = () => {

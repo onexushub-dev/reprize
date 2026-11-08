@@ -51,7 +51,7 @@ jest.mock('../../../modules/replay-camera', () => ({
   isFocusSupported: jest.fn(() => true),
 }));
 jest.mock('../../analytics', () => ({ track: jest.fn(), sessionSummary: { note: jest.fn() } }));
-jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn() } }));
+jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
 jest.mock('../../data/focusFile', () => ({ ...jest.requireActual('../../data/focusFile'), readFocusFile: jest.fn(() => undefined) }));
 jest.mock('../../components/useReduceMotion', () => ({ useReduceMotion: jest.fn(() => false) }));
 jest.mock('../../share/ZoomableVideo', () => {

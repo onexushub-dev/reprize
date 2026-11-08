@@ -70,6 +70,7 @@ jest.mock("../../data/mmkv", () => {
     flashOnSave: true,
     voiceEnabled: false,
     screenEconomy: true,
+    prepareTipSeen: true, // the "Prepare o celular" sheet has its own tests
   };
   let prefs: any = { ...initial };
   return {
@@ -460,6 +461,43 @@ test("the gesture tile toggles the gesture preference", async () => {
       }),
     }),
   );
+});
+
+describe('"Prepare o celular" before a recording (2026-11-08)', () => {
+  test('shown before the first start; "Entendi, começar" starts and hides it for good', async () => {
+    repo.setPrefs({ prepareTipSeen: undefined });
+    const s = session({});
+    await render(<Setup />);
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Começar gravação" }),
+    );
+    expect(s.start).not.toHaveBeenCalled();
+    expect(screen.getByText("Sem capinha")).toBeTruthy();
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Entendi, começar" }),
+    );
+    expect(s.start).toHaveBeenCalledWith("quadra");
+    expect(repo.getPrefs().prepareTipSeen).toBe(true);
+  });
+
+  test('with "Não mostrar de novo" off it comes back next time', async () => {
+    repo.setPrefs({ prepareTipSeen: undefined });
+    const s = session({});
+    await render(<Setup />);
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Começar gravação" }),
+    );
+    await fireEvent(
+      screen.getByLabelText("Não mostrar de novo"),
+      "valueChange",
+      false,
+    );
+    await fireEvent.press(
+      screen.getByRole("button", { name: "Entendi, começar" }),
+    );
+    expect(s.start).toHaveBeenCalled();
+    expect(repo.getPrefs().prepareTipSeen).toBeUndefined();
+  });
 });
 
 test("Começar gravação starts the one mode and shows the recording controls on the same screen", async () => {

@@ -4,7 +4,7 @@ import { createFocusQueue, focusHold } from '../focusQueue';
 
 type Analysis = { status: 'ready' | 'none'; frames: number; framesWithPeople: number; meanPeople: number; elapsedMs: number };
 
-function setup(opts: { supported?: boolean } = {}) {
+function setup(opts: { supported?: boolean; closed?: boolean } = {}) {
   const map = new Map<string, string>();
   const kv: KV = { getString: (k) => map.get(k), set: (k, v) => void map.set(k, v), delete: (k) => void map.delete(k) };
   let n = 0;
@@ -21,7 +21,10 @@ function setup(opts: { supported?: boolean } = {}) {
     deleteFile: jest.fn(),
   };
   const queue = createFocusQueue(deps);
-  const addClip = (path: string) => repo.addClip({ sessionId: 's', createdAt: 1, source: 'screen', path, durationMs: 60000 }, 30000);
+  // The clips below belong to recording 's', whose screen is open unless a test says otherwise.
+  const closeRecording = opts.closed ? () => {} : queue.openRecording('s');
+  const addClip = (path: string, sessionId = 's') =>
+    repo.addClip({ sessionId, createdAt: 1, source: 'screen', path, durationMs: 60000 }, 30000);
   const done = (status: 'ready' | 'none' = 'ready') => ({ status, frames: 300, framesWithPeople: 280, meanPeople: 6, elapsedMs: 9000 });
   const flush = () => new Promise<void>((r) => setImmediate(() => r()));
   /** A clip saved before `bounds` existed. */
@@ -31,7 +34,7 @@ function setup(opts: { supported?: boolean } = {}) {
     map.set(`reprize:v1:clip:${clip.id}`, JSON.stringify(old));
     return old as Clip;
   };
-  return { repo, deps, queue, runs, addClip, addOldClip, done, flush };
+  return { repo, deps, queue, runs, addClip, addOldClip, done, flush, closeRecording };
 }
 
 test('a saved clip is marked pending and analysed over its own part of the file', () => {
@@ -194,12 +197,9 @@ test('restore queues the clips a closed app left pending, newest first, and noth
 });
 
 describe('hold while recording (thermal spec item 1)', () => {
-  test('focusHold: recording holds everything, even with the phone cool', () => {
-    expect(focusHold(false, 'serious')).toBe('none');
-    expect(focusHold(true, 'nominal')).toBe('all');
-    expect(focusHold(true, 'fair')).toBe('all');
-    expect(focusHold(true, 'serious')).toBe('all');
-    expect(focusHold(true, 'critical')).toBe('all');
+  test('focusHold: the camera on (setup preview or recording) holds everything', () => {
+    expect(focusHold(true)).toBe('all');
+    expect(focusHold(false)).toBe('none');
   });
 
   test('openedOnly: a saved clip waits, a clip opened in the editor runs first, the rest after the hold ends', async () => {
@@ -279,3 +279,56 @@ describe('hold while recording (thermal spec item 1)', () => {
   });
 });
 
+
+describe('only the recording that is open (2026-11-07 spec §4.1)', () => {
+  test('a saved clip waits, pending, until its recording is opened', () => {
+    const { repo, queue, runs, addClip } = setup({ closed: true });
+    const clip = addClip('/c/1.mp4');
+    queue.enqueue(clip.id);
+    expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'pending' });
+    expect(runs).toHaveLength(0);
+    queue.openRecording('s');
+    expect(runs.map((r) => r.opts.clipPath)).toEqual(['/c/1.mp4']);
+  });
+
+  test('opening one recording leaves the clips of the others waiting', () => {
+    const { queue, runs, addClip } = setup({ closed: true });
+    queue.enqueue(addClip('/c/other.mp4', 'other').id);
+    queue.enqueue(addClip('/c/mine.mp4', 'mine').id);
+    queue.openRecording('mine');
+    expect(runs.map((r) => r.opts.clipPath)).toEqual(['/c/mine.mp4']);
+  });
+
+  test('closing the recording lets the running analysis finish and starts no new one', async () => {
+    const { queue, runs, addClip, done, flush, closeRecording } = setup();
+    queue.enqueue(addClip('/c/1.mp4').id);
+    queue.enqueue(addClip('/c/2.mp4').id);
+    closeRecording();
+    runs[0].resolve(done());
+    await flush();
+    expect(runs).toHaveLength(1);
+    queue.openRecording('s');
+    expect(runs.map((r) => r.opts.clipPath)).toEqual(['/c/1.mp4', '/c/2.mp4']);
+  });
+
+  test('a clip opened in the editor runs even with its recording closed', () => {
+    const { queue, runs, addClip } = setup({ closed: true });
+    queue.ensure(addClip('/c/1.mp4'));
+    expect(runs).toHaveLength(1);
+  });
+
+  test('a recording opened twice stays open until both screens close', async () => {
+    const { queue, runs, addClip, done, flush } = setup({ closed: true });
+    const first = queue.openRecording('s');
+    const second = queue.openRecording('s');
+    first();
+    first(); // a second close of the same screen changes nothing
+    queue.enqueue(addClip('/c/1.mp4').id);
+    expect(runs).toHaveLength(1);
+    second();
+    queue.enqueue(addClip('/c/2.mp4').id);
+    runs[0].resolve(done());
+    await flush();
+    expect(runs).toHaveLength(1);
+  });
+});

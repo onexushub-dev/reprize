@@ -96,22 +96,41 @@ test('holding the footer ends the game and opens its summary', async () => {
   expect(router.push).toHaveBeenCalledWith('/session/s1');
 });
 
-test('a hot phone shows the heat banner', async () => {
-  session({ thermal: { level: 'serious', degraded: true } });
-  await render(<Recording />);
-  expect(screen.getByText(/Passamos para 720p\/30/)).toBeTruthy();
-});
+describe('a quality step (2026-11-08: calm, a few seconds, then a chip)', () => {
+  test('says the recording is steady in the quality now in use, never "quente"', async () => {
+    session({ thermal: { level: 'serious', degraded: true, quality: '1080p30' } });
+    await render(<Recording />);
+    expect(screen.getByText('Gravação estável em 1080p/30')).toBeTruthy();
+    expect(screen.queryByText(/quente/i)).toBeNull();
+  });
 
-test('the heat banner says which step was taken: Full HD at 30 fps first', async () => {
-  session({ thermal: { level: 'serious', degraded: true, quality: '1080p30' } });
-  await render(<Recording />);
-  expect(screen.getByText(/Passamos para 1080p\/30/)).toBeTruthy();
-});
+  test('then 720p at 30 fps', async () => {
+    session({ thermal: { level: 'critical', degraded: true, quality: '720p30' } });
+    await render(<Recording />);
+    expect(screen.getByText('Gravação estável em 720p/30')).toBeTruthy();
+  });
 
-test('then 720p at 30 fps', async () => {
-  session({ thermal: { level: 'serious', degraded: true, quality: '720p30' } });
-  await render(<Recording />);
-  expect(screen.getByText(/Passamos para 720p\/30/)).toBeTruthy();
+  test('goes away by itself and leaves the quality chip at the top', async () => {
+    jest.useFakeTimers();
+    session({ thermal: { level: 'serious', degraded: true, quality: '1080p30' } });
+    await render(<Recording />);
+    await act(async () => jest.advanceTimersByTime(8000));
+    expect(screen.queryByTestId('heat-step')).toBeNull();
+    expect(screen.getByTestId('quality-chip')).toBeTruthy();
+    expect(screen.getByText('1080p/30')).toBeTruthy();
+    jest.useRealTimers();
+  });
+
+  test('a second step shows again, once', async () => {
+    jest.useFakeTimers();
+    session({ thermal: { level: 'serious', degraded: true, quality: '1080p30' } });
+    const view = await render(<Recording />);
+    await act(async () => jest.advanceTimersByTime(8000));
+    session({ thermal: { level: 'critical', degraded: true, quality: '720p30' } });
+    await view.rerender(<Recording />);
+    expect(screen.getByText('Gravação estável em 720p/30')).toBeTruthy();
+    jest.useRealTimers();
+  });
 });
 
 test('an interrupted game shows the paused banner', async () => {
@@ -228,7 +247,7 @@ describe('screen economy', () => {
     expect(screen.queryByTestId('screen-economy')).toBeNull();
     await act(async () => jest.advanceTimersByTime(20_000));
     expect(screen.getByTestId('screen-economy')).toBeTruthy();
-    expect(screen.getByText('Tela em economia para não esquentar. Toque para acender a tela.')).toBeTruthy();
+    expect(screen.getByText('Tela em economia para poupar bateria. Toque para acender.')).toBeTruthy();
     expect(screen.queryByText(/Toque na tela para salvar/)).toBeNull();
     expect(setScreenEconomy).toHaveBeenLastCalledWith(true);
     jest.useRealTimers();
@@ -407,44 +426,42 @@ describe('remote gone', () => {
   });
 });
 
-describe('heat tip', () => {
-  const tip = 'Celular esquentando: tire a capinha e evite carregar durante a gravação.';
+describe('heat tip (only from serious on)', () => {
+  const tip = 'Dica para gravar melhor';
 
-  test('shows once when the phone gets warm, then goes away by itself', async () => {
+  test('nothing at fair', async () => {
     session({ thermal: { level: 'fair', degraded: false } });
+    await render(<Recording />);
+    expect(screen.queryByText(tip)).toBeNull();
+  });
+
+  test('shows once at serious, then goes away by itself', async () => {
+    session({ thermal: { level: 'serious', degraded: false } });
     jest.useFakeTimers();
     await render(<Recording />);
     expect(screen.getByText(tip)).toBeTruthy();
+    expect(screen.getByText('Sem capinha e fora do sol, o iPhone trabalha mais fresco e mantém a melhor qualidade.')).toBeTruthy();
     await act(async () => jest.advanceTimersByTime(8000));
     expect(screen.queryByText(tip)).toBeNull();
     jest.useRealTimers();
   });
 
   test('does not come back in the same recording', async () => {
-    session({ thermal: { level: 'fair', degraded: false } });
+    session({ thermal: { level: 'serious', degraded: false } });
     jest.useFakeTimers();
     const view = await render(<Recording />);
     await act(async () => jest.advanceTimersByTime(8000));
-    session({ thermal: { level: 'nominal', degraded: false } });
-    await view.rerender(<Recording />);
     session({ thermal: { level: 'fair', degraded: false } });
+    await view.rerender(<Recording />);
+    session({ thermal: { level: 'serious', degraded: false } });
     await view.rerender(<Recording />);
     expect(screen.queryByText(tip)).toBeNull();
     jest.useRealTimers();
   });
 
-  test('shown when the phone gets hot with nothing left to step down (Full HD 30 is the floor)', async () => {
-    session({ thermal: { level: 'serious', degraded: false, quality: '1080p30' } });
-    await render(<Recording />);
-    expect(screen.getByText(tip)).toBeTruthy();
-  });
-
-  test('not shown while cool, nor next to the step-down banner', async () => {
-    session({});
-    const view = await render(<Recording />);
-    expect(screen.queryByText(tip)).toBeNull();
+  test('not next to the quality step, which carries the same advice', async () => {
     session({ thermal: { level: 'serious', degraded: true, quality: '1080p30' } });
-    await view.rerender(<Recording />);
+    await render(<Recording />);
     expect(screen.queryByText(tip)).toBeNull();
   });
 });

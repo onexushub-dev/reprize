@@ -29,6 +29,11 @@ export type FocusQueue = {
   restore(clips: Clip[]): void;
   /** The app is in front (true) or not: Vision cannot run in the background, so nothing starts there. */
   setForeground(foreground: boolean): void;
+  /**
+   * A recording's screen is open: its pending clips are analysed, in the order they were saved. Returns the close (the
+   * analysis running finishes; no new one of this recording starts).
+   */
+  openRecording(sessionId: string): () => void;
 };
 
 /**
@@ -37,18 +42,19 @@ export type FocusQueue = {
 export type FocusHold = 'none' | 'openedOnly' | 'all';
 
 /**
- * The camera comes first (thermal spec, item 1): no analysis at all while recording, whatever the heat; the queue goes
- * on when the recording ends (2026-10-28: the player's call, replacing "a clip opened with the phone cool may run").
+ * The camera and the phone's heat come first: no analysis while the camera is on, recording or on the setup screen
+ * (2026-11-07 basketball field test: the queue running between recordings kept the phone `serious` all morning).
  */
-export function focusHold(recording: boolean, _thermal: 'nominal' | 'fair' | 'serious' | 'critical'): FocusHold {
-  return recording ? 'all' : 'none';
+export function focusHold(cameraOn: boolean): FocusHold {
+  return cameraOn ? 'all' : 'none';
 }
 
 const codeOf = (e: unknown) => (typeof e === 'object' && e !== null ? (e as { code?: unknown }).code : undefined);
 
 /**
- * Modo Foco analyses, one at a time, in the order the clips were saved or opened (spec §4.1), whenever the app is in
- * front and no recording runs: a clip is usually ready before the player opens it.
+ * Modo Foco analyses, one at a time, in the order the clips were saved, for the recording whose screen is open, with a
+ * clip opened in the editor first; only with the app in front and the camera off (2026-11-07 spec §4.1). A saved clip
+ * waits, pending, until its recording is opened.
  */
 export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
   let waiting: string[] = [];
@@ -57,18 +63,36 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
   let foreground = true;
   /** The running analysis was stopped by a recording: it goes back to the front of the queue. */
   let stopping: string | undefined;
-  /** Clips opened in the editor: they may start during an `openedOnly` hold. */
+  /** Clips opened in the editor: they go first, and may start during an `openedOnly` hold. */
   const opened = new Set<string>();
+  /** Recordings whose screen is open, with how many times (a screen pushed twice). */
+  const openRecordings = new Map<string, number>();
+
+  function eligible(id: string, clip: Clip): boolean {
+    if (opened.has(id)) return true;
+    if (hold === 'openedOnly') return false;
+    const count = openRecordings.get(clip.sessionId);
+    return count !== undefined && count > 0;
+  }
 
   function pump() {
     if (running || hold === 'all' || !foreground) return;
-    while (waiting.length > 0) {
-      const index = hold === 'openedOnly' ? waiting.findIndex((id) => opened.has(id)) : 0;
-      if (index < 0) return;
-      const id = waiting.splice(index, 1)[0];
-      opened.delete(id);
+    let i = 0;
+    while (i < waiting.length) {
+      const id = waiting[i];
       const clip = deps.repo.getClip(id);
-      if (!clip) continue; // deleted while waiting
+      if (!clip) {
+        // deleted while waiting
+        waiting.splice(i, 1);
+        opened.delete(id);
+        continue;
+      }
+      if (!eligible(id, clip)) {
+        i += 1;
+        continue;
+      }
+      waiting.splice(i, 1);
+      opened.delete(id);
       start(clip);
       return;
     }
@@ -177,6 +201,18 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
     setForeground(value) {
       foreground = value;
       pump();
+    },
+    openRecording(sessionId) {
+      openRecordings.set(sessionId, (openRecordings.get(sessionId) ?? 0) + 1);
+      pump();
+      let closed = false;
+      return () => {
+        if (closed) return;
+        closed = true;
+        const left = (openRecordings.get(sessionId) ?? 1) - 1;
+        if (left > 0) openRecordings.set(sessionId, left);
+        else openRecordings.delete(sessionId);
+      };
     },
   };
 }

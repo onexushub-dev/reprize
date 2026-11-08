@@ -327,3 +327,27 @@ export function CrownIcon({ color = colors.text, size = 22 }: IconProps) {
     </Svg>
   );
 }
+
+/**
+ * A phone out of its case: the case's outline dashed and tilted behind the phone, and heat leaving on the side
+ * ("Prepare o celular"). The phone is filled with the ground colour, so the case shows only around it.
+ */
+export function NoCaseIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x={11} y={6.5} width={9} height={15} rx={2.6} {...stroke(color)} strokeWidth={1.5} strokeDasharray="1.4 2.2" transform="rotate(14 15.5 14)" />
+      <Rect x={8} y={2} width={8.5} height={15.5} rx={2.4} {...stroke(color)} fill={colors.ground} />
+      <Path d="M1.2 7.8q1.1-1.3 2.2 0t2.2 0M1.2 10.8q1.1-1.3 2.2 0t2.2 0M1.2 13.8q1.1-1.3 2.2 0t2.2 0" {...stroke(color)} strokeWidth={1.4} />
+    </Svg>
+  );
+}
+
+/** The sun: out of direct sun ("Prepare o celular"). */
+export function SunIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={12} cy={12} r={4} {...stroke(color)} />
+      <Path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" {...stroke(color)} />
+    </Svg>
+  );
+}

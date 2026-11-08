@@ -138,9 +138,10 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
     setEconomyTaps((n) => n + 1);
   }
 
-  // Heat tip: the first time the phone gets warm in this recording, a few words on what helps; gone by itself. Also when
-  // it gets hot without a step down (a Full HD 30 recording is never lowered: the floor since 2026-10-31).
-  const hot = state.thermal.level === 'fair' || state.thermal.level === 'serious';
+  // Heat, only when it matters and never as an alarm (2026-11-08): nothing at `nominal` or `fair`. At `serious`, once per
+  // recording, a tip on what helps; when the quality steps down, a calm "steady in 1080p/30" for a few seconds (each
+  // step once), then only a small quality chip at the top. Both go by themselves.
+  const hot = state.thermal.level === 'serious' || state.thermal.level === 'critical';
   const warm = state.phase === 'recording' && hot && !state.thermal.degraded;
   const [tipFor, setTipFor] = useState<string>();
   const [tipGone, setTipGone] = useState<string>();
@@ -151,6 +152,18 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
     return () => clearTimeout(hide);
   }, [tipFor]);
   const showTip = warm && tipFor !== undefined && tipFor === state.sessionId && tipGone !== tipFor;
+
+  const stepped = state.phase === 'recording' && state.thermal.degraded;
+  const stepKey = stepped && state.sessionId !== undefined ? `${state.sessionId}|${qualityLabel(state.thermal.quality)}` : undefined;
+  const [stepFor, setStepFor] = useState<string>();
+  const [stepGone, setStepGone] = useState<string>();
+  if (stepKey !== undefined && stepFor !== stepKey) setStepFor(stepKey);
+  useEffect(() => {
+    if (stepFor === undefined) return;
+    const hide = setTimeout(() => setStepGone(stepFor), HEAT_TIP_MS);
+    return () => clearTimeout(hide);
+  }, [stepFor]);
+  const showStep = stepKey !== undefined && stepFor === stepKey && stepGone !== stepKey;
 
   useEffect(() => {
     if (!last) return;
@@ -245,18 +258,21 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
           <View pointerEvents="box-none" style={styles.topRight}>
             {/* Hidden while dark: the tap that wakes the screen must not flip it. */}
             {economy.asleep ? null : <EconomyButton on={economyPref} onPress={toggleEconomy} size={36} />}
+            {stepped ? (
+              <View pointerEvents="none" testID="quality-chip" style={styles.pill}>
+                <Text style={styles.qualityText}>{qualityLabel(state.thermal.quality)}</Text>
+              </View>
+            ) : null}
             <View pointerEvents="none" style={styles.pill}>
               <Text style={styles.countText}>{clips}</Text>
             </View>
           </View>
         </View>
 
-        {state.thermal.degraded ? (
-          <View pointerEvents="none" style={styles.banner}>
-            <Text style={styles.bannerText}>
-              <Text style={styles.bold}>{t('recording.hotTitle')}</Text>
-              {t('recording.hotBody', { quality: qualityLabel(state.thermal.quality) })}
-            </Text>
+        {showStep ? (
+          <View pointerEvents="none" accessibilityRole="text" testID="heat-step" style={styles.info}>
+            <Text style={styles.infoTitle}>{t('recording.stableTitle', { quality: qualityLabel(state.thermal.quality) })}</Text>
+            <Text style={styles.infoBody}>{t('recording.stableBody')}</Text>
           </View>
         ) : null}
         {economyNotice !== undefined ? (
@@ -276,8 +292,9 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
           </View>
         ) : null}
         {showTip ? (
-          <View pointerEvents="none" style={styles.banner}>
-            <Text style={styles.bannerText}>{t('recording.heatTip')}</Text>
+          <View pointerEvents="none" testID="heat-tip" style={styles.info}>
+            <Text style={styles.infoTitle}>{t('recording.tipTitle')}</Text>
+            <Text style={styles.infoBody}>{t('recording.tipBody')}</Text>
           </View>
         ) : null}
         {state.paused ? (
@@ -360,7 +377,18 @@ const styles = StyleSheet.create({
   notice: { backgroundColor: 'rgba(12,12,12,0.82)', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', gap: 2 },
   noticeTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.text, textAlign: 'center' },
   noticeBody: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.soft, textAlign: 'center' },
-  bold: { fontFamily: fonts.bodyBold },
+  info: {
+    backgroundColor: 'rgba(20,20,20,0.94)',
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 4,
+  },
+  infoTitle: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
+  infoBody: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.soft },
+  qualityText: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.soft },
   bottom: { marginTop: 'auto', gap: 8, marginBottom: 12 },
   hintCard: {
     gap: 10,

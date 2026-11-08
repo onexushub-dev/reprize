@@ -122,6 +122,8 @@ export type Prefs = {
   remoteVoiceAsked?: boolean;
   /** The player's changes to a mode's defaults, kept per mode. */
   modeSettings?: Partial<Record<ModeId, StoredModeSettings>>;
+  /** "Prepare o celular" (no case, out of the sun) was dismissed for good before a recording. */
+  prepareTipSeen?: boolean;
 };
 
 export const DEFAULT_PREFS: Prefs = {
