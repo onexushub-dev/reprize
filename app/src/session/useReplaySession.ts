@@ -67,6 +67,12 @@ export type StartResult = 'started' | 'failed' | 'busy';
 /** What a camera was opened with: the mode's settings as read then, and what the plan allowed of them. */
 type Opened = { settings: ModeSettings; config: CaptureConfig };
 
+/** The phone is `serious` or hotter and the open camera still records above 1080p30 (or never said what it records). */
+export function runsAboveHotQuality(thermal: { level: string; quality?: string }): boolean {
+  if (thermal.level !== 'serious' && thermal.level !== 'critical') return false;
+  return thermal.quality !== '1080p30' && thermal.quality !== '720p30';
+}
+
 /** How long after a recording starts, or the app comes back to the front, the volume buttons, gesture and voice are ignored. */
 export const SETTLE_MS = 1500;
 
@@ -223,7 +229,7 @@ export function useReplaySession(deps: SessionDeps) {
    * open with (start uses exactly that, even if the prefs change meanwhile), or undefined when it failed.
    */
   const openCamera = useCallback(
-    (mode: ModeId, plan: Plan): Promise<Opened | undefined> => {
+    (mode: ModeId, plan: Plan, reopen = false): Promise<Opened | undefined> => {
       const settings = effectiveSettings(mode, deps.repo.getPrefs());
       const config = captureConfig(settings, plan);
       const opened: Opened = { settings, config };
@@ -234,7 +240,7 @@ export function useReplaySession(deps: SessionDeps) {
       const key = range.continuous
         ? `${quality}|${bufferSeconds}|${audio}`
         : `${lens}|${quality}|${bufferSeconds}|${audio}`;
-      if (cameraLens.current === key) {
+      if (cameraLens.current === key && !reopen) {
         if (range.continuous && zoomApplied.current !== zoom) {
           zoomApplied.current = zoom;
           deps.camera.setZoom(zoom, false);
@@ -243,7 +249,7 @@ export function useReplaySession(deps: SessionDeps) {
       }
       const open = async () => {
         await cameraOpening.current;
-        if (cameraLens.current === key) return opened;
+        if (cameraLens.current === key && !reopen) return opened;
         dispatch({ type: 'cameraStarting' });
         try {
           if (cameraLens.current !== undefined) {
@@ -307,7 +313,9 @@ export function useReplaySession(deps: SessionDeps) {
         let toggled = false;
         let locale: VoiceLocale | undefined;
         try {
-          let opened = await openCamera(sport, planOf(decision));
+          // Hot already (2026-11-07 spec §4.2): a camera still above 1080p30 is reopened, and the native side opens it one
+          // step down, instead of two minutes at 60 fps and a restart (empty buffer, no microphone) mid-recording.
+          let opened = await openCamera(sport, planOf(decision), runsAboveHotQuality(stateRef.current.thermal));
           if (!opened) {
             dispatch({ type: 'startFailed', code: cameraError.current ?? 'CAMERA_UNAVAILABLE' });
             return 'failed';

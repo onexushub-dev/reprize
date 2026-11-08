@@ -36,7 +36,8 @@ final class ReplayEngine {
   private var generation = 0
   private var pendingSaves: [PendingSave] = []
   private var lens = "ultraWide"
-  /// Steps the recording down as the phone heats up (1080p60 → 1080p30, never below Full HD). Only touched on `thermalQueue`.
+  /// Steps the recording down as the phone heats up (1080p30 when `serious`, 720p30 when `critical`). Only touched on
+  /// `thermalQueue`.
   private var ladder = ThermalLadder(requested: "1080p60", state: .nominal, now: 0)
   private let thermalQueue = DispatchQueue(label: "replay.thermal")
   /// Bumped per session, so a recheck scheduled by an old session does nothing.
@@ -240,8 +241,17 @@ final class ReplayEngine {
       self?.fail(code: "CAMERA_UNAVAILABLE", "\(error.map { "\($0)" } ?? "capture runtime error")")
     })
     observers.append(center.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: capture.session, queue: nil) {
-      [weak self] _ in
+      [weak self] note in
       guard let self else { return }
+      // iOS took the camera away because the phone is too hot: it will not come back by itself, so the recording ends
+      // here with the heat message, keeping the clips (2026-11-07 spec §4.3). The app itself never stops for heat.
+      let raw = (note.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue
+      if let raw, AVCaptureSession.InterruptionReason(rawValue: raw) == .videoDeviceNotAvailableDueToSystemPressure {
+        self.diag("câmera: desligada pelo iOS (calor)") // TEMP(diag-remote)
+        self.emit?("onThermalChange", ["level": "critical", "degraded": true, "quality": ThermalLadder.emergency])
+        self.fail(code: "ENCODER_FAILED", "thermal")
+        return
+      }
       self.capture.queue.async {
         self.failPendingSaves(.noSession)
         self.finishWriter { self.startWriter() }
@@ -338,8 +348,9 @@ final class ReplayEngine {
 
   private static func uptime() -> TimeInterval { ProcessInfo.processInfo.systemUptime }
 
-  /// Thermal work, item 3: `serious` slows the gesture checks (ThermalLevel.slowsGesture) and, held for two minutes,
-  /// halves the frame rate (never below Full HD); `critical` stops (`ThermalLadder`).
+  /// `serious` slows the gesture checks (ThermalLevel.slowsGesture) and, held for two minutes, halves the frame rate
+  /// (Full HD); `critical` goes to 720p30 at once (`ThermalLadder`). Only iOS taking the camera away for heat ends a
+  /// recording (the interruption observer).
   private func thermalChanged() {
     thermalQueue.async { [weak self] in
       guard let self, self.running else { return }
@@ -351,10 +362,6 @@ final class ReplayEngine {
       NSLog("[replay] thermal %@: recording %@ (asked %@)", state.name, quality, self.ladder.requested)
 
       switch action {
-      case .stop:
-        self.emit?("onThermalChange", ["level": state.name, "degraded": true, "quality": quality])
-        self.fail(code: "ENCODER_FAILED", "thermal")
-        return
       case .reconfigure(let next):
         self.restartCapture(quality: next)
       case .none:

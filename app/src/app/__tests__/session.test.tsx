@@ -12,6 +12,8 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('../../analytics', () => ({ track: jest.fn(), sessionSummary: { note: jest.fn() } }));
 jest.mock('../../components/useClipThumbnail', () => ({ useClipThumbnail: () => undefined }));
+const mockOpenRecording = jest.fn((_id: string) => () => {});
+jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), openRecording: (id: string) => mockOpenRecording(id) } }));
 const mockCapturer = { element: null, capture: jest.fn(), release: jest.fn() };
 jest.mock('../../share/OverlayCapturer', () => ({ useOverlayCapturer: () => mockCapturer }));
 jest.mock('../../share/batchExport', () => ({ ...jest.requireActual('../../share/batchExport'), runBatch: jest.fn() }));
@@ -105,6 +107,17 @@ test('shows the game stats', async () => {
   expect(screen.getByText('92 MB')).toBeTruthy();
   // The date line is the name field's own text now (the subtitle went with the big title).
   expect(screen.getByLabelText('Nome da gravação').props.placeholder).toBe('Futevôlei · 17/10, 18:40');
+});
+
+test('the screen opens its recording for the Modo Foco queue, and closes it when it goes', async () => {
+  const close = jest.fn();
+  mockOpenRecording.mockReturnValueOnce(close);
+  repo.listClips.mockReturnValue([clip('a', 'gesture', 1)]);
+  repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 1 });
+  const view = await render(<SessionSummary />);
+  expect(mockOpenRecording).toHaveBeenCalledWith('s1');
+  await view.unmount();
+  expect(close).toHaveBeenCalled();
 });
 
 test('tapping a clipe opens it', async () => {

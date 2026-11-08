@@ -23,7 +23,7 @@ jest.mock('../../../modules/replay-camera', () => ({
   isFocusSupported: () => false,
 }));
 jest.mock('../../components/TrimBar', () => ({ TrimBar: () => null }));
-jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn() } }));
+jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
 jest.mock('../../session/SessionContext', () => ({ useSession: () => ({ reset: jest.fn(), state: {} }) }));
 jest.mock('../../data/mmkv', () => {
   const { createRepo } = jest.requireActual('../../data/repo');

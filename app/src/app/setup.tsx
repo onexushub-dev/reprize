@@ -44,6 +44,7 @@ import { useDeviceLandscape } from "../camera/useDeviceLandscape";
 import { Button } from "../components/Button";
 import { Chip } from "../components/Chip";
 import { CompactDock } from "../components/CompactDock";
+import { PrepareSheet } from "../components/PrepareSheet";
 import { EconomyButton } from "../components/EconomyButton";
 import { EconomyToast } from "../components/EconomyToast";
 import { GestureSheet, VoiceSheet } from "../components/PracticeSheet";
@@ -455,6 +456,21 @@ export default function Setup() {
     }
   }
 
+  // Before a recording, until the player turns it off: how to keep the iPhone steady (no case, out of the sun).
+  const [preparing, setPreparing] = useState(false);
+  function askThenStart() {
+    if (repo.getPrefs().prepareTipSeen === true) {
+      void onStart();
+      return;
+    }
+    setPreparing(true);
+  }
+  function startPrepared(hideNextTime: boolean) {
+    if (hideNextTime) repo.setPrefs({ prepareTipSeen: true });
+    setPreparing(false);
+    void onStart();
+  }
+
   const opening = camera === "starting";
   const starting = phase === "starting" || opening;
   const errorText = error
@@ -483,6 +499,11 @@ export default function Setup() {
       ) : (
         renderSetupControls()
       )}
+      <PrepareSheet
+        visible={preparing}
+        onStart={startPrepared}
+        onClose={() => setPreparing(false)}
+      />
       {practice === "gesture" ? (
         <GestureSheet
           visible={live && phase === "idle"}
@@ -555,7 +576,7 @@ export default function Setup() {
             busy={starting}
             error={errorText}
             onSettings={() => setExpanded(true)}
-            onStart={() => session.start(modeId)}
+            onStart={askThenStart}
           />
         ) : (
           <View
@@ -590,7 +611,7 @@ export default function Setup() {
                   ) : undefined
                 }
                 disabled={starting}
-                onPress={() => void onStart()}
+                onPress={askThenStart}
               />
             </SafeAreaView>
           </View>

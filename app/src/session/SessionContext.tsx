@@ -51,8 +51,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const plan = usePlan(recording ? session.state.sessionId : undefined);
   useWatchTriggerGate(recording, triggerAllowed('watch', plan), camera.watchSetSaveAllowed);
 
-  // The camera comes first: no Modo Foco analysis while recording (a running one is stopped and redone afterwards).
-  const hold = focusHold(recording, session.state.thermal.level);
+  // The camera and the heat come first: no Modo Foco analysis while the camera is on, on the setup screen or recording
+  // (a running one is stopped and redone afterwards).
+  const hold = focusHold(recording || session.state.camera !== 'off');
   useEffect(() => focusQueue.setHold(hold), [hold]);
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
 }

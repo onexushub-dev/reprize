@@ -3,7 +3,7 @@ import { act, renderHook } from '@testing-library/react-native';
 import { sessionSummary, track } from '../../analytics';
 import { createRepo, type KV } from '../../data/repo';
 import type { StartDecision } from '../../payments/types';
-import { SETTLE_MS, type SessionDeps, useReplaySession } from '../useReplaySession';
+import { runsAboveHotQuality, SETTLE_MS, type SessionDeps, useReplaySession } from '../useReplaySession';
 
 jest.mock('../../analytics', () => ({ track: jest.fn(), sessionSummary: { note: jest.fn() } }));
 
@@ -114,6 +114,36 @@ test('the Diagnóstico gesture switch keeps the gesture off in a recording that 
   const view = await renderHook(() => useReplaySession(f.deps));
   await act(() => view.result.current.start('musculacao'));
   expect(f.camera.setGestureEnabled).toHaveBeenLastCalledWith(false);
+});
+
+test('a game started with the phone hot reopens a camera still above 1080p30 (2026-11-07)', async () => {
+  const f = fakeDeps();
+  const view = await renderHook(() => useReplaySession(f.deps));
+  await act(() => view.result.current.prepare('futevolei', 'free'));
+  await act(async () => f.emit('onThermalChange', { level: 'serious', degraded: false, quality: '1080p60' }));
+  await act(() => view.result.current.start('futevolei'));
+  expect(f.camera.stopSession).toHaveBeenCalledTimes(1);
+  expect(f.camera.startSession).toHaveBeenCalledTimes(2);
+  expect(view.result.current.state.phase).toBe('recording');
+});
+
+test('a game started hot on a camera already at 1080p30 does not reopen it', async () => {
+  const f = fakeDeps();
+  const view = await renderHook(() => useReplaySession(f.deps));
+  await act(() => view.result.current.prepare('futevolei', 'free'));
+  await act(async () => f.emit('onThermalChange', { level: 'serious', degraded: true, quality: '1080p30' }));
+  await act(() => view.result.current.start('futevolei'));
+  expect(f.camera.stopSession).not.toHaveBeenCalled();
+  expect(f.camera.startSession).toHaveBeenCalledTimes(1);
+});
+
+test('runsAboveHotQuality: only hot, and only above 1080p30', () => {
+  expect(runsAboveHotQuality({ level: 'fair', quality: '1080p60' })).toBe(false);
+  expect(runsAboveHotQuality({ level: 'serious', quality: '1080p60' })).toBe(true);
+  expect(runsAboveHotQuality({ level: 'critical', quality: '2160p30' })).toBe(true);
+  expect(runsAboveHotQuality({ level: 'serious', quality: '1080p30' })).toBe(false);
+  expect(runsAboveHotQuality({ level: 'critical', quality: '720p30' })).toBe(false);
+  expect(runsAboveHotQuality({ level: 'serious' })).toBe(true);
 });
 
 test('undoLast deletes the clip file and the record', async () => {

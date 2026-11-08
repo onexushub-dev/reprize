@@ -61,17 +61,56 @@ final class ThermalLadderTests: XCTestCase {
     XCTAssertEqual(ladder.quality, "1080p30")
   }
 
-  func test_criticalStopsAtOnce() {
+  func test_criticalGoesTo720p30AtOnceAndNeverStops() {
     var ladder = ThermalLadder(requested: "1080p60", state: .nominal, now: 0)
-    XCTAssertEqual(ladder.update(state: .critical, now: 5), .stop)
+    XCTAssertEqual(ladder.update(state: .critical, now: 5), .reconfigure("720p30"))
+    XCTAssertEqual(ladder.quality, "720p30")
+    XCTAssertTrue(ladder.degraded)
+    XCTAssertEqual(ladder.update(state: .critical, now: 500), .none)
   }
 
-  func test_startingHotKeepsTheQualityAndStartsTheWait() {
+  func test_criticalAfterTheFullHDStepGoesTo720p30() {
+    var ladder = ThermalLadder(requested: "1080p60", state: .nominal, now: 0)
+    _ = ladder.update(state: .serious, now: 100)
+    _ = ladder.update(state: .serious, now: 100 + hold)
+    XCTAssertEqual(ladder.update(state: .critical, now: 400), .reconfigure("720p30"))
+  }
+
+  func test_backToSeriousAfterCriticalStaysAt720p30() { // never back up
+    var ladder = ThermalLadder(requested: "1080p60", state: .nominal, now: 0)
+    _ = ladder.update(state: .critical, now: 5)
+    XCTAssertEqual(ladder.update(state: .serious, now: 10), .none)
+    XCTAssertEqual(ladder.update(state: .serious, now: 10 + 2 * hold), .none)
+    XCTAssertEqual(ladder.quality, "720p30")
+  }
+
+  func test_aRequestedFullHD30RecordingStillGoesTo720p30WhenCritical() {
+    var ladder = ThermalLadder(requested: "1080p30", state: .nominal, now: 0)
+    XCTAssertEqual(ladder.update(state: .critical, now: 5), .reconfigure("720p30"))
+  }
+
+  func test_startingHotStartsAtFullHD30() { // 2026-11-07: no two minutes at 60 fps followed by a restart
     var ladder = ThermalLadder(requested: "1080p60", state: .serious, now: 0)
+    XCTAssertEqual(ladder.quality, "1080p30")
+    XCTAssertTrue(ladder.degraded)
+    XCTAssertEqual(ladder.update(state: .serious, now: hold * 3), .none)
+  }
+
+  func test_starting4KHotStartsAtFullHD30() {
+    let ladder = ThermalLadder(requested: "2160p30", state: .serious, now: 0)
+    XCTAssertEqual(ladder.quality, "1080p30")
+  }
+
+  func test_startingCriticalStartsAt720p30() {
+    var ladder = ThermalLadder(requested: "1080p60", state: .critical, now: 0)
+    XCTAssertEqual(ladder.quality, "720p30")
+    XCTAssertEqual(ladder.update(state: .critical, now: 1), .none)
+  }
+
+  func test_startingFairKeepsTheQuality() {
+    let ladder = ThermalLadder(requested: "1080p60", state: .fair, now: 0)
     XCTAssertEqual(ladder.quality, "1080p60")
     XCTAssertFalse(ladder.degraded)
-    XCTAssertEqual(ladder.update(state: .serious, now: 1), .none)
-    XCTAssertEqual(ladder.update(state: .serious, now: hold), .reconfigure("1080p30"))
   }
 
   func test_higherQualitiesStepToFullHD30() {

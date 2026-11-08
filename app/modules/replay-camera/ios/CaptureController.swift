@@ -122,7 +122,7 @@ final class CaptureController: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     }
   }
 
-  /// "2160p30" (4K) | "1080p60" | "1080p30" | "720p30" (no longer used by the thermal ladder) → frame width and rate.
+  /// "2160p30" (4K) | "1080p60" | "1080p30" | "720p30" (the thermal ladder at `critical`) → frame width and rate.
   static func target(for quality: String) -> (width: Int32, fps: Double) {
     switch quality {
     case "2160p30": return (3840, 30)
