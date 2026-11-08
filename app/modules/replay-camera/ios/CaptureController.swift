@@ -60,6 +60,36 @@ final class CaptureController: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     session.addOutput(audioOutput)
   }
 
+  /// The setup screen's preview runs at this rate at most, whatever the recording's (2026-11-08 spec §3.1): the format
+  /// stays, only the frame duration changes, so the recording gets its rate back without restarting the session.
+  static let previewFps = 30
+  /// The setup screen paused for inactivity (spec §3.2): the session keeps running, so the remote's capture events (its
+  /// hold) still arrive, at the lowest rate worth keeping. The format, and so the resolution, never changes.
+  static let idleFps = 5
+
+  /// The rate the camera runs at: the recording's, the setup preview's, or the paused setup's.
+  enum Rate { case recording, preview, idle }
+
+  /// Puts the camera at `rate` without touching its format (no restart, same resolution). Never throws: a camera that
+  /// refuses keeps the rate it has; a rate below the format's lowest uses that lowest.
+  func setRate(_ rate: Rate) {
+    guard let camera else { return }
+    let ranges = camera.activeFormat.videoSupportedFrameRateRanges
+    let lowest = Int((ranges.map(\.minFrameRate).min() ?? 1).rounded(.up))
+    let wanted: Int
+    switch rate {
+    case .recording: wanted = fps
+    case .preview: wanted = min(fps, Self.previewFps)
+    case .idle: wanted = min(fps, max(Self.idleFps, lowest))
+    }
+    let supported = ranges.contains { $0.minFrameRate <= Double(wanted) && Double(wanted) <= $0.maxFrameRate }
+    guard supported, (try? camera.lockForConfiguration()) != nil else { return }
+    let duration = CMTime(value: 1, timescale: CMTimeScale(wanted))
+    camera.activeVideoMinFrameDuration = duration
+    camera.activeVideoMaxFrameDuration = duration
+    camera.unlockForConfiguration()
+  }
+
   func start() { queue.async { self.session.startRunning() } }
   func stop() { queue.async { self.session.stopRunning() } }
 

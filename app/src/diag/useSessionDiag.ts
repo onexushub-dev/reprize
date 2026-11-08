@@ -5,7 +5,7 @@ import { VolumeManager } from 'react-native-volume-manager';
 
 import { addReplayListener, diagAudioState, diagPower } from '../../modules/replay-camera';
 import type { ReplaySession } from '../session/useReplaySession';
-import { DIAGNOSTICS_ENABLED, diag, diagFlags, diagRecordingEnded, diagRecordingStarted } from './diagLog';
+import { DIAGNOSTICS_ENABLED, diag, diagRecordingEnded, diagRecordingStarted } from './diagLog';
 
 /** Battery and heat in one line; never throws (a module mock or an older build without it gives ''). */
 function power(): string {
@@ -29,12 +29,7 @@ export function useSessionDiag(session: ReplaySession): void {
 
   useEffect(() => {
     if (!recording || !DIAGNOSTICS_ENABLED) return;
-    const flags = diagFlags();
-    const economy =
-      (flags.economyOff ? 'economia de tela DESLIGADA' : 'economia de tela ligada') +
-      (flags.volumePathOff ? ', caminho pelo volume DESLIGADO (só captura)' : '') +
-      (flags.gestureOff ? ', gesto DESLIGADO (diagnóstico)' : '');
-    diagRecordingStarted(`${economy} — ${diagAudioState()} — ${power()}`);
+    diagRecordingStarted(`${diagAudioState()} — ${power()}`);
     let minute = 0;
     const pulse = setInterval(() => {
       minute += 1;

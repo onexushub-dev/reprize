@@ -4,7 +4,7 @@ import { VolumeManager } from 'react-native-volume-manager';
 
 import { addReplayListener, diagCaptureState, outputVolume, setCaptureButtons } from '../../modules/replay-camera';
 import type { ReplayCameraModuleEvents } from '../../modules/replay-camera';
-import { diag, diagFlags } from '../diag/diagLog'; // TEMP(diag-remote): every diag() call in this file
+import { diag } from '../diag/diagLog'; // TEMP(diag-remote): every diag() call in this file
 import { createPressReader, REMOTE_HOLD_MS } from './pressHold';
 
 /** Where the volume is parked: room above and below, so any remote press changes it. */
@@ -155,9 +155,6 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void, options: 
   useEffect(() => {
     if (!enabled) return;
     let active = true;
-    // TEMP(diag-remote): off from the Diagnóstico screen, presses count only as capture events (no volume listener,
-    // no hidden MPVolumeView, no parking), to see whether the volume path keeps them from arriving.
-    const volumePath = !diagFlags().volumePathOff;
     let original: number | undefined;
     let parked = PARK;
     let lastOwnSet = -Infinity;
@@ -216,12 +213,11 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void, options: 
       if (rearmTimer !== undefined) clearTimeout(rearmTimer);
       rearmTimer = setTimeout(() => {
         rearmTimer = undefined;
-        if (active && !away() && volumePath) queuePark();
+        if (active && !away()) queuePark();
       }, ARM_MS);
     };
 
-    const noListener = { remove: () => {} };
-    const listener = !volumePath ? noListener : VolumeManager.addVolumeListener(({ volume }) => {
+    const listener = VolumeManager.addVolumeListener(({ volume }) => {
       if (!active) return;
       const level = volume.toFixed(2);
       const jump = Math.abs(volume - last) > MAX_PRESS_STEP;
@@ -292,7 +288,7 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void, options: 
     });
 
     // A volume that drifted from the parked level (a parking that never took) leaves less room, or none, for presses.
-    const watch = native && volumePath
+    const watch = native
       ? setInterval(() => {
           if (!active || away() || Date.now() < armedAt || Date.now() - lastOwnSet < WATCH_MS) return;
           const real = realVolume();
@@ -320,21 +316,7 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void, options: 
       if (original !== undefined) setOwn(original).catch(() => {});
     };
 
-    const paths = !volumePath ? '(so captura, volume DESLIGADO no diagnostico)' : buttons ? '(volume + captura)' : '(volume)';
-    diag(`controle: escutando ${paths}`);
-    if (!volumePath) {
-      // No parking, but a recording still wants the chimes loud.
-      if (parkAt !== undefined) {
-        VolumeManager.getVolume()
-          .then(({ volume }) => {
-            if (!active || volume >= parkAt) return;
-            original = volume;
-            return setOwn(parkAt);
-          })
-          .catch(() => {});
-      }
-      return stop;
-    }
+    diag(`controle: escutando ${buttons ? '(volume + captura)' : '(volume)'}`);
     VolumeManager.showNativeVolumeUI({ enabled: false }).catch(() => {});
     (startVolume !== undefined ? Promise.resolve({ volume: startVolume }) : VolumeManager.getVolume())
       .then(({ volume }) => {

@@ -1,15 +1,10 @@
 import { type ComponentRef, forwardRef } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { colors, fonts } from '../theme/tokens';
 import { BRAND_HANDLE, BRAND_LOGO, logoAspect } from './brandLogo';
 import type { Rect as Box } from './layout';
 
-/** Height of the dark gradient at the bottom of the video, so the mark reads on any video, capped at this share of the video height so a landscape clip is not mostly shadow. */
-export const SAFE_BOTTOM = 340;
-const GRADIENT_MAX = SAFE_BOTTOM + 520;
-const GRADIENT_SHARE = 0.6;
 /**
  * The R is this share of the frame's short side tall, and the handle's text this share, so the mark reads the same in a
  * 720 and in a 1080 export, vertical or landscape. Kept small: the free plan's mark is meant to be discreet (R ~30 px
@@ -35,9 +30,10 @@ type Props = {
 };
 
 /**
- * What every exported clip carries: dark bands where the video leaves room (landscape), a soft gradient
- * and the Reprize R with our Instagram in the video's bottom-right corner, so whoever sees a shared clip knows which app
- * made it and where to find us. The same component draws the preview and, captured to PNG, the export overlay.
+ * What every exported clip carries: dark bands where the video leaves room (landscape) and, on the free plan, the
+ * Reprize R with our Instagram in the video's bottom-right corner, so whoever sees a shared clip knows which app made it
+ * and where to find us. No gradient over the video (2026-11-08 spec §2): the mark's own dark pill keeps it readable.
+ * The same component draws the preview and, captured to PNG, the export overlay.
  */
 export const ShareOverlay = forwardRef<ComponentRef<typeof View>, Props>(function ShareOverlay(
   { frame, layout, scale, watermark = true },
@@ -45,11 +41,10 @@ export const ShareOverlay = forwardRef<ComponentRef<typeof View>, Props>(functio
 ) {
   const s = (n: number) => n * scale;
   const unit = Math.min(frame.width, frame.height);
-  // The mark and the gradient belong to the video image, so they follow its corner whatever its shape
+  // The mark belongs to the video image, so it follows its corner whatever its shape
   // (a landscape clip sits in the middle of the frame, with bands above and below).
   const videoRight = layout.video.x + layout.video.width;
   const videoBottom = layout.video.y + layout.video.height;
-  const gradientHeight = Math.min(GRADIENT_MAX, layout.video.height * GRADIENT_SHARE);
   const box = (r: Box) => ({
     position: 'absolute' as const,
     left: s(r.x),
@@ -63,22 +58,6 @@ export const ShareOverlay = forwardRef<ComponentRef<typeof View>, Props>(functio
       {layout.top.height > 0 ? <View style={[box(layout.top), styles.band]} /> : null}
       {layout.bottom.height > 0 ? <View style={[box(layout.bottom), styles.band]} /> : null}
       <View testID="share-video-area" style={box(layout.video)} />
-
-      <Svg width={s(frame.width)} height={s(frame.height)} style={StyleSheet.absoluteFill}>
-        <Defs>
-          <LinearGradient id="bottom" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#000" stopOpacity={0} />
-            <Stop offset="1" stopColor="#000" stopOpacity={0.75} />
-          </LinearGradient>
-        </Defs>
-        <Rect
-          x={s(layout.video.x)}
-          y={s(videoBottom - gradientHeight)}
-          width={s(layout.video.width)}
-          height={s(gradientHeight)}
-          fill="url(#bottom)"
-        />
-      </Svg>
 
       {watermark ? (
         <View

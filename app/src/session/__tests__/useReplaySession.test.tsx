@@ -21,6 +21,7 @@ function fakeDeps() {
   let pendingSave: ((v: { clipPath: string; durationMs: number; shortSide?: number }) => void) | undefined;
   const camera = {
     startSession: jest.fn(async () => {}),
+    startBuffering: jest.fn(async () => {}),
     stopSession: jest.fn(async () => {}),
     saveClip: jest.fn(
       () => new Promise<{ clipPath: string; durationMs: number; shortSide?: number }>((resolve) => (pendingSave = resolve))
@@ -105,15 +106,6 @@ test('native onTrigger goes through the bus', async () => {
 
   expect(camera.saveClip).toHaveBeenCalledWith({ source: 'gesture', at: 1000 + SETTLE_MS, keepMs: 5000 });
   expect(view.result.current.state.lastSaved?.source).toBe('gesture');
-});
-
-test('the Diagnóstico gesture switch keeps the gesture off in a recording that would use it', async () => {
-  const f = fakeDeps();
-  f.deps.diagGestureOff = () => true;
-  f.startDecision.mockResolvedValue({ kind: 'pro' });
-  const view = await renderHook(() => useReplaySession(f.deps));
-  await act(() => view.result.current.start('musculacao'));
-  expect(f.camera.setGestureEnabled).toHaveBeenLastCalledWith(false);
 });
 
 test('a game started with the phone hot reopens a camera still above 1080p30 (2026-11-07)', async () => {
@@ -209,7 +201,7 @@ test('a saved sport opens the same camera as the free mode: wide framing, 1080p6
   const f = fakeDeps();
   const view = await renderHook(() => useReplaySession(f.deps));
   await act(() => view.result.current.prepare('musculacao', 'paid'));
-  expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 1, maxQuality: '1080p60', bufferSeconds: 60, audio: true });
+  expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 1, maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true });
 });
 
 test('every sport id runs with the same settings, so switching between them does not reopen the camera', async () => {
@@ -231,10 +223,10 @@ test('with two fixed lenses (Android), a zoom that crosses 1x reopens the camera
   const f = fakeDeps();
   const view = await renderHook(() => useReplaySession(f.deps));
   await act(() => view.result.current.prepare('quadra', 'paid'));
-  expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 1, maxQuality: '1080p60', bufferSeconds: 60, audio: true });
+  expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 1, maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true });
   f.deps.repo.setPrefs({ modeSettings: { quadra: { zoom: 0.5 } } });
   await act(() => view.result.current.prepare('quadra', 'paid'));
-  expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'ultraWide', zoom: 0.5, maxQuality: '1080p60', bufferSeconds: 60, audio: true });
+  expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'ultraWide', zoom: 0.5, maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true });
   expect(f.camera.startSession).toHaveBeenCalledTimes(2);
 });
 
@@ -243,7 +235,7 @@ test('a lens saved before zoom existed still opens the same lens', async () => {
   f.deps.repo.setPrefs({ modeSettings: { quadra: { lens: 'wide' } } });
   const view = await renderHook(() => useReplaySession(f.deps));
   await act(() => view.result.current.prepare('quadra', 'paid'));
-  expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 1, maxQuality: '1080p60', bufferSeconds: 60, audio: true });
+  expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 1, maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true });
 });
 
 describe('continuous zoom (iOS)', () => {
@@ -255,7 +247,7 @@ describe('continuous zoom (iOS)', () => {
     f.deps.repo.setPrefs({ modeSettings: { quadra: { zoom: 2 } } });
     const view = await renderHook(() => useReplaySession(f.deps));
     await act(() => view.result.current.prepare('quadra', 'paid'));
-    expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 2, maxQuality: '1080p60', bufferSeconds: 60, audio: true });
+    expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 2, maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true });
   });
 
   test('a zoom saved above the range is clamped when the camera opens', async () => {
@@ -264,7 +256,7 @@ describe('continuous zoom (iOS)', () => {
     f.deps.repo.setPrefs({ modeSettings: { quadra: { zoom: 0.5 } } });
     const view = await renderHook(() => useReplaySession(f.deps));
     await act(() => view.result.current.prepare('quadra', 'paid'));
-    expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 1, maxQuality: '1080p60', bufferSeconds: 60, audio: true });
+    expect(f.camera.startSession).toHaveBeenLastCalledWith({ lens: 'wide', zoom: 1, maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true });
   });
 
   test('changing the zoom never reopens the camera', async () => {
@@ -746,7 +738,7 @@ describe('start decision', () => {
     f.startDecision.mockResolvedValue({ kind: 'pro' });
     expect(await startResult(f)).toBe('started');
     expect(f.camera.startSession).toHaveBeenLastCalledWith(
-      expect.objectContaining({ maxQuality: '1080p60', bufferSeconds: 60, audio: true }),
+      expect.objectContaining({ maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true }),
     );
     expect(f.deps.repo.getSession(f.view.result.current.state.sessionId!)).toMatchObject({ paid: true });
     expect(f.deps.repo.spentPasses().size).toBe(0);
@@ -776,7 +768,7 @@ describe('start decision', () => {
     f.deps.repo.startSession = (...a) => (order.push('session'), write(...a));
     expect(await startResult(f)).toBe('started');
     expect(f.camera.startSession).toHaveBeenLastCalledWith(
-      expect.objectContaining({ maxQuality: '1080p60', bufferSeconds: 60, audio: true }),
+      expect.objectContaining({ maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true }),
     );
     expect(order).toEqual(['stop', 'open', 'session']);
   });
@@ -935,7 +927,7 @@ describe('start decision', () => {
     expect(await startResult(f)).toBe('started');
     expect(f.camera.startSession).toHaveBeenNthCalledWith(1, expect.objectContaining({ bufferSeconds: 15 }));
     expect(f.camera.startSession).toHaveBeenLastCalledWith(
-      expect.objectContaining({ maxQuality: '1080p60', bufferSeconds: 60, audio: true }),
+      expect.objectContaining({ maxQuality: '1080p60', bufferSeconds: 60, audio: true, preview: true }),
     );
     expect(f.deps.repo.getSession(f.view.result.current.state.sessionId!)).toMatchObject({ paid: true });
     expect(f.deps.repo.spentPasses().size).toBe(0);
@@ -1085,5 +1077,44 @@ describe('analytics', () => {
     await act(async () => emit('onThermalChange', { level: 'critical', degraded: true }));
     const drops = (track as jest.Mock).mock.calls.filter(([name]) => name === 'recording_quality_lowered');
     expect(drops).toEqual([['recording_quality_lowered', { level: 'serious' }]]);
+  });
+});
+
+describe('the setup screen camera is a preview until the recording starts (2026-11-08 spec §3.1)', () => {
+  const setup = async () => {
+    const f = fakeDeps();
+    const view = await renderHook(() => useReplaySession(f.deps));
+    return { ...f, view };
+  };
+  const startResult = async (f: { view: any }) => {
+    let r: unknown;
+    await act(async () => void (r = await f.view.result.current.start('quadra')));
+    return r;
+  };
+
+  test('prepare opens a preview and never starts the buffer', async () => {
+    const f = await setup();
+    await act(() => f.view.result.current.prepare('quadra', 'free'));
+    expect(f.camera.startSession).toHaveBeenLastCalledWith(expect.objectContaining({ preview: true }));
+    expect(f.camera.startBuffering).not.toHaveBeenCalled();
+  });
+
+  test('start fills the buffer once, on the open camera, before the session exists', async () => {
+    const f = await setup();
+    await act(() => f.view.result.current.prepare('quadra', 'free'));
+    const order: string[] = [];
+    f.camera.startBuffering.mockImplementation(async () => void order.push('buffer'));
+    const write = f.deps.repo.startSession;
+    f.deps.repo.startSession = (...a) => (order.push('session'), write(...a));
+    expect(await startResult(f)).toBe('started');
+    expect(f.camera.startSession).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['buffer', 'session']);
+  });
+
+  test('a buffer that cannot start fails the start and leaves no session', async () => {
+    const f = await setup();
+    f.camera.startBuffering.mockRejectedValueOnce(new Error('no'));
+    expect(await startResult(f)).toBe('failed');
+    expect(f.sessionIds()).toEqual([]);
   });
 });

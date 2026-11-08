@@ -28,6 +28,8 @@ import { initialState, reducer } from './reducer';
 export type SessionDeps = {
   camera: {
     startSession(opts: SessionOptions): Promise<void>;
+    /** The recording starts: the buffer fills from now (the camera is opened as a preview, 2026-11-08 spec §3.1). */
+    startBuffering(): Promise<void>;
     stopSession(): Promise<void>;
     saveClip(opts: SaveClipOptions): Promise<SavedClip>;
     setGestureEnabled(enabled: boolean): void;
@@ -58,8 +60,6 @@ export type SessionDeps = {
   useRemote(enabled: boolean, onPress: () => void): void;
   /** A clip was saved and recorded (the app queues its Modo Foco analysis). */
   onClipSaved?(clipId: string): void;
-  /** TEMP(diag): true when the Diagnóstico screen turned the gesture off for every recording (heat measurement). */
-  diagGestureOff?(): boolean;
 };
 
 export type StartResult = 'started' | 'failed' | 'busy';
@@ -258,7 +258,8 @@ export function useReplaySession(deps: SessionDeps) {
           }
           // Body-pose detection is heavy: it only runs once the game starts.
           deps.camera.setGestureEnabled(false);
-          await deps.camera.startSession({ lens, zoom, maxQuality: quality, bufferSeconds, audio });
+          // Always a preview first: no encoder and 30 fps at most until the recording starts (2026-11-08 spec §3.1).
+          await deps.camera.startSession({ lens, zoom, maxQuality: quality, bufferSeconds, audio, preview: true });
           cameraLens.current = key;
           zoomApplied.current = zoom;
           dispatch({ type: 'cameraOn' });
@@ -331,6 +332,8 @@ export function useReplaySession(deps: SessionDeps) {
             }
           }
           decision = again; // the session always matches the camera that is open
+          // The buffer fills from here: the setup screen's camera was only a preview.
+          await deps.camera.startBuffering();
           const plan = planOf(decision);
           // The settings the open camera was given: prefs changed while it opened do not reach this game.
           const { settings, config } = opened;
@@ -338,8 +341,7 @@ export function useReplaySession(deps: SessionDeps) {
           const voiceOn = settings.voiceEnabled && deps.camera.getSpeechPermission() === 'granted';
           locale = voiceLocale(deps.locale());
           toggled = true;
-          const gestureOff = deps.diagGestureOff !== undefined && deps.diagGestureOff();
-          deps.camera.setGestureEnabled(settings.gestureEnabled && !gestureOff);
+          deps.camera.setGestureEnabled(settings.gestureEnabled);
           deps.camera.setVoiceEnabled(voiceOn, locale);
           // Last fallible step: a start that failed leaves no session behind.
           const session = deps.repo.startSession(sport, deps.now(), { paid: plan === 'paid' });
