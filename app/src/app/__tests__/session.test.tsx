@@ -57,6 +57,9 @@ jest.mock('../../data/mmkv', () => {
       listClips: jest.fn(),
       sessionStats: jest.fn(),
       renameSession: jest.fn(),
+      renameClip: jest.fn(),
+      getPrefs: jest.fn(() => ({})),
+      setPrefs: jest.fn(),
       deleteClip: jest.fn(),
       updateClip: jest.fn(),
       deleteSession: jest.fn(() => ['/a.mp4', '/b.mp4']),
@@ -620,5 +623,42 @@ describe('batch: save, send or compile the picked clips', () => {
     expect(screen.getByRole('button', { name: 'Salvar (1)' })).toBeTruthy();
     await press('Salvar (1)');
     expect(runBatch.mock.calls[0][0].clips.map((c: { id: string }) => c.id)).toEqual(['a']);
+  });
+});
+
+describe('clip labels (2026-11-07)', () => {
+  test('a clip without a label offers one; the sheet saves what is typed', async () => {
+    repo.listClips.mockReturnValue([clip('a', 'gesture', 1)]);
+    repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 1 });
+    await render(<SessionSummary />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Adicionar etiqueta ao clipe 1' }));
+    await fireEvent.changeText(screen.getByLabelText('Etiqueta do clipe'), 'toco do marcão');
+    await fireEvent.press(screen.getByRole('button', { name: 'OK' }));
+    expect(repo.renameClip).toHaveBeenCalledWith('a', 'toco do marcão');
+  });
+
+  test('a label already used in the recording is one tap away', async () => {
+    repo.listClips.mockReturnValue([{ ...clip('a', 'gesture', 1), name: 'cesta de 3 victor' }, clip('b', 'remote', 2)]);
+    repo.sessionStats.mockReturnValue({ clips: 2, bytes: 1, recordedMs: 1 });
+    await render(<SessionSummary />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Adicionar etiqueta ao clipe 2' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'cesta de 3 victor' }));
+    expect(repo.renameClip).toHaveBeenCalledWith('b', 'cesta de 3 victor');
+  });
+
+  test('the label shows on its card and can be removed', async () => {
+    repo.listClips.mockReturnValue([{ ...clip('a', 'gesture', 1), name: 'toco do marcão' }]);
+    repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 1 });
+    await render(<SessionSummary />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Etiqueta do clipe 1: toco do marcão. Toque para mudar' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Tirar a etiqueta' }));
+    expect(repo.renameClip).toHaveBeenCalledWith('a', '');
+  });
+
+  test('opening the recording marks it as seen last', async () => {
+    repo.listClips.mockReturnValue([clip('a', 'gesture', 1)]);
+    repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 1 });
+    await render(<SessionSummary />);
+    expect(repo.setPrefs).toHaveBeenCalledWith({ lastOpenedSessionId: 's1' });
   });
 });

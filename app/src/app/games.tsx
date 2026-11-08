@@ -8,6 +8,7 @@ import { GameCard } from '../components/GameCard';
 import { EmptyState } from '../components/EmptyState';
 import { BackIcon, ReplayIcon } from '../components/icons';
 import { sessionLabel } from '../components/format';
+import { lastOpenedSession, subscribeLastOpened } from '../data/lastOpened';
 import { removeFile, repo } from '../data/mmkv';
 import { useT } from '../i18n/useT';
 import { useSession } from '../session/SessionContext';
@@ -18,6 +19,8 @@ export default function Games() {
   const { t, locale } = useT();
   const { reset, state } = useSession();
   const version = useSyncExternalStore(repo.subscribe, repo.version);
+  // The recording seen last: this list repaints the moment one opens (it stays mounted underneath).
+  const lastSeenId = useSyncExternalStore(subscribeLastOpened, lastOpenedSession);
   const games = useMemo(
     () =>
       repo.listSessions().map((g) => ({
@@ -81,6 +84,7 @@ export default function Games() {
               firstClip={item.firstClip}
               recordedMs={item.recordedMs}
               onPress={() => router.push(`/session/${item.session.id}`)}
+              lastSeen={item.session.id === lastSeenId}
               onLongPress={ended ? ask : undefined}
               onDelete={ended ? ask : undefined}
             />

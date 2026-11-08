@@ -15,6 +15,7 @@ import type { Plan } from '../payments/types';
 import { type BatchResult, runBatch } from './batchExport';
 import { clipShapeOf, compilationOrientation } from './clipExport';
 import { readEdit, turnedSize } from './editing';
+import { labelledPaths } from './labelledFile';
 import { useOverlayCapturer } from './OverlayCapturer';
 
 /** What the recording screen shows when a batch ends (or could not start). */
@@ -132,7 +133,9 @@ export function useBatchActions(o: { plan: Plan; labelOf: (clip: Clip) => string
       if (stopped()) return;
       if (batch.done.length > 0) {
         setJob({ kind: 'share', stage: 'delivering' });
-        const outcome = await shareFiles(batch.done.map((made) => made.path));
+        // Each file named after its clip's label when it has one.
+        const named = await labelledPaths(batch.done.map((made) => ({ path: made.path, label: made.clip.name })));
+        const outcome = await shareFiles(named);
         if (outcome === 'shared') {
           batch.done.forEach((made) => {
             repo.updateClip(made.clip.id, { sharedAt: Date.now() });

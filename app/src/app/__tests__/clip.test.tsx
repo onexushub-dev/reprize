@@ -148,9 +148,9 @@ const openEdit = async (tool?: string) => {
 
 test('the name field shows which clip it is until the player names it', async () => {
   await open();
-  const input = screen.getByLabelText('Nome do clipe');
+  const input = screen.getByLabelText('Etiqueta do clipe');
   expect(input.props.placeholder).toBe('Clipe #2 · 19:40');
-  expect(input.props.maxLength).toBe(40);
+  expect(input.props.maxLength).toBe(25);
   await pressAction('Editar');
   expect(screen.getByText('Corte: 0:30')).toBeTruthy();
 });
@@ -159,19 +159,19 @@ test('the clip keeps the number it was saved with, not its place in the list', a
   // Second in the list (clip 1 was deleted), but saved as number 5 of the recording.
   __setClip({ ...base, number: 5 });
   await open();
-  expect(screen.getByLabelText('Nome do clipe').props.placeholder).toBe('Clipe #5 · 19:40');
+  expect(screen.getByLabelText('Etiqueta do clipe').props.placeholder).toBe('Clipe #5 · 19:40');
   expect(screen.getByText('2 de 2 · deslize para trocar')).toBeTruthy();
 });
 
 test('a named clip shows its name', async () => {
   __setClip({ ...base, name: 'Ace no fundo' });
   await open();
-  expect(screen.getByLabelText('Nome do clipe').props.value).toBe('Ace no fundo');
+  expect(screen.getByLabelText('Etiqueta do clipe').props.value).toBe('Ace no fundo');
 });
 
 test('the clip is renamed on the same screen, saved on blur', async () => {
   await open();
-  const input = screen.getByLabelText('Nome do clipe');
+  const input = screen.getByLabelText('Etiqueta do clipe');
   await fireEvent.changeText(input, 'Match point');
   await fireEvent(input, 'blur');
   expect(repo.renameClip).toHaveBeenCalledWith('c1', 'Match point');
@@ -417,7 +417,7 @@ test('actions wait until the video shape is known', async () => {
 
 test('a name typed without closing the keyboard is saved when the player shares', async () => {
   await open();
-  await fireEvent.changeText(screen.getByLabelText('Nome do clipe'), 'Match point');
+  await fireEvent.changeText(screen.getByLabelText('Etiqueta do clipe'), 'Match point');
   await pressAction('Compartilhar');
   expect(repo.renameClip).toHaveBeenCalledWith('c1', 'Match point');
 });
@@ -916,7 +916,7 @@ describe('swiping between clips follows the finger', () => {
     await act(async () => video.last.onDrag(150));
     expect(shiftOf(screen.getByTestId('clip-stage'))).toBe(150);
     expect(shiftOf(screen.getByRole('button', { name: 'Editar' }))).toBe(0);
-    expect(shiftOf(screen.getByLabelText('Nome do clipe'))).toBe(0);
+    expect(shiftOf(screen.getByLabelText('Etiqueta do clipe'))).toBe(0);
   });
 
   test('the clip next door has its shape worked out, so it opens ready, with nothing jumping in late', async () => {
@@ -941,10 +941,10 @@ describe('swiping between clips follows the finger', () => {
     // The router moves to c0: c0 is made under this screen, which stays until c0 shows its first frame.
     mockParams.id = 'c0';
     await act(async () => rerender(<ClipEditor />));
-    expect(screen.getAllByLabelText('Nome do clipe')).toHaveLength(2);
+    expect(screen.getAllByLabelText('Etiqueta do clipe')).toHaveLength(2);
     expect(player.pause).toHaveBeenCalled();
     await act(async () => video.all.forEach((p: any) => p.onFirstFrame()));
-    expect(screen.getAllByLabelText('Nome do clipe')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Etiqueta do clipe')).toHaveLength(1);
   });
 
   test('if the next clip never reports its first frame, the screen still moves on', async () => {
@@ -953,9 +953,9 @@ describe('swiping between clips follows the finger', () => {
     await settle();
     mockParams.id = 'c0';
     await act(async () => rerender(<ClipEditor />));
-    expect(screen.getAllByLabelText('Nome do clipe')).toHaveLength(2);
+    expect(screen.getAllByLabelText('Etiqueta do clipe')).toHaveLength(2);
     await act(async () => new Promise((resolve) => setTimeout(resolve, 1600)));
-    expect(screen.getAllByLabelText('Nome do clipe')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Etiqueta do clipe')).toHaveLength(1);
   });
 
   test('after deleting, the next clip simply takes over (the deleted one is not kept on screen)', async () => {
@@ -965,7 +965,7 @@ describe('swiping between clips follows the finger', () => {
     alert.mock.calls[0][2]!.find((b) => b.text === 'Apagar')!.onPress!();
     mockParams.id = 'c0';
     await act(async () => rerender(<ClipEditor />));
-    expect(screen.getAllByLabelText('Nome do clipe')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Etiqueta do clipe')).toHaveLength(1);
   });
 
   test('editing does not follow sideways drags', async () => {

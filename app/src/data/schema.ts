@@ -46,7 +46,8 @@ export type StoredModeSettings = Partial<ModeSettings> & { lens?: 'ultraWide' | 
 export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean };
 
 export const MAX_GAME_NAME = 40;
-export const MAX_CLIP_NAME = 40;
+/** A clip's label (its name): short, to tell at a glance who or what it is (2026-11-07 spec §6). */
+export const MAX_CLIP_NAME = 25;
 
 export type ClipFocus = { v: 1; status: 'pending' | 'ready' | 'none' | 'failed'; file?: string };
 
@@ -124,6 +125,8 @@ export type Prefs = {
   modeSettings?: Partial<Record<ModeId, StoredModeSettings>>;
   /** "Prepare o celular" (no case, out of the sun) was dismissed for good before a recording. */
   prepareTipSeen?: boolean;
+  /** The recording opened last: "Visto por último" in Minhas gravações. */
+  lastOpenedSessionId?: string;
 };
 
 export const DEFAULT_PREFS: Prefs = {

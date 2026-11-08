@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams, useNavigation } from "expo-router";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -21,6 +22,7 @@ import { isFocusSupported } from "../../../modules/replay-camera";
 import { BatchResultCard } from "../../components/BatchResultCard";
 import { Button } from "../../components/Button";
 import { ClipCard } from "../../components/ClipCard";
+import { LabelSheet } from "../../components/LabelSheet";
 import { EmptyState } from "../../components/EmptyState";
 import { ExportProgress } from "../../components/ExportProgress";
 import { SelectionBar } from "../../components/SelectionBar";
@@ -32,6 +34,7 @@ import {
   recordedLabel,
   sessionLabel,
 } from "../../components/format";
+import { markOpened } from "../../data/lastOpened";
 import { removeFile, repo } from "../../data/mmkv";
 import { MAX_GAME_NAME } from "../../data/schema";
 import { accessPlan } from "../../payments/rules";
@@ -65,6 +68,28 @@ export default function SessionSummary() {
 
   // Modo Foco analyses this recording's clips while its screen is open (and the camera is off), not before.
   useEffect(() => focusQueue.openRecording(id), [id]);
+  // Minhas gravações marks the recording seen last; set before the first paint, so the list is right on the way back.
+  useLayoutEffect(() => markOpened(id), [id]);
+
+  // A clip's label from the list: the sheet, with the labels already used in this recording (newest first).
+  const [labelling, setLabelling] = useState<string>();
+  const labelled =
+    labelling === undefined ? undefined : clips.find((c) => c.id === labelling);
+  const usedLabels = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const c of [...clips].sort((a, b) => b.createdAt - a.createdAt)) {
+      if (!c.name || seen.has(c.name.toLowerCase())) continue;
+      seen.add(c.name.toLowerCase());
+      out.push(c.name);
+    }
+    return out.slice(0, 8);
+  }, [clips]);
+  const finishLabel = (label: string) => {
+    if (labelled && label.trim() !== (labelled.name ?? ""))
+      repo.renameClip(labelled.id, label);
+    setLabelling(undefined);
+  };
 
   const [name, setName] = useState(() => session?.name ?? "");
   const saveName = () => {
@@ -356,6 +381,14 @@ export default function SessionSummary() {
         />
       ) : null}
 
+      <LabelSheet
+        key={labelling === undefined ? "none" : labelling}
+        visible={labelled !== undefined}
+        initial={labelled && labelled.name ? labelled.name : ""}
+        suggestions={usedLabels}
+        onDone={finishLabel}
+      />
+
       <FlatList
         data={clips}
         keyExtractor={(c) => c.id}
@@ -379,6 +412,7 @@ export default function SessionSummary() {
             onPress={() =>
               selecting ? toggle(item.id) : router.push(`/clip/${item.id}`)
             }
+            onLabel={() => setLabelling(item.id)}
             onLongPress={
               selecting
                 ? undefined

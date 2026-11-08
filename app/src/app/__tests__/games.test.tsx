@@ -14,6 +14,7 @@ jest.mock('../../data/mmkv', () => ({
     listSessions: jest.fn(),
     sessionStats: jest.fn(),
     deleteSession: jest.fn(() => ['/c1.mp4']),
+    getPrefs: jest.fn(() => ({})),
     subscribe: () => () => {},
     version: () => 0,
   },
@@ -151,3 +152,15 @@ test('the gallery has no PRO card, even with recordings on the free plan: each r
   expect(payments.showPaywall).not.toHaveBeenCalled();
 });
 
+
+test('the recording opened last says so', async () => {
+  repo.getPrefs.mockReturnValue({ lastOpenedSessionId: 's2' });
+  repo.listSessions.mockReturnValue([
+    { session: { id: 's1', sport: 'futevolei', startedAt: new Date(2026, 9, 17, 18, 40).getTime(), endedAt: 1 }, clips: 1, firstClip: clip },
+    { session: { id: 's2', sport: 'futevolei', startedAt: new Date(2026, 9, 18, 18, 40).getTime(), endedAt: 2 }, clips: 1, firstClip: clip },
+  ]);
+  repo.sessionStats.mockReturnValue({ recordedMs: 60_000 });
+  await render(<Games />);
+  expect(screen.getAllByText('Visto por último')).toHaveLength(1);
+  repo.getPrefs.mockReturnValue({});
+});
