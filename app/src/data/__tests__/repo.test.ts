@@ -206,7 +206,7 @@ test('renameClip trims and stores the name; a blank name removes it; names are c
   const clip = repo.addClip({ sessionId: s.id, createdAt: 1, source: 'screen', path: '/a.mp4', durationMs: 1 });
   expect(repo.renameClip(clip.id, '  Ace no fundo  ')?.name).toBe('Ace no fundo');
   expect(repo.getClip(clip.id)?.name).toBe('Ace no fundo');
-  expect(repo.renameClip(clip.id, 'x'.repeat(60))?.name).toHaveLength(40);
+  expect(repo.renameClip(clip.id, 'x'.repeat(60))?.name).toHaveLength(25);
   expect(repo.renameClip(clip.id, '   ')?.name).toBeUndefined();
 });
 

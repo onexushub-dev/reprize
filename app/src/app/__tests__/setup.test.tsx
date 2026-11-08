@@ -430,7 +430,7 @@ test("on Android there is no Apple Watch tile nor its icon in the summary; voice
     expect(
       screen.getByRole("button", { name: /^Controle Bluetooth/ }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Acenar/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Gesto/ })).toBeTruthy();
   } finally {
     Platform.OS = os;
   }
@@ -458,7 +458,7 @@ test("the gesture tile toggles the gesture preference", async () => {
   await render(<Setup />);
   await openSettings();
   await fireEvent.press(
-    screen.getByRole("button", { name: /Acenar com os braços/ }),
+    screen.getByRole("button", { name: /^Gesto/ }),
   );
   expect(repo.setPrefs).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -699,7 +699,7 @@ test("the summary tells which triggers are on without opening", async () => {
   await render(<Setup />);
   expect(
     screen.getByRole("button", {
-      name: "Ajustes: clipes de até 15 segundos, voz ligada, acenar com os braços desligado, controle não conectado",
+      name: "Ajustes: clipes de até 15 segundos, voz ligada, gesto desligado, controle não conectado",
     }),
   ).toBeTruthy();
 });
@@ -1096,7 +1096,7 @@ test("without a watch the other triggers behave as before", async () => {
   session({});
   await render(<Setup />);
   await openSettings();
-  expect(screen.getByLabelText("Acenar com os braços, Ativo")).toBeTruthy();
+  expect(screen.getByLabelText("Gesto, Ativo")).toBeTruthy();
   expect(
     screen.getByRole("button", { name: "Começar gravação" }),
   ).toBeEnabled();

@@ -77,7 +77,7 @@ test('a saved clipe shows the overlay with its number and source', async () => {
   session({ clipCount: 3, lastSaved: { clipId: 'c3', number: 3, source: 'gesture', at: Date.now(), cutMs: 30000 } });
   await render(<Recording />);
   expect(screen.getByText('CLIPE #3 SALVO')).toBeTruthy();
-  expect(screen.getByText('via Acenar com os braços · 30s')).toBeTruthy();
+  expect(screen.getByText('via Gesto · 30s')).toBeTruthy();
 });
 
 test('Desfazer undoes the last clipe', async () => {

@@ -30,7 +30,7 @@ test('watching shows the video, the name, delete, and Editar · Salvar · Enviar
   const p = props();
   await render(<ClipWatch {...p} />);
   expect(screen.getByText('vídeo')).toBeTruthy();
-  expect(screen.getByLabelText('Nome do clipe').props.placeholder).toBe('Clipe #2 · 19:40');
+  expect(screen.getByLabelText('Etiqueta do clipe').props.placeholder).toBe('Clipe #2 · 19:40');
   expect(screen.getByText('Salvar')).toBeTruthy();
   expect(screen.getByText('Enviar')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Editar' }));

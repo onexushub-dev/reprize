@@ -16,10 +16,12 @@ type Props = {
   onPress: () => void;
   onLongPress?: () => void;
   onDelete?: () => void;
+  /** The recording opened last: a "Visto por último" badge. */
+  lastSeen?: boolean;
 };
 
 /** One past game in "My recordings": first lance's frame, name (or sport + date), lances and time. */
-export function GameCard({ session, clips, firstClip, recordedMs, onPress, onLongPress, onDelete }: Props) {
+export function GameCard({ session, clips, firstClip, recordedMs, onPress, onLongPress, onDelete, lastSeen = false }: Props) {
   const thumb = useClipThumbnail(firstClip?.path ?? '', firstClip?.trim.startMs ?? 0);
   const { t, locale } = useT();
   const label = sessionLabel(session, undefined, locale);
@@ -28,7 +30,7 @@ export function GameCard({ session, clips, firstClip, recordedMs, onPress, onLon
     <View style={styles.card}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${label}, ${detail}`}
+        accessibilityLabel={lastSeen ? `${label}, ${detail}, ${t('games.lastSeen')}` : `${label}, ${detail}`}
         onPress={onPress}
         onLongPress={onLongPress}
         accessibilityActions={onLongPress ? [{ name: 'longpress', label: t('games.deleteRecording') }] : undefined}
@@ -42,6 +44,11 @@ export function GameCard({ session, clips, firstClip, recordedMs, onPress, onLon
             {label}
           </Text>
           <Text style={styles.detail}>{detail}</Text>
+          {lastSeen ? (
+            <View style={styles.seen}>
+              <Text style={styles.seenText}>{t('games.lastSeen')}</Text>
+            </View>
+          ) : null}
         </View>
       </Pressable>
       {onDelete ? (
@@ -73,4 +80,6 @@ const styles = StyleSheet.create({
   text: { flex: 1, gap: 4 },
   label: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.text },
   detail: { fontFamily: fonts.body, fontSize: 13, color: colors.soft },
+  seen: { alignSelf: 'flex-start', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 999, backgroundColor: colors.accent },
+  seenText: { fontFamily: fonts.bodyBold, fontSize: 11, color: colors.onAccent },
 });

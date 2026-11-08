@@ -58,6 +58,7 @@ import { clipExportJob } from '../../share/clipExport';
 import { useViewPlan } from '../../share/entitlement';
 import { cachedExport, rememberExport } from '../../share/exportCache';
 import { exportChoices, type ShortSide } from '../../share/exportSize';
+import { labelledPaths } from '../../share/labelledFile';
 import { frameLayout } from '../../share/layout';
 import { ShareOverlay } from '../../share/ShareOverlay';
 import { ZoomableVideo } from '../../share/ZoomableVideo';
@@ -658,7 +659,10 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     });
 
   const share = () => run('share', async (path) => {
-      await shareAsync(`file://${path}`, { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
+      // Named after the clip's label when it has one ("toco do marcao.mp4").
+      const current = repo.getClip(id);
+      const [named] = await labelledPaths([{ path, label: current ? current.name : undefined }]);
+      await shareAsync(`file://${named}`, { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
       reportDelivered('share_sheet');
       repo.updateClip(id, { sharedAt: Date.now() });
     });

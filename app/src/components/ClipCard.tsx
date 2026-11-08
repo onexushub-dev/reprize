@@ -2,11 +2,11 @@ import { Image } from 'expo-image';
 import { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { Clip } from '../data/schema';
+import type { Clip, TriggerSource } from '../data/schema';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import { seconds, timeOfDay } from './format';
-import { CheckIcon } from './icons';
+import { CheckIcon, MicIcon, PhoneIcon, RemoteIcon, TapIcon, WatchIcon, WaveIcon } from './icons';
 import { sourceLabel } from './sourceLabel';
 import { useClipThumbnail } from './useClipThumbnail';
 
@@ -18,9 +18,30 @@ type Props = {
   /** Picking clips to delete: the card shows a check circle and is dimmed until picked. */
   selecting?: boolean;
   selected?: boolean;
+  /** Its label as a chip to tap ("+ Etiqueta" without one), opening the label sheet (2026-11-07 spec §6). */
+  onLabel?: () => void;
 };
 
-export function ClipCard({ clip, number, onPress, onLongPress, selecting = false, selected = false }: Props) {
+/** How the clip was saved, as a small accent icon. */
+function SourceIcon({ source }: { source: TriggerSource }) {
+  const color = colors.accent;
+  switch (source) {
+    case 'gesture':
+      return <WaveIcon color={color} size={14} />;
+    case 'remote':
+      return <RemoteIcon color={color} size={14} />;
+    case 'voice':
+      return <MicIcon color={color} size={14} />;
+    case 'watch':
+      return <WatchIcon color={color} size={14} />;
+    case 'phone':
+      return <PhoneIcon color={color} size={14} />;
+    default:
+      return <TapIcon color={color} size={14} />;
+  }
+}
+
+export function ClipCard({ clip, number, onPress, onLongPress, selecting = false, selected = false, onLabel }: Props) {
   const { t, locale } = useT();
   const thumb = useClipThumbnail(clip.path, clip.trim.startMs);
   const duration = seconds(clip.trim.endMs - clip.trim.startMs);
@@ -59,11 +80,36 @@ export function ClipCard({ clip, number, onPress, onLongPress, selecting = false
           : undefined
       }
       style={[styles.card, selecting && !selected && styles.unpicked]}>
+      {/* Top strip: the label (who or what), or "+ Etiqueta" (option C, 2026-11-07). */}
+      {onLabel !== undefined && !selecting ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            clip.name ? t('summary.labelA11y', { number, label: clip.name }) : t('summary.addLabelA11y', { number })
+          }
+          onPress={onLabel}
+          style={styles.strip}>
+          <Text style={clip.name ? styles.labelText : styles.addText} numberOfLines={1}>
+            {clip.name ? clip.name : t('summary.addLabel')}
+          </Text>
+        </Pressable>
+      ) : (
+        <View style={styles.strip}>
+          <Text style={styles.labelText} numberOfLines={1}>
+            {clip.name ? clip.name : ' '}
+          </Text>
+        </View>
+      )}
       <View style={styles.thumb}>
         {thumb ? <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
         <View style={[styles.tag, { left: 8, top: 8 }]}>
           <Text style={styles.tagText}>{`#${number}`}</Text>
         </View>
+        {selecting ? null : (
+          <View style={[styles.tag, { right: 8, top: 8 }]}>
+            <Text style={styles.timeText}>{timeOfDay(clip.createdAt, locale)}</Text>
+          </View>
+        )}
         <View style={[styles.tag, { right: 8, bottom: 8 }]}>
           <Text style={styles.tagText}>{duration}</Text>
         </View>
@@ -77,22 +123,30 @@ export function ClipCard({ clip, number, onPress, onLongPress, selecting = false
           <View style={[styles.check, selected && styles.checkOn]}>{selected ? <CheckIcon size={16} /> : null}</View>
         ) : null}
       </View>
-      {clip.name ? (
-        <Text style={styles.name} numberOfLines={1}>
-          {clip.name}
+      {/* Bottom strip: only how it was saved, centred. */}
+      <View style={styles.source}>
+        <SourceIcon source={clip.source} />
+        <Text style={styles.sourceText} numberOfLines={1}>
+          {sourceLabel(clip.source, locale)}
         </Text>
-      ) : null}
-      <View style={styles.meta}>
-        <Text style={styles.metaText}>{timeOfDay(clip.createdAt, locale)}</Text>
-        <Text style={styles.metaText}>{sourceLabel(clip.source, locale)}</Text>
       </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { flex: 1, gap: 8 },
-  thumb: { height: 128, borderRadius: 14, overflow: 'hidden', backgroundColor: colors.surface },
+  card: {
+    flex: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  strip: { height: 36, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center' },
+  labelText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text, textAlign: 'center' },
+  addText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent, textAlign: 'center' },
+  thumb: { height: 120, backgroundColor: colors.ground },
   tag: {
     position: 'absolute',
     backgroundColor: 'rgba(12,12,12,0.85)',
@@ -102,6 +156,7 @@ const styles = StyleSheet.create({
   },
   done: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   tagText: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.text },
+  timeText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.text },
   unpicked: { opacity: 0.6 },
   check: {
     position: 'absolute',
@@ -117,7 +172,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  name: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
-  meta: { flexDirection: 'row', justifyContent: 'space-between' },
-  metaText: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
+  source: { height: 34, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  sourceText: { flexShrink: 1, fontFamily: fonts.bodySemi, fontSize: 12, color: colors.soft },
 });
