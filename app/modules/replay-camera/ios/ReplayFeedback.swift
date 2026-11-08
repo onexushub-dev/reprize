@@ -1,8 +1,8 @@
 import AVFoundation
 
-/// Confirmation for a player far from the phone, one sound and one torch pattern per action (2026-11-07 spec §5.2):
-/// a clip saved (rising two notes, 2 short blinks), a recording started (three rising notes, 1 long blink), ended
-/// (three falling notes, 3 short blinks), a failure (low double beep).
+/// Confirmation for a player far from the phone, one sound and one torch pattern per action (2026-11-08 spec §5): a
+/// clip saved (two rising notes, 2 short blinks), a recording started (three rising notes, 1 steady light), ended
+/// (three falling notes, 3 slow pulses), a failure (low double beep). `Chime` and `TorchPattern` hold the shapes.
 final class ReplayFeedback {
   private let queue = DispatchQueue(label: "replay.feedback")
   private lazy var savedSound = Chime.wav(notes: Chime.saved)
@@ -11,15 +11,9 @@ final class ReplayFeedback {
   private lazy var endedSound = Chime.wav(notes: Chime.ended)
   private var player: AVAudioPlayer?
 
-  /// Torch patterns: on/off steps and how long each lasts.
-  private static let savedBlinks: [(on: Bool, seconds: Double)] = [(true, 0.12), (false, 0.12), (true, 0.12)]
-  private static let startedBlink: [(on: Bool, seconds: Double)] = [(true, 0.7)]
-  private static let endedBlinks: [(on: Bool, seconds: Double)] =
-    [(true, 0.12), (false, 0.12), (true, 0.12), (false, 0.12), (true, 0.12)]
-
   func saved(sound: Bool, flash: Bool, activeCamera: AVCaptureDevice?) {
     if sound { play(savedSound) }
-    if flash { blink(activeCamera, Self.savedBlinks) }
+    if flash { blink(activeCamera, TorchPattern.saved) }
   }
 
   /// "started" or "ended" (a recording, from the remote's hold); anything else plays nothing.
@@ -27,10 +21,10 @@ final class ReplayFeedback {
     switch kind {
     case "started":
       if sound { play(startedSound) }
-      if flash { blink(activeCamera, Self.startedBlink) }
+      if flash { blink(activeCamera, TorchPattern.started) }
     case "ended":
       if sound { play(endedSound) }
-      if flash { blink(activeCamera, Self.endedBlinks) }
+      if flash { blink(activeCamera, TorchPattern.ended) }
     default:
       break
     }
@@ -52,7 +46,7 @@ final class ReplayFeedback {
   }
 
   /// Plays `steps` on the torch. The ultra-wide lens has no torch of its own, so fall back to the wide camera's.
-  private func blink(_ active: AVCaptureDevice?, _ steps: [(on: Bool, seconds: Double)]) {
+  private func blink(_ active: AVCaptureDevice?, _ steps: [TorchPattern.Step]) {
     let device = [active, AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back)]
       .compactMap { $0 }
       .first { $0.hasTorch && $0.isTorchModeSupported(.on) }
