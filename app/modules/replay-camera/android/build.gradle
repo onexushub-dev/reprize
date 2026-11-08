@@ -27,6 +27,8 @@ dependencies {
   implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
   // The pairing QR (camera phone side).
   implementation 'com.google.zxing:core:3.5.3'
+  // Modo Foco: finds the people in a clip's frames (EfficientDet-Lite0, "person" only, in assets/).
+  implementation 'com.google.mediapipe:tasks-vision:0.10.26'
   testImplementation 'junit:junit:4.13.2'
   // org.json is a stub in JVM unit tests; the real one reads the remote protocol's JSON there.
   testImplementation 'org.json:json:20240303'
