@@ -32,6 +32,13 @@ try {
   // the zoom picked last time stays; nothing else depends on this
 }
 
+// Once per launch, before any screen reads the list: a recording left open by a closed app gets its end.
+try {
+  repo.closeOpenSessions();
+} catch {
+  // it stays open until the next launch
+}
+
 /** A `file://` folder address as a plain path ending in '/'. */
 export function documentsPath(uri: string): string {
   const path = decodeURIComponent(uri.replace(/^file:\/\//, ''));

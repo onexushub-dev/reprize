@@ -148,6 +148,25 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       changed();
     },
 
+    /**
+     * At launch no recording can be running: every recording without an end (the app was closed mid-recording, as on
+     * 2026-11-07) ends at its last clip, or at its start without clips, so it shows its real length and can be deleted.
+     * Returns how many were closed.
+     */
+    closeOpenSessions(): number {
+      let closed = 0;
+      for (const id of sessionIds()) {
+        const session = getSession(id);
+        if (!session || session.endedAt !== undefined) continue;
+        const clips = this.listClips(id);
+        const last = clips.reduce((at, c) => Math.max(at, c.createdAt), session.startedAt);
+        write(key.session(id), { ...session, endedAt: last });
+        closed += 1;
+      }
+      if (closed > 0) changed();
+      return closed;
+    },
+
     endSession(id: string, now: number): Session {
       const session = { ...getSession(id)!, endedAt: now };
       write(key.session(id), session);

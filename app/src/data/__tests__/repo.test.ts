@@ -485,3 +485,20 @@ describe('upgradeSession', () => {
     expect(setup().upgradeSession('nope', {})).toBeUndefined();
   });
 });
+
+test('closeOpenSessions ends a recording a closed app left open, at its last clip, or at its start without clips', () => {
+  const repo = setup({ '/a.mp4': 1, '/b.mp4': 1 });
+  const withClips = repo.startSession('futevolei', 1000, { paid: false });
+  repo.addClip({ sessionId: withClips.id, createdAt: 5000, source: 'remote', path: '/a.mp4', durationMs: 60000 }, 15000);
+  repo.addClip({ sessionId: withClips.id, createdAt: 9000, source: 'gesture', path: '/b.mp4', durationMs: 60000 }, 15000);
+  const empty = repo.startSession('futevolei', 20000, { paid: false });
+  const ended = repo.startSession('futevolei', 30000, { paid: false });
+  repo.endSession(ended.id, 40000);
+
+  expect(repo.closeOpenSessions()).toBe(2);
+
+  expect(repo.getSession(withClips.id)!.endedAt).toBe(9000);
+  expect(repo.getSession(empty.id)!.endedAt).toBe(20000);
+  expect(repo.getSession(ended.id)!.endedAt).toBe(40000);
+  expect(repo.closeOpenSessions()).toBe(0);
+});
