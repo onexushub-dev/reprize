@@ -13,7 +13,7 @@ import { useRemoteLost } from '../triggers/useRemoteLost';
 import { onRemoteEnd } from '../triggers/remoteCommands';
 import { useSession } from '../session/SessionContext';
 import { useScreenEconomy } from '../session/useScreenEconomy';
-import { diag, diagFlags } from '../diag/diagLog'; // TEMP(diag-remote)
+import { diag } from '../diag/diagLog'; // TEMP(diag-remote)
 import { colors, fonts } from '../theme/tokens';
 import { Button } from './Button';
 import { EconomyButton } from './EconomyButton';
@@ -91,7 +91,7 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   // The player's choice on the setup screen (Economia de bateria), which the button in the top row also flips mid-game
   // (2026-11-02: no need to end the game to change it); the Diagnóstico screen can also turn it off.
   const [economyPref, setEconomyPref] = useState(() => repo.getPrefs().screenEconomy);
-  const economyOn = state.phase === 'recording' && economyPref && !diagFlags().economyOff;
+  const economyOn = state.phase === 'recording' && economyPref;
   const economy = useScreenEconomy(economyOn, state.thermal.level, setEconomy);
   const wakingTap = useRef(false);
   function onAnyTouch() {
@@ -208,7 +208,7 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   }
 
   /**
-   * Ended from the remote's 3 s hold (2026-11-07 spec §5.1): its sound and torch first, then the recording ends and
+   * Ended from the remote's 2 s hold (2026-11-07 spec §5.1): its sound and torch first, then the recording ends and
    * the player stays on the setup screen, the camera coming back for the next hold. The recording is in Minhas
    * gravações (one with no clips is deleted, as `leaveEnded` does).
    */
