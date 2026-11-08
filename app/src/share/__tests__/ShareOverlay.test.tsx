@@ -98,3 +98,11 @@ test('in a landscape frame the video fills it, with no bands, and the logo keeps
   expect(pill.right).toBeCloseTo(32.4, 1);
   expect(pill.bottom).toBe(pill.right);
 });
+
+test('no dark gradient over the video, with or without the mark (2026-11-08: a shadow over the bottom of every clip)', async () => {
+  const view = await render(<ShareOverlay frame={frame} layout={layout} scale={1} watermark={false} />);
+  expect(JSON.stringify(view.toJSON())).not.toMatch(/Gradient|url\(#/);
+  await view.unmount();
+  const marked = await render(<ShareOverlay frame={frame} layout={layout} scale={1} />);
+  expect(JSON.stringify(marked.toJSON())).not.toMatch(/Gradient|url\(#/);
+});
