@@ -1,8 +1,8 @@
 /**
  * How long the remote's button is held to start or end a recording (2026-11-07 spec §5.1): long enough that a pocket
- * or a bump does not do it, short enough to do on purpose.
+ * or a bump does not do it, short enough to do on purpose (2026-11-08 spec §4.1).
  */
-export const REMOTE_HOLD_MS = 3000;
+export const REMOTE_HOLD_MS = 2000;
 
 export type PressReader = {
   /** The button went down. */
