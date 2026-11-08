@@ -8,6 +8,8 @@ export type TestSample = { at: number; trace: GestureTrace };
 /** The real distance the tester marked from `at` on (null: cleared). */
 export type DistanceMark = { at: number; meters: number | null };
 export type TestFire = { at: number; source: string };
+/** What the people in front of the camera are doing from `at` on, as the tester marks it (null: cleared). */
+export type KindMark = { at: number; kind: string | null };
 
 export type TestMeta = {
   device: string;
@@ -59,6 +61,12 @@ function handsUp(p: GestureTracePerson): boolean {
   return r !== undefined && r > ATTEMPT_RISE;
 }
 
+export function kindAt(kinds: KindMark[], at: number): string | null {
+  let k: string | null = null;
+  for (const mark of kinds) if (mark.at <= at) k = mark.kind;
+  return k;
+}
+
 export function markAt(marks: DistanceMark[], at: number): number | null {
   let m: number | null = null;
   for (const mark of marks) if (mark.at <= at) m = mark.meters;
@@ -105,6 +113,7 @@ type AttemptStats = {
   readable: number;
   up: number;
   raised: number;
+  facing: number;
   px?: number;
   estM?: number;
   rise?: number;
@@ -131,6 +140,7 @@ export function attemptStats(a: Attempt): AttemptStats {
     readable: ps.filter((p) => p.pose).length,
     up: ps.filter((p) => p.up === true).length,
     raised: ps.filter((p) => p.raised === true).length,
+    facing: ps.filter((p) => p.facing === true).length,
     px: median(ps.map((p) => p.px)),
     estM: median(ps.map(estimatedM).filter((v): v is number => v !== undefined)),
     rise: median(rises),
@@ -181,6 +191,7 @@ export function buildReport(
   marks: DistanceMark[],
   fires: TestFire[],
   now: number,
+  kinds: KindMark[] = [],
 ): string {
   const t0 = samples.length > 0 ? samples[0].at : now;
   const attempts = findAttempts(samples, marks);
@@ -235,18 +246,21 @@ export function buildReport(
   lines.push('TENTATIVAS (mãos na altura da cabeça ou acima; uma por pessoa, separadas por pausas de 1,5 s)');
   attempts.forEach((a, i) => {
     const s = attemptStats(a);
+    const kind = kindAt(kinds, a.start);
     const result =
       a.fired === undefined
         ? 'NÃO reconhecida'
         : `RECONHECIDA (${a.fired.rule === 'hold' ? 'braços para cima' : 'aceno'}, após ${((a.fired.at - a.start) / 1000).toFixed(1)} s` +
           `${a.rules.length > 1 ? `; disparou ${a.rules.length}x: ${a.rules.join(', ')}` : ''})`;
     lines.push(
-      `#${i + 1} ${clock(a.start, t0)} pessoa ${a.id} · ${result} · ${s.durationS.toFixed(1)} s · marcada ` +
+      `#${i + 1} ${clock(a.start, t0)} pessoa ${a.id}${kind === null ? '' : ` [${kind}]`} · ${result} · ` +
+        `${s.durationS.toFixed(1)} s · marcada ` +
         `${a.markedM === null ? '-' : `${a.markedM} m`} · estimada ${fmt(s.estM)} m · altura ${fmt(s.px, 0)} px`,
     );
     lines.push(
       `   ${a.samples.length} amostras · pose lida ${pct(s.readable, a.samples.length)} · regra braços para cima ` +
-        `${pct(s.up, a.samples.length)} · mãos acima da cabeça ${pct(s.raised, a.samples.length)} · ` +
+        `${pct(s.up, a.samples.length)} · de frente ${pct(s.facing, a.samples.length)} · ` +
+        `mãos acima da cabeça (de frente) ${pct(s.raised, a.samples.length)} · ` +
         `pulso mais baixo acima da cabeça: mediana ${fmt(s.rise, 2)}, melhor ${fmt(s.bestRise, 2)} ombros (precisa > 0.35) · ` +
         `confiança dos pulsos ${fmt(s.wristConf, 2)} · cotovelos acima dos ombros ${pct(s.elbowsUp, s.elbowsRead)} · ` +
         `vai e vem dos pulsos ${fmt(s.swing, 2)} ombros (aceno precisa ≥ 0.4) · caixas: ${s.sources}`,
@@ -258,11 +272,14 @@ export function buildReport(
   const events = [
     ...marks.map((m) => ({ at: m.at, text: `distância real: ${m.meters === null ? 'sem marca' : `${m.meters} m`}` })),
     ...fires.map((f) => ({ at: f.at, text: `gatilho: ${f.source}` })),
+    ...kinds.map((k) => ({ at: k.at, text: `gesto feito: ${k.kind === null ? 'sem marca' : k.kind}` })),
   ].sort((x, y) => x.at - y.at);
   events.forEach((e) => lines.push(`${clock(e.at, t0)} ${e.text}`));
   lines.push('');
-  lines.push('DADOS (uma amostra por linha: {at, mark, trace})');
-  samples.forEach((s) => lines.push(JSON.stringify({ at: s.at, mark: markAt(marks, s.at), ...s.trace })));
+  lines.push('DADOS (uma amostra por linha: {at, mark, kind, trace})');
+  samples.forEach((s) =>
+    lines.push(JSON.stringify({ at: s.at, mark: markAt(marks, s.at), kind: kindAt(kinds, s.at), ...s.trace })),
+  );
   return lines.join('\n') + '\n';
 }
 
@@ -271,6 +288,7 @@ export function createGestureTest(now: () => number = Date.now) {
   let samples: TestSample[] = [];
   let marks: DistanceMark[] = [];
   let fires: TestFire[] = [];
+  let kinds: KindMark[] = [];
 
   return {
     addTrace(trace: GestureTrace): void {
@@ -283,10 +301,15 @@ export function createGestureTest(now: () => number = Date.now) {
     fire(source: string): void {
       fires.push({ at: now(), source });
     },
+    /** The gesture being tried from now on (a lower wave, claps…), or null. */
+    kind(kind: string | null): void {
+      kinds.push({ at: now(), kind });
+    },
     clear(): void {
       samples = [];
       marks = [];
       fires = [];
+      kinds = [];
     },
     currentMark(): number | null {
       return markAt(marks, now());
@@ -310,7 +333,7 @@ export function createGestureTest(now: () => number = Date.now) {
       );
     },
     report(meta: TestMeta): string {
-      return buildReport(meta, samples, marks, fires, now());
+      return buildReport(meta, samples, marks, fires, now(), kinds);
     },
   };
 }

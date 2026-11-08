@@ -107,6 +107,15 @@ test('native onTrigger goes through the bus', async () => {
   expect(view.result.current.state.lastSaved?.source).toBe('gesture');
 });
 
+test('the Diagnóstico gesture switch keeps the gesture off in a recording that would use it', async () => {
+  const f = fakeDeps();
+  f.deps.diagGestureOff = () => true;
+  f.startDecision.mockResolvedValue({ kind: 'pro' });
+  const view = await renderHook(() => useReplaySession(f.deps));
+  await act(() => view.result.current.start('musculacao'));
+  expect(f.camera.setGestureEnabled).toHaveBeenLastCalledWith(false);
+});
+
 test('undoLast deletes the clip file and the record', async () => {
   const { view, deps, deleted, finishSave } = await started();
   await act(async () => view.result.current.trigger('screen'));

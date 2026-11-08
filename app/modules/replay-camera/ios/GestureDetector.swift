@@ -95,7 +95,8 @@ final class GestureDetector {
   func consider(_ buffer: CMSampleBuffer) {
     let t = CMSampleBufferGetPresentationTimeStamp(buffer).seconds
     let take: Bool = lock.withLock {
-      let armed = t < _armedUntil
+      // The gesture test (spike) samples fast all the time: lower waves and claps never arm the fast rate.
+      let armed = t < _armedUntil || _traceEnabled
       let interval = _degraded ? (armed ? Self.hotArmedSampleInterval : Self.hotSampleInterval)
                                : (armed ? Self.armedSampleInterval : Self.sampleInterval)
       guard _enabled, !busy, t - lastSample >= interval else { return false }
@@ -192,12 +193,25 @@ final class GestureDetector {
       person["pose"] = true
       let joints: [(String, Point?)] = [("lw", pose.leftWrist), ("rw", pose.rightWrist), ("le", pose.leftElbow),
                                         ("re", pose.rightElbow), ("ls", pose.leftShoulder), ("rs", pose.rightShoulder),
-                                        ("nose", pose.nose)]
+                                        ("nose", pose.nose), ("leye", pose.leftEye), ("reye", pose.rightEye),
+                                        ("lear", pose.leftEar), ("rear", pose.rightEar), ("lh", pose.leftHip),
+                                        ("rh", pose.rightHip)]
       var conf: [String: Double] = [:]
       for (name, point) in joints { conf[name] = point.map { r2($0.confidence) } ?? -1 }
       person["conf"] = conf
+      // Every joint as [x, y] in the pixels of the image the pose was read in (y down): other gestures (a lower wave,
+      // claps) can be checked later against the shoulders of the same sample.
+      var at: [String: [Double]] = [:]
+      for (name, point) in joints {
+        if let point = point { at[name] = [(point.x * 10).rounded() / 10, (point.y * 10).rounded() / 10] }
+      }
+      person["j"] = at
       person["up"] = ArmsUp.isUp(pose)
       person["raised"] = WaveTracker.armsRaised(pose)
+      // Which way the person faces (Facing, 2026-11-07): only a person facing the camera can wave.
+      person["facing"] = Facing.towardCamera(pose)
+      person["face"] = Facing.faceSeen(pose)
+      if let open = Facing.openness(pose) { person[open.toTorso ? "openTorso" : "openHead"] = r2(open.value) }
       if let head = ArmsUp.headLine(pose) {
         person["swPx"] = r2(head.shoulderWidth)
         if let focal = focal, head.shoulderWidth > 0 { person["estSwM"] = r2(shoulderWidthM * focal / head.shoulderWidth) }

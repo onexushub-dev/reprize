@@ -206,6 +206,8 @@ final class GesturePipeline {
     }
     return Pose(leftWrist: point(.leftWrist), rightWrist: point(.rightWrist),
                 leftElbow: point(.leftElbow), rightElbow: point(.rightElbow),
-                leftShoulder: point(.leftShoulder), rightShoulder: point(.rightShoulder), nose: point(.nose))
+                leftShoulder: point(.leftShoulder), rightShoulder: point(.rightShoulder), nose: point(.nose),
+                leftEye: point(.leftEye), rightEye: point(.rightEye), leftEar: point(.leftEar), rightEar: point(.rightEar),
+                leftHip: point(.leftHip), rightHip: point(.rightHip))
   }
 }

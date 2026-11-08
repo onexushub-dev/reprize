@@ -94,6 +94,23 @@ describe('report', () => {
     expect(test.summary()).toContain('reconhecidas 1');
   });
 
+  it('labels each attempt and each raw sample with the gesture the tester marked', () => {
+    let clock = 0;
+    const test = createGestureTest(() => clock);
+    test.kind('aceno baixo');
+    test.addTrace(trace([up]));
+    clock = 5000;
+    test.kind('jogo normal');
+    test.addTrace(trace([up]));
+
+    const text = test.report({ device: 'iPhone', zoom: 1, quality: '1080p60' });
+    expect(text).toContain('#1 +00:00 pessoa 1 [aceno baixo]');
+    expect(text).toContain('#2 +00:05 pessoa 1 [jogo normal]');
+    expect(text).toContain('gesto feito: aceno baixo');
+    const raw = text.trim().split('\n').filter((l) => l.startsWith('{"at"')).map((l) => JSON.parse(l).kind);
+    expect(raw).toEqual(['aceno baixo', 'jogo normal']);
+  });
+
   it('works with nothing recorded', () => {
     expect(buildReport({ device: 'x', zoom: 1, quality: '1080p30' }, [], [], [], 0)).toContain('tentativas: 0');
   });

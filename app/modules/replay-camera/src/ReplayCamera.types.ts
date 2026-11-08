@@ -127,16 +127,30 @@ export type GestureTracePerson = {
   estM?: number;
   /** A body was found in the crop. */
   pose: boolean;
-  /** Joint confidences (-1: missing): lw, rw, le, re, ls, rs, nose. */
+  /** Joint confidences (-1: missing): lw, rw, le, re, ls, rs, nose, leye, reye, lear, rear, lh, rh. */
   conf?: Record<string, number>;
   up?: boolean;
+  /** Both hands above the head, facing the camera (the cue to sample faster). */
   raised?: boolean;
+  /** Facing the camera (face seen and shoulders open): only then can a wave count. */
+  facing?: boolean;
+  /** Nose and both eyes seen. */
+  face?: boolean;
+  /** Shoulder width over the torso (hips seen) or over the head (hips hidden): low = side-on. */
+  openTorso?: number;
+  openHead?: number;
   /** Shoulder width in pixels, and the distance it gives assuming 0.31 m between the shoulder joints. */
   swPx?: number;
   estSwM?: number;
   /** Each wrist above the head line, in shoulder widths (the hold needs both > 0.35). */
   riseL?: number;
   riseR?: number;
+  /**
+   * Every joint read, as [x, y] in the pixels of the image the pose was read in (y down): lw, rw, le, re, ls, rs, nose,
+   * leye, reye, lear, rear, lh, rh.
+   * Compare joints of the same sample only (the image is a crop around the person).
+   */
+  j?: Record<string, number[]>;
   /** Each wrist sideways from the shoulder centre, in shoulder widths. */
   xL?: number;
   xR?: number;

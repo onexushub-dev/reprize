@@ -1,6 +1,9 @@
 /// The wave gesture: both hands above the head, swung from side to side for about a second and a half,
 /// like waving to someone far away. Motion is a stronger signal than a held pose at a distance.
 ///
+/// Only a person facing the camera counts (`Facing`, 2026-11-07): rebounds and contested shots seen from the back or
+/// the side are the same arms-up motion.
+///
 /// People are followed from sample to sample by where their box is in the frame, so two players doing half a wave
 /// each never add up to one.
 public final class WaveTracker {
@@ -55,13 +58,16 @@ public final class WaveTracker {
     self.matchDistance = matchDistance
   }
 
-  /// Both wrists above the head line: the cue to sample faster, since waving is quick.
+  /// Both wrists above the head line, facing the camera: the cue to sample faster, since waving is quick. Arms up away
+  /// from the camera (a rebound, a block) no longer make the detector work faster.
   public static func armsRaised(_ pose: Pose) -> Bool {
     return measure(pose)?.raised ?? false
   }
 
+  /// Nil for a pose that cannot wave: joints missing, or not facing the camera (`Facing`).
   private static func measure(_ pose: Pose) -> (raised: Bool, left: Double, right: Double)? {
     let minConfidence = ArmsUp.defaultConfidence
+    guard Facing.towardCamera(pose) else { return nil }
     guard let lw = pose.leftWrist, let rw = pose.rightWrist,
           lw.confidence >= minConfidence, rw.confidence >= minConfidence,
           let head = ArmsUp.headLine(pose, minConfidence: minConfidence),

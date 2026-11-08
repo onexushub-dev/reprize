@@ -58,6 +58,8 @@ export type SessionDeps = {
   useRemote(enabled: boolean, onPress: () => void): void;
   /** A clip was saved and recorded (the app queues its Modo Foco analysis). */
   onClipSaved?(clipId: string): void;
+  /** TEMP(diag): true when the Diagnóstico screen turned the gesture off for every recording (heat measurement). */
+  diagGestureOff?(): boolean;
 };
 
 export type StartResult = 'started' | 'failed' | 'busy';
@@ -328,7 +330,8 @@ export function useReplaySession(deps: SessionDeps) {
           const voiceOn = settings.voiceEnabled && deps.camera.getSpeechPermission() === 'granted';
           locale = voiceLocale(deps.locale());
           toggled = true;
-          deps.camera.setGestureEnabled(settings.gestureEnabled);
+          const gestureOff = deps.diagGestureOff !== undefined && deps.diagGestureOff();
+          deps.camera.setGestureEnabled(settings.gestureEnabled && !gestureOff);
           deps.camera.setVoiceEnabled(voiceOn, locale);
           // Last fallible step: a start that failed leaves no session behind.
           const session = deps.repo.startSession(sport, deps.now(), { paid: plan === 'paid' });

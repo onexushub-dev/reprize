@@ -33,6 +33,7 @@ function DiagScreen() {
   const [text, setText] = useState(() => diagText());
   const [economyOff, setEconomyOff] = useState(() => diagFlags().economyOff);
   const [volumePathOff, setVolumePathOff] = useState(() => diagFlags().volumePathOff);
+  const [gestureOff, setGestureOff] = useState(() => diagFlags().gestureOff);
 
   useEffect(() => diagSubscribe(() => setText(diagText())), []);
 
@@ -67,6 +68,13 @@ function DiagScreen() {
   const toggleVolumePath = (off: boolean) => {
     setVolumePathOff(off);
     setDiagFlags({ ...diagFlags(), volumePathOff: off });
+  };
+
+  // Two recordings in the same conditions, with and without the gesture: how much heat and battery it costs. Takes
+  // effect at the next recording.
+  const toggleGesture = (off: boolean) => {
+    setGestureOff(off);
+    setDiagFlags({ ...diagFlags(), gestureOff: off });
   };
 
   const share = () => {
@@ -117,6 +125,16 @@ function DiagScreen() {
             onValueChange={toggleVolumePath}
             trackColor={{ true: colors.accent, false: colors.surface }}
             accessibilityLabel="Desligar o caminho pelo volume (só captura)"
+          />
+        </View>
+
+        <View style={styles.row}>
+          <Text style={styles.rowName}>Desligar o gesto nas gravações (medir calor e bateria)</Text>
+          <Switch
+            value={gestureOff}
+            onValueChange={toggleGesture}
+            trackColor={{ true: colors.accent, false: colors.surface }}
+            accessibilityLabel="Desligar o gesto nas gravações"
           />
         </View>
 
