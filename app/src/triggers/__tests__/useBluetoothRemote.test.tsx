@@ -76,7 +76,7 @@ test('without a learnt BLE remote it is the volume remote alone (nothing is look
   const { unmount } = await renderHook(() => useBluetoothRemote(true, onPress));
   await tick();
   expect(cam.bluetoothConnected).not.toHaveBeenCalled();
-  expect(useVolumeRemote).toHaveBeenLastCalledWith(true, expect.any(Function));
+  expect(useVolumeRemote).toHaveBeenLastCalledWith(true, expect.any(Function), { onHold: undefined, parkAt: undefined });
   await act(async () => unmount());
 });
 

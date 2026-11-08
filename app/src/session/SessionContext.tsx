@@ -13,12 +13,17 @@ import { focusHold } from '../focus/focusQueue';
 import { diag, diagFlags } from '../diag/diagLog';
 import { useSessionDiag } from '../diag/useSessionDiag';
 import { useBluetoothRemote } from '../triggers/useBluetoothRemote';
+import { emitRemoteEnd } from '../triggers/remoteCommands';
+import { RECORDING_VOLUME, useRecordingVolume } from './useRecordingVolume';
 import { type ReplaySession, type SessionDeps, useReplaySession } from './useReplaySession';
 import { useWatchTriggerGate } from './useWatchTriggerGate';
 
-/** The Bluetooth remote in a game: its presses only (its link coming back never saves a clip, see linkMonitor). */
+/**
+ * The Bluetooth remote in a game: a press saves a clip, a 3 s hold ends the recording (the recording screen does it),
+ * and the volume is parked loud so the chimes reach the court. Its link coming back never saves a clip (linkMonitor).
+ */
 function useGameRemote(enabled: boolean, onPress: () => void): void {
-  useBluetoothRemote(enabled, onPress);
+  useBluetoothRemote(enabled, onPress, { onHold: emitRemoteEnd, parkAt: RECORDING_VOLUME });
 }
 
 const appDeps: SessionDeps = {
@@ -49,6 +54,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // recording that has started.
   const recording = session.state.phase === 'recording';
   const plan = usePlan(recording ? session.state.sessionId : undefined);
+  // The chimes loud enough for the court: the remote's hook parks the volume there while it listens; otherwise here.
+  const remoteListens = recording && triggerAllowed('remote', session.state.paid ? 'paid' : 'free');
+  useRecordingVolume(recording && !remoteListens);
   useWatchTriggerGate(recording, triggerAllowed('watch', plan), camera.watchSetSaveAllowed);
 
   // The camera and the heat come first: no Modo Foco analysis while the camera is on, on the setup screen or recording

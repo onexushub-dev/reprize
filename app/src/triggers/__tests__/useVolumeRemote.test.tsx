@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react-native';
 import { AppState } from 'react-native';
 
 import { diagFlags, setDiagFlags } from '../../diag/diagLog';
+import { REMOTE_HOLD_MS } from '../pressHold';
 import { ARM_MS, SETTLE_MS, WATCH_MS, useVolumeRemote } from '../useVolumeRemote';
 
 // The phone's real volume (iOS): undefined by default, so the tests above run the library-only path (Android).
@@ -74,6 +75,22 @@ test('a volume press calls onPress once and restores the starting level', async 
 
   expect(onPress).toHaveBeenCalledTimes(1);
   expect(lib.VolumeManager.setVolume).toHaveBeenLastCalledWith(0.5, expect.anything());
+});
+
+test('a recording parks at the loud level and gives the player\'s level back (2026-11-07)', async () => {
+  lib.__state.volume = 0.4;
+  const view = await renderHook(() => useVolumeRemote(true, jest.fn(), { parkAt: 0.75 }));
+  await act(async () => {});
+  expect(lib.VolumeManager.setVolume).toHaveBeenCalledWith(0.75, expect.anything());
+  await act(async () => view.unmount());
+  expect(lib.VolumeManager.setVolume).toHaveBeenLastCalledWith(0.4, expect.anything());
+});
+
+test('a player level above the loud one, with room for a press, is kept', async () => {
+  lib.__state.volume = 0.78;
+  await renderHook(() => useVolumeRemote(true, jest.fn(), { parkAt: 0.75 }));
+  await act(async () => {});
+  expect(lib.VolumeManager.setVolume).not.toHaveBeenCalledWith(0.75, expect.anything());
 });
 
 test('a phone at max volume is moved down so presses still register', async () => {
@@ -184,6 +201,47 @@ describe('2026-10-31 field logs', () => {
     await act(async () => fire('onCaptureButton', { button: 'secondary' }));
     expect(onPress).toHaveBeenCalledTimes(1);
     expect(lib.VolumeManager.setVolume).not.toHaveBeenCalled();
+  });
+
+  test('with phases, a press counts at its release (2026-11-07)', async () => {
+    const onPress = jest.fn();
+    await renderHook(() => useVolumeRemote(true, onPress, { onHold: jest.fn() }));
+    await act(async () => fire('onCaptureButton', { button: 'secondary', phase: 'began' }));
+    expect(onPress).not.toHaveBeenCalled();
+    await act(async () => fire('onCaptureButton', { button: 'secondary', phase: 'ended', ms: 140 }));
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  test('held 3 s it calls onHold, not onPress', async () => {
+    jest.useFakeTimers();
+    const onPress = jest.fn();
+    const onHold = jest.fn();
+    await renderHook(() => useVolumeRemote(true, onPress, { onHold }));
+    await act(async () => fire('onCaptureButton', { button: 'secondary', phase: 'began' }));
+    await act(async () => void jest.advanceTimersByTime(REMOTE_HOLD_MS));
+    expect(onHold).toHaveBeenCalledTimes(1);
+    await act(async () => fire('onCaptureButton', { button: 'secondary', phase: 'ended', ms: 3300 }));
+    expect(onPress).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  test('without a hold handler, a long press is still a press', async () => {
+    jest.useFakeTimers();
+    const onPress = jest.fn();
+    await renderHook(() => useVolumeRemote(true, onPress));
+    await act(async () => fire('onCaptureButton', { button: 'secondary', phase: 'began' }));
+    await act(async () => void jest.advanceTimersByTime(REMOTE_HOLD_MS));
+    expect(onPress).toHaveBeenCalledTimes(1);
+    await act(async () => fire('onCaptureButton', { button: 'secondary', phase: 'ended', ms: 3300 }));
+    expect(onPress).toHaveBeenCalledTimes(1);
+    jest.useRealTimers();
+  });
+
+  test('a release whose press another screen heard is ignored', async () => {
+    const onPress = jest.fn();
+    await renderHook(() => useVolumeRemote(true, onPress, { onHold: jest.fn() }));
+    await act(async () => fire('onCaptureButton', { button: 'secondary', phase: 'ended', ms: 3100 }));
+    expect(onPress).not.toHaveBeenCalled();
   });
 
   test('capture buttons stay on until the last screen listening stops', async () => {

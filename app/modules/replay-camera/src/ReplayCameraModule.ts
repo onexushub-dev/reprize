@@ -51,6 +51,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   bluetoothConnected?(ask: boolean): Promise<BluetoothConnected>;
   requestPermissions(): Promise<boolean>;
   signalSaved(sound: boolean, flash: boolean): void;
+  // iOS only: missing on Android and in older builds.
+  signalAction?(kind: 'started' | 'ended', sound: boolean, flash: boolean): void;
   signalSaveFailed(sound: boolean): void;
   setVoiceEnabled(enabled: boolean, locale: VoiceLocale): void;
   requestSpeechPermission(): Promise<boolean>;

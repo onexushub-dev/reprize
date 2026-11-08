@@ -35,6 +35,8 @@ jest.mock("../../../modules/replay-camera", () => {
     setGestureEnabled: jest.fn(),
     setVoiceEnabled: jest.fn(),
     signalSaved: jest.fn(),
+    signalAction: jest.fn(),
+    signalSaveFailed: jest.fn(),
     ReplayCameraView: (props: { style?: unknown }) => {
       mounts.style = props.style;
       useEffect(() => {
@@ -175,7 +177,11 @@ test("under another screen (Minhas gravações, editor, Salvar) it releases the 
   await render(<Setup />);
   expect(s.prepare).not.toHaveBeenCalled();
   expect(s.release).toHaveBeenCalled();
-  expect(useVolumeRemote).toHaveBeenLastCalledWith(false, expect.any(Function));
+  expect(useVolumeRemote).toHaveBeenLastCalledWith(
+    false,
+    expect.any(Function),
+    expect.anything(),
+  );
   expect(
     jest.requireMock("expo-keep-awake").activateKeepAwakeAsync,
   ).not.toHaveBeenCalled();
@@ -497,6 +503,18 @@ describe('"Prepare o celular" before a recording (2026-11-08)', () => {
     );
     expect(s.start).toHaveBeenCalled();
     expect(repo.getPrefs().prepareTipSeen).toBeUndefined();
+  });
+
+  test("a start from the remote never waits for it", async () => {
+    repo.setPrefs({ prepareTipSeen: undefined });
+    const s = session({});
+    s.start.mockResolvedValue("started");
+    await render(<Setup />);
+    const { useVolumeRemote } = jest.requireMock(
+      "../../triggers/useVolumeRemote",
+    );
+    await act(async () => useVolumeRemote.mock.calls.at(-1)[2].onHold());
+    expect(s.start).toHaveBeenCalled();
   });
 });
 
@@ -1280,6 +1298,42 @@ test('the Bluetooth remote tile asks for a press when the remote was used before
   ).toBeTruthy();
 });
 
+test("the remote held 3 s starts a recording, answered by its own sound and torch (2026-11-07)", async () => {
+  const s = session({});
+  s.start.mockResolvedValue("started");
+  await render(<Setup />);
+  const { useVolumeRemote } = jest.requireMock(
+    "../../triggers/useVolumeRemote",
+  );
+  const { onHold } = useVolumeRemote.mock.calls.at(-1)[2];
+  await act(async () => onHold());
+  expect(s.start).toHaveBeenCalled();
+  const native = jest.requireMock("../../../modules/replay-camera");
+  expect(native.signalAction).toHaveBeenCalledWith("started", {
+    sound: true,
+    flash: true,
+  });
+});
+
+test("a start from the remote that fails answers with the failure beep", async () => {
+  const s = session({});
+  s.start.mockResolvedValue("failed");
+  await render(<Setup />);
+  const { useVolumeRemote } = jest.requireMock(
+    "../../triggers/useVolumeRemote",
+  );
+  await act(async () => useVolumeRemote.mock.calls.at(-1)[2].onHold());
+  const native = jest.requireMock("../../../modules/replay-camera");
+  expect(native.signalAction).not.toHaveBeenCalled();
+  expect(native.signalSaveFailed).toHaveBeenCalledWith({ sound: true });
+});
+
+test("back on this screen with the camera off after a recording ended from the remote, the camera comes back", async () => {
+  const s = session({ phase: "idle", camera: "off" });
+  await render(<Setup />);
+  expect(s.prepare).toHaveBeenCalled();
+});
+
 test("a press heard in the Dispositivos sheet shows on the tile when coming back", async () => {
   session({});
   await render(<Setup />);
@@ -1298,12 +1352,24 @@ test("the Dispositivos sheet over the setup keeps the camera and the volume butt
   const { setRemoteSheetOpen } = require("../../devices/remoteTest");
   const s = session({});
   await render(<Setup />);
-  expect(useVolumeRemote).toHaveBeenLastCalledWith(false, expect.any(Function));
+  expect(useVolumeRemote).toHaveBeenLastCalledWith(
+    false,
+    expect.any(Function),
+    expect.anything(),
+  );
   await act(async () => setRemoteSheetOpen(true));
-  expect(useVolumeRemote).toHaveBeenLastCalledWith(true, expect.any(Function));
+  expect(useVolumeRemote).toHaveBeenLastCalledWith(
+    true,
+    expect.any(Function),
+    expect.anything(),
+  );
   expect(s.prepare).toHaveBeenCalled();
   await act(async () => setRemoteSheetOpen(false));
-  expect(useVolumeRemote).toHaveBeenLastCalledWith(false, expect.any(Function));
+  expect(useVolumeRemote).toHaveBeenLastCalledWith(
+    false,
+    expect.any(Function),
+    expect.anything(),
+  );
   jest.requireMock("expo-router").useIsFocused.mockReturnValue(true);
 });
 

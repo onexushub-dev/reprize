@@ -126,6 +126,15 @@ export function signalSaved({ sound, flash }: { sound: boolean; flash: boolean }
   ReplayCameraModule.signalSaved(sound, flash);
 }
 
+/**
+ * A recording started or ended from the remote's hold: its own sound (three notes rising / falling) and torch pattern
+ * (1 long blink / 3 short). Nothing where the native side has no such call (Android, older builds).
+ */
+export function signalAction(kind: 'started' | 'ended', { sound, flash }: { sound: boolean; flash: boolean }): void {
+  const signal = ReplayCameraModule.signalAction;
+  if (typeof signal === 'function') signal.call(ReplayCameraModule, kind, sound, flash);
+}
+
 /** Distinct low double beep when a save fails. */
 export function signalSaveFailed({ sound }: { sound: boolean }): void {
   ReplayCameraModule.signalSaveFailed(sound);

@@ -6,6 +6,10 @@ public enum Chime {
   public static let saved: [(frequency: Double, seconds: Double)] = [(1046.5, 0.09), (1568.0, 0.16)]
   /// "Failed": a low double beep.
   public static let failed: [(frequency: Double, seconds: Double)] = [(330, 0.12), (0, 0.06), (330, 0.12)]
+  /// "Recording started" (from the remote): three rising notes, longer than the save's two.
+  public static let started: [(frequency: Double, seconds: Double)] = [(784.0, 0.12), (1046.5, 0.12), (1568.0, 0.24)]
+  /// "Recording ended" (from the remote): the same three notes falling.
+  public static let ended: [(frequency: Double, seconds: Double)] = [(1568.0, 0.12), (1046.5, 0.12), (784.0, 0.24)]
 
   public static func wav(notes: [(frequency: Double, seconds: Double)], sampleRate: Int = 44_100) -> Data {
     var pcm = Data()

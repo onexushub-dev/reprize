@@ -5,6 +5,7 @@ import { VolumeManager } from 'react-native-volume-manager';
 import { addReplayListener, diagCaptureState, outputVolume, setCaptureButtons } from '../../modules/replay-camera';
 import type { ReplayCameraModuleEvents } from '../../modules/replay-camera';
 import { diag, diagFlags } from '../diag/diagLog'; // TEMP(diag-remote): every diag() call in this file
+import { createPressReader, REMOTE_HOLD_MS } from './pressHold';
 
 /** Where the volume is parked: room above and below, so any remote press changes it. */
 const PARK = 0.5;
@@ -41,6 +42,20 @@ const NUDGE_ECHO_MS = 2000;
  * when the camera restarted, 2026-10-31 log, which saved a clip nobody asked for).
  */
 export const MAX_PRESS_STEP = 0.13;
+
+export type VolumeRemoteOptions = {
+  /**
+   * The button held `REMOTE_HOLD_MS` (capture events only: the volume path cannot tell a hold): start or end a
+   * recording (2026-11-07 spec §5.1). Without it a hold is just a press.
+   */
+  onHold?: () => void;
+  /**
+   * Where the volume path parks the volume, at least (the player's own level when higher and still with room for a
+   * press): during a recording the chimes must reach the court (2026-11-07 spec §5.3). The player's level comes back
+   * when the hook stops.
+   */
+  parkAt?: number;
+};
 
 /** Screens listening to the remote right now: capture buttons stay on while any of them is. */
 let captureButtonUsers = 0;
@@ -126,11 +141,16 @@ const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, 
  * volume path is only the fallback (no preview on screen, the camera restarting). Its retry nudge goes down and its
  * late echo is ignored: it used to count as a press.
  */
-export function useVolumeRemote(enabled: boolean, onPress: () => void): void {
+export function useVolumeRemote(enabled: boolean, onPress: () => void, options: VolumeRemoteOptions = {}): void {
   const onPressRef = useRef(onPress);
   useEffect(() => {
     onPressRef.current = onPress;
   }, [onPress]);
+  const onHoldRef = useRef(options.onHold);
+  useEffect(() => {
+    onHoldRef.current = options.onHold;
+  }, [options.onHold]);
+  const parkAt = options.parkAt;
 
   useEffect(() => {
     if (!enabled) return;
@@ -230,12 +250,35 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void): void {
       queuePark();
     });
 
-    // A press taken as a capture event never moves the volume: nothing to park.
+    // A press taken as a capture event never moves the volume: nothing to park. It arrives as `began` and `ended`, so
+    // a hold can start or end a recording; without a hold handler (or from an older build) every press is a press.
     const buttons = captureButtonsOn();
-    const buttonListener = listen('onCaptureButton', ({ button }) => {
+    let lastButton = 'secondary';
+    const reader = createPressReader({
+      onPress: (ms) => {
+        diag(`controle: CLIQUE (captura, ${lastButton}${ms === undefined ? '' : `, ${ms} ms`})`);
+        onPressRef.current();
+      },
+      onHold: () => {
+        const hold = onHoldRef.current;
+        if (hold === undefined) {
+          diag(`controle: CLIQUE (captura, ${lastButton}, segurado ${REMOTE_HOLD_MS / 1000} s, sem acao de segurar)`);
+          onPressRef.current();
+          return;
+        }
+        diag(`controle: SEGURADO ${REMOTE_HOLD_MS / 1000} s (captura, ${lastButton})`);
+        hold();
+      },
+    });
+    const buttonListener = listen('onCaptureButton', ({ button, phase, ms }) => {
       if (!active || away()) return;
-      diag(`controle: CLIQUE (captura, ${button})`);
-      onPressRef.current();
+      lastButton = button;
+      if (phase === 'began') reader.began();
+      else if (phase === 'ended') reader.ended(ms);
+      else {
+        diag(`controle: CLIQUE (captura, ${button})`);
+        onPressRef.current();
+      }
     });
     // The camera restarting or a new audio route moves the volume by itself: not a press.
     const audioListener = listen('onAudioChange', ({ reason }) => {
@@ -265,6 +308,7 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void): void {
     const stop = () => {
       diag('controle: parou de escutar');
       active = false;
+      reader.dispose();
       if (watch !== undefined) clearInterval(watch);
       if (rearmTimer !== undefined) clearTimeout(rearmTimer);
       listener.remove();
@@ -278,14 +322,28 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void): void {
 
     const paths = !volumePath ? '(so captura, volume DESLIGADO no diagnostico)' : buttons ? '(volume + captura)' : '(volume)';
     diag(`controle: escutando ${paths}`);
-    if (!volumePath) return stop;
+    if (!volumePath) {
+      // No parking, but a recording still wants the chimes loud.
+      if (parkAt !== undefined) {
+        VolumeManager.getVolume()
+          .then(({ volume }) => {
+            if (!active || volume >= parkAt) return;
+            original = volume;
+            return setOwn(parkAt);
+          })
+          .catch(() => {});
+      }
+      return stop;
+    }
     VolumeManager.showNativeVolumeUI({ enabled: false }).catch(() => {});
     (startVolume !== undefined ? Promise.resolve({ volume: startVolume }) : VolumeManager.getVolume())
       .then(({ volume }) => {
         original = volume;
         last = volume;
-        // Near the top or bottom a press can't move the volume far, so park in the middle.
-        parked = volume > 1 - EDGE || volume < EDGE ? PARK : volume;
+        // Near the top or bottom a press can't move the volume far, so park in the middle; a recording parks at
+        // `parkAt` at least, so its chimes reach the court.
+        if (parkAt !== undefined) parked = volume > parkAt && volume <= 1 - EDGE ? volume : parkAt;
+        else parked = volume > 1 - EDGE || volume < EDGE ? PARK : volume;
         if (active) {
           queuePark();
           rearm(); // and again after the previous screen has put its volume back
@@ -294,5 +352,5 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void): void {
       .catch(() => {});
 
     return stop;
-  }, [enabled]);
+  }, [enabled, parkAt]);
 }

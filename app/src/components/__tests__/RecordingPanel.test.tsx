@@ -1,13 +1,14 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 
-import { RecordingPanel as Recording } from '../RecordingPanel';
+import { emitRemoteEnd } from '../../triggers/remoteCommands';
+import { RecordingPanel as Recording, REMOTE_END_SIGNAL_MS } from '../RecordingPanel';
 
 jest.mock('expo-router', () => ({ router: { replace: jest.fn(), push: jest.fn() } }));
 jest.mock('../../data/mmkv', () => ({
   repo: {
     listClips: jest.fn(() => [{ id: 'c1' }]),
     deleteSession: jest.fn(() => []),
-    getPrefs: jest.fn(() => ({ screenEconomy: true })),
+    getPrefs: jest.fn(() => ({ screenEconomy: true, soundOnSave: true, flashOnSave: false })),
     setPrefs: jest.fn((patch: object) => ({ screenEconomy: true, ...patch })),
   },
   removeFile: jest.fn(),
@@ -16,6 +17,7 @@ jest.mock('../../../modules/replay-camera', () => ({
   addReplayListener: jest.fn(() => ({ remove: jest.fn() })),
   setScreenEconomy: jest.fn(),
   getWatchStatus: jest.fn(() => 'unsupported'),
+  signalAction: jest.fn(),
 }));
 jest.mock('../../session/SessionContext', () => ({ useSession: jest.fn() }));
 jest.mock('../../devices/bluetoothRemote', () => ({ useRemoteLink: jest.fn(() => undefined) }));
@@ -192,6 +194,64 @@ test('a remote phone asking to end the recording ends it like the hold button do
   await act(async () => ask());
   expect(s.stop).toHaveBeenCalledTimes(1);
   expect(router.push).toHaveBeenCalledWith('/session/s1');
+});
+
+describe('the remote held 3 s ends the recording (2026-11-07)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  test('its sound and torch first, then it ends and stays on the setup screen', async () => {
+    const s = session({});
+    await render(<Recording />);
+    await act(async () => emitRemoteEnd());
+    const native = jest.requireMock('../../../modules/replay-camera');
+    expect(native.signalAction).toHaveBeenCalledWith('ended', { sound: true, flash: false });
+    expect(s.stop).not.toHaveBeenCalled(); // the chime plays before the camera stops
+    await act(async () => void jest.advanceTimersByTime(REMOTE_END_SIGNAL_MS));
+    expect(s.stop).toHaveBeenCalledTimes(1);
+    expect(s.reset).toHaveBeenCalled();
+    expect(router.push).not.toHaveBeenCalled();
+    expect(repo.deleteSession).not.toHaveBeenCalled(); // it has clips: kept in Minhas gravações
+  });
+
+  test('with the screen dark, it lights the screen up before the recording ends', async () => {
+    const s = session({});
+    await render(<Recording />);
+    await act(async () => void jest.advanceTimersByTime(20_000));
+    expect(setScreenEconomy).toHaveBeenLastCalledWith(true);
+    await act(async () => emitRemoteEnd());
+    expect(setScreenEconomy).toHaveBeenLastCalledWith(false);
+    expect(s.stop).not.toHaveBeenCalled();
+    await act(async () => void jest.advanceTimersByTime(REMOTE_END_SIGNAL_MS));
+    expect(s.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test('a recording with no clips is deleted', async () => {
+    repo.listClips.mockReturnValueOnce([]);
+    const s = session({});
+    await render(<Recording />);
+    await act(async () => emitRemoteEnd());
+    await act(async () => void jest.advanceTimersByTime(REMOTE_END_SIGNAL_MS));
+    expect(s.stop).toHaveBeenCalled();
+    expect(repo.deleteSession).toHaveBeenCalledWith('s1');
+  });
+
+  test('a second hold while it ends changes nothing', async () => {
+    const s = session({});
+    await render(<Recording />);
+    await act(async () => emitRemoteEnd());
+    await act(async () => emitRemoteEnd());
+    await act(async () => void jest.advanceTimersByTime(REMOTE_END_SIGNAL_MS));
+    expect(s.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test('outside a recording a hold does nothing', async () => {
+    const s = session({ phase: 'idle' });
+    await render(<Recording />);
+    await act(async () => emitRemoteEnd());
+    await act(async () => void jest.advanceTimersByTime(REMOTE_END_SIGNAL_MS));
+    expect(s.stop).not.toHaveBeenCalled();
+  });
 });
 
 test('a stop asked outside a recording is ignored', async () => {

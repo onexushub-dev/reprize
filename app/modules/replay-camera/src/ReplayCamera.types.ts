@@ -99,9 +99,10 @@ export type ReplayCameraModuleEvents = {
   /**
    * A volume button (or a Bluetooth selfie remote, which presses "volume up") pressed as a capture event while
    * `setCaptureButtons(true)` and the camera runs. iOS 17.2+ only. `primary`: volume down, Action button, Camera
-   * Control; `secondary`: volume up.
+   * Control; `secondary`: volume up. Each press arrives twice: `began`, then `ended` with its length in ms (older builds
+   * send one event without `phase`, a press).
    */
-  onCaptureButton: (e: { button: 'primary' | 'secondary' }) => void;
+  onCaptureButton: (e: { button: 'primary' | 'secondary'; phase?: 'began' | 'ended'; ms?: number }) => void;
   /** The audio route changed or the camera is restarting: the volume moves by itself for a moment. iOS only. */
   onAudioChange: (e: { reason: string }) => void;
   /** TEMP(diag-remote): one line for the in-app diagnostic log. iOS only. */

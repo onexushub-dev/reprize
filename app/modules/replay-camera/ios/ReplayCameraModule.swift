@@ -210,6 +210,11 @@ public class ReplayCameraModule: Module {
       self.engine.feedback.saved(sound: sound, flash: flash, activeCamera: self.engine.capture.camera)
     }
 
+    // "started" | "ended": a recording started or ended from the remote's hold, with its own sound and torch pattern.
+    Function("signalAction") { (kind: String, sound: Bool, flash: Bool) in
+      self.engine.feedback.action(kind, sound: sound, flash: flash, activeCamera: self.engine.capture.camera)
+    }
+
     AsyncFunction("exportClip") { (o: ExportClipOptions) async throws -> [String: Any] in
       do {
         var options = ClipExporter.Options(
