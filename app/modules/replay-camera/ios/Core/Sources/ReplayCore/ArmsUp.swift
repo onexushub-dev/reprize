@@ -13,9 +13,13 @@ public struct Point: Equatable {
 
 public struct Pose: Equatable {
   public let leftWrist, rightWrist, leftElbow, rightElbow, leftShoulder, rightShoulder, nose: Point?
+  /// The face and the hips: which way the person faces (`Facing`). Nil when not read.
+  public let leftEye, rightEye, leftEar, rightEar, leftHip, rightHip: Point?
 
   public init(leftWrist: Point?, rightWrist: Point?, leftElbow: Point?, rightElbow: Point?,
-              leftShoulder: Point?, rightShoulder: Point?, nose: Point?) {
+              leftShoulder: Point?, rightShoulder: Point?, nose: Point?,
+              leftEye: Point? = nil, rightEye: Point? = nil, leftEar: Point? = nil, rightEar: Point? = nil,
+              leftHip: Point? = nil, rightHip: Point? = nil) {
     self.leftWrist = leftWrist
     self.rightWrist = rightWrist
     self.leftElbow = leftElbow
@@ -23,6 +27,12 @@ public struct Pose: Equatable {
     self.leftShoulder = leftShoulder
     self.rightShoulder = rightShoulder
     self.nose = nose
+    self.leftEye = leftEye
+    self.rightEye = rightEye
+    self.leftEar = leftEar
+    self.rightEar = rightEar
+    self.leftHip = leftHip
+    self.rightHip = rightHip
   }
 }
 

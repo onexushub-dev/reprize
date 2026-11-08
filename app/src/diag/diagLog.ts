@@ -32,6 +32,11 @@ export type DiagFlags = {
    * capture events, to see whether the volume path keeps them from arriving (2026-11-05).
    */
   volumePathOff: boolean;
+  /**
+   * The gesture off in every recording, whatever the setup says: two recordings in the same conditions, with and
+   * without it, show how much heat and battery it costs (2026-11-07).
+   */
+  gestureOff: boolean;
 };
 
 function logFile(): File {
@@ -118,13 +123,17 @@ export function diagSubscribe(listener: () => void): () => void {
 
 export function diagFlags(): DiagFlags {
   if (flags !== undefined) return flags;
-  flags = { economyOff: false, volumePathOff: false };
+  flags = { economyOff: false, volumePathOff: false, gestureOff: false };
   if (!DIAGNOSTICS_ENABLED) return flags;
   try {
     const f = new File(Paths.document, FLAGS_NAME);
     if (f.exists) {
       const saved = JSON.parse(f.textSync()) as Partial<DiagFlags>;
-      flags = { economyOff: saved.economyOff === true, volumePathOff: saved.volumePathOff === true };
+      flags = {
+        economyOff: saved.economyOff === true,
+        volumePathOff: saved.volumePathOff === true,
+        gestureOff: saved.gestureOff === true,
+      };
     }
   } catch {
     // defaults
@@ -143,6 +152,7 @@ export function setDiagFlags(next: DiagFlags): void {
   }
   diag(
     `diagnóstico: economia de tela ${next.economyOff ? 'DESLIGADA' : 'ligada'}, ` +
-      `caminho pelo volume ${next.volumePathOff ? 'DESLIGADO (só captura)' : 'ligado'}`,
+      `caminho pelo volume ${next.volumePathOff ? 'DESLIGADO (só captura)' : 'ligado'}, ` +
+      `gesto ${next.gestureOff ? 'DESLIGADO' : 'como na preparação'}`,
   );
 }

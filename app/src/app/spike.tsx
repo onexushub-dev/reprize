@@ -23,6 +23,8 @@ const bufferDir = new Directory(Paths.cache, 'replay-buffer');
 /** Zooms to test with (0.5 = ultra-wide) and the real distances the tester can mark, in metres. */
 const ZOOMS = [0.5, 0.7, 1, 2];
 const DISTANCES = [3, 5, 8, 10, 12, 15, 18, 20, 25, 30];
+/** What the tester is trying, marked before each series so the report can tell the gestures apart. */
+const KINDS = ['aceno alto', 'aceno baixo', 'aceno + palmas', 'palmas', 'T', 'jogo normal'];
 const QUALITY = '1080p60';
 const EMPTY_COUNTS: Record<TriggerSource, number> = { screen: 0, gesture: 0, remote: 0, watch: 0, voice: 0, phone: 0 };
 
@@ -59,8 +61,9 @@ export default function SpikeScreen() {
   const saving = useRef(false);
   // Gesture test: every gesture sample, the marked distances and the triggers, for the report to share.
   const test = useRef(createGestureTest());
-  const [zoom, setZoom] = useState(0.5);
+  const [zoom, setZoom] = useState(1); // the app opens at 1x
   const [distance, setDistance] = useState<number | null>(null);
+  const [kind, setKind] = useState<string | null>(null);
   const [testLine, setTestLine] = useState('');
 
   const note = (line: string) =>
@@ -173,6 +176,12 @@ export default function SpikeScreen() {
     note(meters === null ? 'distância real: sem marca' : `distância real: ${meters} m`);
   }
 
+  function markKind(next: string | null) {
+    setKind(next);
+    test.current.kind(next);
+    note(next === null ? 'gesto: sem marca' : `gesto: ${next}`);
+  }
+
   function shareTest() {
     try {
       const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
@@ -194,6 +203,7 @@ export default function SpikeScreen() {
         onPress: () => {
           test.current.clear();
           setDistance(null);
+          setKind(null);
           setTestLine('');
         },
       },
@@ -243,6 +253,17 @@ export default function SpikeScreen() {
           {DISTANCES.map((m) => (
             <Pressable key={m} style={[styles.chip, distance === m && styles.chipOn]} onPress={() => markDistance(m)}>
               <Text style={[styles.chipText, distance === m && styles.chipTextOn]}>{m}</Text>
+            </Pressable>
+          ))}
+        </View>
+        <View style={styles.chips}>
+          <Text style={styles.chipLabel}>gesto</Text>
+          <Pressable style={[styles.chip, kind === null && styles.chipOn]} onPress={() => markKind(null)}>
+            <Text style={[styles.chipText, kind === null && styles.chipTextOn]}>—</Text>
+          </Pressable>
+          {KINDS.map((k) => (
+            <Pressable key={k} style={[styles.chip, kind === k && styles.chipOn]} onPress={() => markKind(k)}>
+              <Text style={[styles.chipText, kind === k && styles.chipTextOn]}>{k}</Text>
             </Pressable>
           ))}
         </View>

@@ -4,15 +4,22 @@ import XCTest
 
 private func pt(_ x: Double, _ y: Double, _ c: Double = 0.9) -> Point { Point(x: x, y: y, confidence: c) }
 
-/// Shoulders at x 40/60 (shifted by dx) and y=50, nose at y=35; the wrists swing sideways above the head like a wave.
+/// How the person stands toward the camera.
+private enum Stance { case facing, back, side }
+
+/// Shoulders at x 40/60 (shifted by dx) and y=50, nose at y=35, eyes at y=32; the wrists swing sideways above the head
+/// like a wave. `.back`: no face joints. `.side`: shoulders 4 apart and one eye.
 private func wavePose(_ t: Double, freq: Double = 2.0, amplitude: Double = 8.0, left: Bool = true, right: Bool = true,
-                      wristY: Double = 12.0, jitter: Double = 0.0, dx: Double = 0.0) -> Pose {
+                      wristY: Double = 12.0, jitter: Double = 0.0, dx: Double = 0.0, stance: Stance = .facing) -> Pose {
   let swing = amplitude * sin(2 * Double.pi * freq * t)
   let lx = 60 + (left ? swing : 0.0) + dx
   let rx = 40 + (right ? swing : 0.0) + dx
   let j = jitter * sin(37.0 * t) // deterministic stand-in for detector noise
+  let (ls, rs) = stance == .side ? (52.0, 48.0) : (60.0, 40.0)
+  let face = stance != .back
   return Pose(leftWrist: pt(lx + j, wristY), rightWrist: pt(rx - j, wristY), leftElbow: pt(lx, 30), rightElbow: pt(rx, 30),
-              leftShoulder: pt(60 + dx, 50), rightShoulder: pt(40 + dx, 50), nose: pt(50 + dx, 35))
+              leftShoulder: pt(ls + dx, 50), rightShoulder: pt(rs + dx, 50), nose: face ? pt(50 + dx, 35) : nil,
+              leftEye: face ? pt(53 + dx, 32) : nil, rightEye: stance == .facing ? pt(47 + dx, 32) : nil)
 }
 
 private func runWave(_ tracker: WaveTracker, from start: Double, to stop: Double, step: Double,
@@ -35,6 +42,22 @@ final class WaveTrackerTests: XCTestCase {
     let fired = runWave(WaveTracker(), from: 0.0, to: 4.0, step: 0.125) { one(wavePose($0)) }
     XCTAssertEqual(fired.count, 1)
     XCTAssertLessThan(fired.first ?? 99, 2.0)
+  }
+
+  func test_wavingWithTheBackToTheCamera_doesNotFire() { // a rebound or a contested shot (2026-11-07)
+    let fired = runWave(WaveTracker(), from: 0.0, to: 5.0, step: 0.125) { one(wavePose($0, stance: .back)) }
+    XCTAssertEqual(fired, [])
+  }
+
+  func test_wavingSideOn_doesNotFire() { // shoulders overlapping made any hand movement look huge
+    let fired = runWave(WaveTracker(), from: 0.0, to: 5.0, step: 0.125) { one(wavePose($0, stance: .side)) }
+    XCTAssertEqual(fired, [])
+  }
+
+  func test_armsRaisedAwayFromTheCamera_doNotSpeedUpSampling() {
+    XCTAssertTrue(WaveTracker.armsRaised(wavePose(0.1)))
+    XCTAssertFalse(WaveTracker.armsRaised(wavePose(0.1, stance: .back)))
+    XCTAssertFalse(WaveTracker.armsRaised(wavePose(0.1, stance: .side)))
   }
 
   func test_waving_isFoundAtTheNormal4fpsRateToo() {
@@ -132,7 +155,8 @@ final class WaveVolleyballTests: XCTestCase {
     let ey = up ? 28.0 : 60.0
     let pose = Pose(leftWrist: pt(56 + dx + jitter, wy), rightWrist: pt(44 + dx - jitter, wy),
                     leftElbow: pt(62 + dx, ey), rightElbow: pt(38 + dx, ey),
-                    leftShoulder: pt(60 + dx, 50), rightShoulder: pt(40 + dx, 50), nose: pt(50 + dx, 35))
+                    leftShoulder: pt(60 + dx, 50), rightShoulder: pt(40 + dx, 50), nose: pt(50 + dx, 35),
+                    leftEye: pt(53 + dx, 32), rightEye: pt(47 + dx, 32)) // facing: the motion rule decides
     return [Sighting(pose: pose, x: 0.5, y: 0.5, id: 7)]
   }
 

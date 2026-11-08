@@ -10,7 +10,7 @@ import { usePlan } from '../share/entitlement';
 import { focusQueue } from '../focus/appFocusQueue';
 import { focusHold } from '../focus/focusQueue';
 // TEMP(diag-remote)
-import { diag } from '../diag/diagLog';
+import { diag, diagFlags } from '../diag/diagLog';
 import { useSessionDiag } from '../diag/useSessionDiag';
 import { useBluetoothRemote } from '../triggers/useBluetoothRemote';
 import { type ReplaySession, type SessionDeps, useReplaySession } from './useReplaySession';
@@ -35,6 +35,7 @@ const appDeps: SessionDeps = {
     diag(`clipe salvo (${clip ? clip.source : '?'})`); // TEMP(diag-remote)
     focusQueue.enqueue(clipId);
   },
+  diagGestureOff: () => diagFlags().gestureOff, // TEMP(diag)
 };
 
 const SessionContext = createContext<ReplaySession | null>(null);
