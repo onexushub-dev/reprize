@@ -22,7 +22,18 @@ export type ReplayErrorCode =
  * `zoom`: the starting zoom where zoom is continuous (iOS: 0.5 = ultra-wide, 1 = wide); `lens` is what the others open.
  */
 /** `audio`: record the microphone into the buffer (off on the free plan); native support is separate. */
-export type SessionOptions = { lens: Lens; zoom?: number; maxQuality: Quality; bufferSeconds?: number; audio?: boolean };
+/**
+ * `preview`: the setup screen's camera, at 30 fps at most and with no buffer until `startBuffering()` (iOS; 2026-11-08
+ * spec §3.1). Android ignores it.
+ */
+export type SessionOptions = {
+  lens: Lens;
+  zoom?: number;
+  maxQuality: Quality;
+  bufferSeconds?: number;
+  audio?: boolean;
+  preview?: boolean;
+};
 /** What the camera can zoom: `continuous` is false where only the two lenses exist (Android). */
 /** Which edge of the phone points up (UIDeviceOrientation naming). */
 export type DeviceUpright = 'portrait' | 'portraitUpsideDown' | 'landscapeLeft' | 'landscapeRight';

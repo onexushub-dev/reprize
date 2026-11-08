@@ -83,6 +83,11 @@ export const ptBR: Messages = {
   setup: {
     lowStorage: 'Pouco espaço no celular. Libere pelo menos 500 MB para gravar.',
     cameraFailed: 'Não foi possível abrir a câmera. Tente de novo.',
+    idleWarnTitle: 'A tela vai descansar em %{seconds} s',
+    idleWarnBody: 'Para poupar bateria. Toque na tela para continuar vendo a câmera.',
+    idlePausedTitle: 'Tela em descanso',
+    idlePausedBody: 'Para poupar bateria. Toque uma vez para ver a câmera de novo.',
+    idlePausedRemote: 'Segure o botão do controle para começar a gravar.',
     watchReady: 'Pronto',
     watchNotInstalled: 'Instale o app no Apple Watch',
     watchNone: 'Sem Apple Watch pareado',

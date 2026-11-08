@@ -33,6 +33,11 @@ final class ReplayEngine {
   private let saveQueue = DispatchQueue(label: "replay.save", qos: .utility)
   private lazy var ring = SegmentRing(capacity: 60, fileOps: fileOps)
   private var writer: SegmentWriter?
+  /// Whether the buffer is filling (a recording) or the camera only feeds the preview (the setup screen, 2026-11-08 spec
+  /// §3.1). Lives on `capture.queue`.
+  private var buffering = false
+  /// The setup screen paused for inactivity: the preview camera at its lowest rate (spec §3.2). On `capture.queue`.
+  private var idle = false
   private var generation = 0
   private var pendingSaves: [PendingSave] = []
   private var lens = "ultraWide"
@@ -84,8 +89,9 @@ final class ReplayEngine {
     }
   }
 
-  /// No-op when a session is already running.
-  func start(lens: String, zoom: Double? = nil, maxQuality: String, bufferSeconds: Double = 60) throws {
+  /// No-op when a session is already running. `preview`: the camera runs for the setup screen only, at 30 fps at most,
+  /// with no encoder and no buffer, until `startBuffering()` (2026-11-08 spec §3.1).
+  func start(lens: String, zoom: Double? = nil, maxQuality: String, bufferSeconds: Double = 60, preview: Bool = false) throws {
     guard !running else { return }
     guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { throw Failure.permission }
     let free = (try? ReplayPaths.buffer.deletingLastPathComponent()
@@ -111,13 +117,43 @@ final class ReplayEngine {
     }
     gesture.degraded = state.slowsGesture
     do { try capture.configure(lens: lens, maxQuality: quality) } catch { throw Failure.unavailable(error) }
-    capture.queue.sync { startWriter() }
+    capture.queue.sync {
+      buffering = !preview
+      idle = false
+      if preview { capture.setRate(.preview) } else { startWriter() }
+    }
     gesture.start()
     capture.start()
     running = true
     observe()
     NSLog("[replay] thermal at start: %@, recording %@ (asked %@)", state.name, quality, maxQuality)
     if state != .nominal { thermalChanged() }
+  }
+
+  /// The recording starts: the recording's frame rate comes back, the buffer starts filling. No-op when it already is.
+  func startBuffering(completion: @escaping () -> Void) {
+    guard running else { return completion() }
+    capture.queue.async {
+      guard !self.buffering else { return completion() }
+      self.buffering = true
+      self.idle = false
+      self.capture.setRate(.recording)
+      self.ring.clear()
+      self.startWriter()
+      completion()
+    }
+  }
+
+  /// The setup screen paused (true) or back (false): the preview camera drops to its lowest rate, or back to 30 fps.
+  /// Ignored once the buffer fills (a recording keeps its rate).
+  func setIdle(_ on: Bool) {
+    guard running else { return }
+    capture.queue.async {
+      guard !self.buffering, self.idle != on else { return }
+      self.idle = on
+      self.capture.setRate(on ? .idle : .preview)
+      self.diag(on ? "câmera: pausada (\(CaptureController.idleFps) fps, sem imagem)" : "câmera: de volta à prévia (30 fps)") // TEMP(diag)
+    }
   }
 
   func stop(completion: @escaping () -> Void = {}) {
@@ -254,7 +290,7 @@ final class ReplayEngine {
       }
       self.capture.queue.async {
         self.failPendingSaves(.noSession)
-        self.finishWriter { self.startWriter() }
+        self.finishWriter { if self.buffering { self.startWriter() } }
       }
       self.emit?("onInterrupted", [:])
     })
@@ -397,7 +433,8 @@ final class ReplayEngine {
         } catch {
           return self.fail(code: "CAMERA_UNAVAILABLE", "\(error)")
         }
-        self.startWriter()
+        // A camera restarted on the setup screen stays a preview.
+        if self.buffering { self.startWriter() } else { self.capture.setRate(self.idle ? .idle : .preview) }
         self.capture.start()
         self.diag("câmera: reiniciada em \(quality) — \(Self.audioState())") // TEMP(diag-remote)
       }

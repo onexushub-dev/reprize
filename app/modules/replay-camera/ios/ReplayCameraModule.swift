@@ -8,6 +8,8 @@ struct SessionOptions: Record {
   @Field var zoom: Double?
   @Field var maxQuality: String = "1080p60"
   @Field var bufferSeconds: Double = 60
+  /// The setup screen's camera: preview only, 30 fps at most, no buffer until `startBuffering` (2026-11-08 spec §3.1).
+  @Field var preview: Bool = false
 }
 
 struct SaveClipOptions: Record {
@@ -114,11 +116,19 @@ public class ReplayCameraModule: Module {
 
     AsyncFunction("startSession") { (opts: SessionOptions) in
       do {
-        try self.engine.start(lens: opts.lens, zoom: opts.zoom, maxQuality: opts.maxQuality, bufferSeconds: opts.bufferSeconds)
+        try self.engine.start(lens: opts.lens, zoom: opts.zoom, maxQuality: opts.maxQuality, bufferSeconds: opts.bufferSeconds,
+                              preview: opts.preview)
       } catch let failure as ReplayEngine.Failure {
         throw ReplayException.from(failure)
       }
     }
+
+    AsyncFunction("startBuffering") { (promise: Promise) in
+      self.engine.startBuffering { promise.resolve(nil) }
+    }
+
+    // The setup screen paused for inactivity: the preview camera at its lowest rate, still running for the remote.
+    Function("setCameraIdle") { (on: Bool) in self.engine.setIdle(on) }
 
     AsyncFunction("stopSession") { (promise: Promise) in
       self.engine.stop { promise.resolve(nil) }

@@ -25,6 +25,7 @@ jest.mock("../../../modules/replay-camera", () => {
     isRemoteControllerSupported: jest.fn(() => false),
     supportsQuality: jest.fn(() => true),
     setScreenEconomy: jest.fn(),
+    setCameraIdle: jest.fn(),
     remoteControllerHost: jest.fn(() => null),
     remoteControllerForget: jest.fn(),
     remoteHostStart: jest.fn(),
@@ -1298,7 +1299,7 @@ test('the Bluetooth remote tile asks for a press when the remote was used before
   ).toBeTruthy();
 });
 
-test("the remote held 3 s starts a recording, answered by its own sound and torch (2026-11-07)", async () => {
+test("the remote held 2 s starts a recording, answered by its own sound and torch (2026-11-07)", async () => {
   const s = session({});
   s.start.mockResolvedValue("started");
   await render(<Setup />);
@@ -1459,6 +1460,99 @@ test("held upright the setup sheet stays as it was", async () => {
   await render(<Setup />);
   expect(screen.getByTestId("setup-sheet")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Gravar" })).toBeNull();
+});
+
+describe("35 s without a touch pause the camera, with a warning 5 s before (2026-11-08 spec §3.2)", () => {
+  afterEach(() => jest.useRealTimers());
+  const PAUSED = "Tela em descanso";
+
+  test("5 s before, a countdown says the screen will rest and how to keep the camera", async () => {
+    jest.useFakeTimers();
+    session({});
+    await render(<Setup />);
+    await act(async () => jest.advanceTimersByTime(29_999));
+    expect(screen.queryByTestId("idle-warning")).toBeNull();
+    await act(async () => jest.advanceTimersByTime(1));
+    expect(screen.getByText("A tela vai descansar em 5 s")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Para poupar bateria. Toque na tela para continuar vendo a câmera.",
+      ),
+    ).toBeTruthy();
+    await act(async () => jest.advanceTimersByTime(3_000));
+    expect(screen.getByText("A tela vai descansar em 2 s")).toBeTruthy();
+  });
+
+  test("a touch during the countdown keeps the camera and hides the warning", async () => {
+    jest.useFakeTimers();
+    session({});
+    await render(<Setup />);
+    await act(async () => jest.advanceTimersByTime(32_000));
+    await fireEvent(screen.getByTestId("setup-root"), "touchStart");
+    expect(screen.queryByTestId("idle-warning")).toBeNull();
+    await act(async () => jest.advanceTimersByTime(10_000));
+    expect(screen.queryByText(PAUSED)).toBeNull();
+  });
+
+  test("then the screen dims and says how to come back; the camera keeps running for the remote", async () => {
+    jest.useFakeTimers();
+    const s = session({});
+    await render(<Setup />);
+    s.release.mockClear();
+    await act(async () => jest.advanceTimersByTime(35_000));
+    expect(screen.getByText(PAUSED)).toBeTruthy();
+    expect(
+      screen.getByText("Para poupar bateria. Toque uma vez para ver a câmera de novo."),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("idle-warning")).toBeNull();
+    expect(s.release).not.toHaveBeenCalled();
+    const native = jest.requireMock("../../../modules/replay-camera");
+    expect(native.setScreenEconomy).toHaveBeenLastCalledWith(true);
+    expect(native.setCameraIdle).toHaveBeenLastCalledWith(true);
+  });
+
+  test("a tap turns the screen back up", async () => {
+    jest.useFakeTimers();
+    session({});
+    await render(<Setup />);
+    await act(async () => jest.advanceTimersByTime(35_000));
+    await fireEvent.press(screen.getByTestId("camera-paused"));
+    expect(screen.queryByText(PAUSED)).toBeNull();
+    const native = jest.requireMock("../../../modules/replay-camera");
+    expect(native.setScreenEconomy).toHaveBeenLastCalledWith(false);
+    expect(native.setCameraIdle).toHaveBeenLastCalledWith(false);
+  });
+
+  test("a hold on the remote starts the recording straight from the pause, with no tap first", async () => {
+    jest.useFakeTimers();
+    const s = session({});
+    s.start.mockResolvedValue("started");
+    await render(<Setup />);
+    await act(async () => jest.advanceTimersByTime(35_000));
+    expect(screen.getByText(PAUSED)).toBeTruthy();
+    const { useVolumeRemote } = jest.requireMock(
+      "../../triggers/useVolumeRemote",
+    );
+    expect(useVolumeRemote).toHaveBeenLastCalledWith(
+      true,
+      expect.any(Function),
+      expect.anything(),
+    );
+    await act(async () => useVolumeRemote.mock.calls.at(-1)[2].onHold());
+    expect(s.start).toHaveBeenCalled();
+  });
+
+  test("a remote press also turns the screen back up", async () => {
+    jest.useFakeTimers();
+    session({});
+    await render(<Setup />);
+    await act(async () => jest.advanceTimersByTime(35_000));
+    const { useVolumeRemote } = jest.requireMock(
+      "../../triggers/useVolumeRemote",
+    );
+    await act(async () => useVolumeRemote.mock.calls.at(-1)[1]());
+    expect(screen.queryByText(PAUSED)).toBeNull();
+  });
 });
 
 test("coming back from another app, a remote shown as connected goes back to paired until it is pressed again", async () => {

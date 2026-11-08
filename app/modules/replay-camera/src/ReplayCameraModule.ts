@@ -21,6 +21,10 @@ import type {
 
 declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> {
   startSession(opts: SessionOptions): Promise<void>;
+  /** Optional: builds without it (Android) buffer from the start. */
+  startBuffering?(): Promise<void>;
+  /** Optional (iOS): the setup screen's paused camera at its lowest rate. */
+  setCameraIdle?(on: boolean): void;
   stopSession(): Promise<void>;
   saveClip(opts: SaveClipOptions): Promise<SavedClip>;
   setGestureEnabled(enabled: boolean): void;

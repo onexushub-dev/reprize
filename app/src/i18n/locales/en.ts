@@ -85,6 +85,11 @@ export const en = {
   setup: {
     lowStorage: 'Your phone is low on storage. Free up at least 500 MB to record.',
     cameraFailed: "Couldn't open the camera. Try again.",
+    idleWarnTitle: 'The screen rests in %{seconds} s',
+    idleWarnBody: 'To save battery. Tap the screen to keep seeing the camera.',
+    idlePausedTitle: 'Screen resting',
+    idlePausedBody: 'To save battery. Tap once to see the camera again.',
+    idlePausedRemote: 'Hold the remote button to start recording.',
     watchReady: 'Ready',
     watchNotInstalled: 'Install the app on your Apple Watch',
     watchNone: 'No paired Apple Watch',

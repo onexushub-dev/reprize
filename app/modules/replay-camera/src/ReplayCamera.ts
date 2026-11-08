@@ -30,6 +30,21 @@ export function startSession(opts: SessionOptions): Promise<void> {
   return ReplayCameraModule.startSession(opts);
 }
 
+/** The recording starts: the buffer fills from now on (a camera opened as a preview had none). No-op where unsupported. */
+export function startBuffering(): Promise<void> {
+  const fn = ReplayCameraModule.startBuffering;
+  return typeof fn === 'function' ? fn.call(ReplayCameraModule) : Promise.resolve();
+}
+
+/**
+ * The setup screen paused for inactivity (true) or back (false): the preview camera drops to ~5 fps and back to 30,
+ * same format and resolution, no restart (2026-11-08 spec §3.2). No-op where unsupported.
+ */
+export function setCameraIdle(on: boolean): void {
+  const fn = ReplayCameraModule.setCameraIdle;
+  if (typeof fn === 'function') fn.call(ReplayCameraModule, on);
+}
+
 export function stopSession(): Promise<void> {
   return ReplayCameraModule.stopSession();
 }
@@ -382,4 +397,3 @@ export function addReplayListener<E extends keyof ReplayCameraModuleEvents>(
 ) {
   return ReplayCameraModule.addListener(event, listener);
 }
-

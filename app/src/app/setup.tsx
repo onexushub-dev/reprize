@@ -33,6 +33,8 @@ import {
   remoteHostControllers,
   ReplayCameraView,
   requestSpeechPermission,
+  setCameraIdle,
+  setScreenEconomy,
   signalAction,
   signalSaveFailed,
   supportsQuality,
@@ -69,6 +71,12 @@ import { TriggerTile } from "../components/TriggerTile";
 import { ZoomBubble } from "../components/ZoomBubble";
 import { ZoomButton } from "../components/ZoomButton";
 import { repo } from "../data/mmkv";
+import {
+  diagSetupPaused,
+  diagSetupResumed,
+  useSetupDiag,
+} from "../diag/useSetupDiag"; // TEMP(diag)
+import { useIdlePause } from "../session/useIdlePause";
 import { openPaywall } from "../payments/feedback";
 import {
   FREE_MAX_SECONDS,
@@ -415,7 +423,39 @@ export default function Setup() {
   if (practice !== undefined && phase !== "idle") setPractice(undefined);
   const { prepare, release } = session;
 
-  // Live preview while positioning; the buffer starts filling now, so "Começar gravação" is instant.
+  // Before a recording, until the player turns it off: how to keep the iPhone steady (no case, out of the sun).
+  const [preparing, setPreparing] = useState(false);
+
+  // 35 s without a touch or a remote press pause the preview, dim the screen and drop the camera to ~5 fps, with a
+  // countdown in the last 5 s (2026-11-08 spec §3.2). The camera keeps running (same format, no buffer): iOS only sends the remote's capture events, and so
+  // its hold, to an app whose camera runs, so a hold starts the recording straight from the pause. Not while a sheet that needs the camera
+  // (practice, "Prepare o celular") or the Dispositivos sheet is open.
+  const idle = useIdlePause(
+    focused &&
+      !sheetOpen &&
+      phase === "idle" &&
+      practice === undefined &&
+      !preparing,
+    { onPause: diagSetupPaused, onResume: diagSetupResumed },
+  );
+  const paused = idle.paused;
+  // The pause's hint about the remote only when one is paired here.
+  const remotePaired =
+    remoteAllowed &&
+    (remoteView.state === "connected" || remoteView.state === "offline");
+  useEffect(() => {
+    if (!paused) return;
+    setScreenEconomy(true);
+    setCameraIdle(true);
+    return () => {
+      setCameraIdle(false);
+      setScreenEconomy(false);
+    };
+  }, [paused]);
+  useSetupDiag(focused && phase === "idle", paused);
+
+  // Live preview while positioning: a preview only (30 fps, no buffer, 2026-11-08 spec §3.1); "Começar gravação"
+  // starts the buffer on the open camera.
   useEffect(() => {
     if (live) void prepare(modeId, plan);
     else void release();
@@ -426,6 +466,12 @@ export default function Setup() {
     if (live && phase === "idle" && camera === "off") void prepare(modeId, plan);
   }, [live, phase, camera, prepare, modeId, plan]);
 
+  /** A remote press here: the connection test, and it wakes a paused camera. */
+  const remotePress = () => {
+    idle.activity("controle");
+    remoteTest.press();
+  };
+
   useEffect(() => {
     if (!focused) return;
     void activateKeepAwakeAsync("setup");
@@ -434,10 +480,10 @@ export default function Setup() {
 
   // A press of the Bluetooth remote here proves it is paired and reaching the app.
   // The connection test: the remote's presses (a press that only wakes it does not show; the player presses again).
-  // Held 3 s, it starts a recording from the court (2026-11-07 spec §5.1).
+  // Held 2 s (`REMOTE_HOLD_MS`), it starts a recording from the court (2026-11-07 spec §5.1).
   useBluetoothRemote(
     live && phase === "idle" && remoteAllowed,
-    remoteTest.press,
+    remotePress,
     { onHold: startFromRemote },
   );
 
@@ -465,8 +511,6 @@ export default function Setup() {
     }
   }
 
-  // Before a recording, until the player turns it off: how to keep the iPhone steady (no case, out of the sun).
-  const [preparing, setPreparing] = useState(false);
   function askThenStart() {
     if (repo.getPrefs().prepareTipSeen === true) {
       void onStart();
@@ -480,7 +524,7 @@ export default function Setup() {
     void onStart();
   }
 
-  /** The remote held 3 s here: the same start as the button, answered by its own sound and torch (or the failure beep). */
+  /** The remote held 2 s here: the same start as the button, answered by its own sound and torch (or the failure beep). */
   async function startFromRemote() {
     remoteTest.press(); // a hold proves the remote works too
     if (busy.current) return;
@@ -517,7 +561,11 @@ export default function Setup() {
 
   // One camera view for the whole game: setup and recording only swap the controls drawn over it.
   return (
-    <View style={styles.root}>
+    <View
+      testID="setup-root"
+      style={styles.root}
+      onTouchStart={() => idle.activity("toque")}
+    >
       <ReplayCameraView style={StyleSheet.absoluteFill} />
       {inGame ? (
         <RecordingPanel
@@ -528,6 +576,38 @@ export default function Setup() {
       ) : (
         renderSetupControls()
       )}
+      {idle.warning !== undefined && !inGame ? (
+        <View
+          testID="idle-warning"
+          pointerEvents="none"
+          accessibilityLiveRegion="polite"
+          style={styles.idleWarnWrap}
+        >
+          <View style={styles.idleWarn}>
+            <Text style={styles.idleWarnTitle}>
+              {t("setup.idleWarnTitle", { seconds: idle.warning })}
+            </Text>
+            <Text style={styles.idleWarnBody}>{t("setup.idleWarnBody")}</Text>
+          </View>
+        </View>
+      ) : null}
+      {paused && !inGame ? (
+        <Pressable
+          testID="camera-paused"
+          accessibilityRole="button"
+          accessibilityLabel={`${t("setup.idlePausedTitle")}. ${t("setup.idlePausedBody")}`}
+          onPress={() => idle.activity("toque")}
+          style={styles.paused}
+        >
+          <Text style={styles.pausedTitle}>{t("setup.idlePausedTitle")}</Text>
+          <Text style={styles.pausedText}>{t("setup.idlePausedBody")}</Text>
+          {remotePaired ? (
+            <Text style={styles.pausedHint}>
+              {t("setup.idlePausedRemote")}
+            </Text>
+          ) : null}
+        </Pressable>
+      ) : null}
       <PrepareSheet
         visible={preparing}
         onStart={startPrepared}
@@ -925,6 +1005,64 @@ export default function Setup() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ground },
+  paused: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: colors.ground,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    gap: 10,
+  },
+  pausedTitle: {
+    fontFamily: fonts.display,
+    fontSize: 30,
+    color: colors.text,
+    textAlign: "center",
+  },
+  pausedText: {
+    fontFamily: fonts.body,
+    fontSize: 16,
+    lineHeight: 23,
+    color: colors.soft,
+    textAlign: "center",
+  },
+  pausedHint: {
+    fontFamily: fonts.bodySemi,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.accent,
+    textAlign: "center",
+    marginTop: 8,
+  },
+  idleWarnWrap: {
+    ...StyleSheet.absoluteFill,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  idleWarn: {
+    maxWidth: 340,
+    gap: 4,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: "rgba(10,10,10,0.88)",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  idleWarnTitle: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 16,
+    color: colors.text,
+    textAlign: "center",
+  },
+  idleWarnBody: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.soft,
+    textAlign: "center",
+  },
   top: { position: "absolute", top: 0, left: 16, right: 16, gap: 8 },
   topRow: {
     flexDirection: "row",
