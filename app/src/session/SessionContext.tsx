@@ -10,7 +10,7 @@ import { usePlan } from '../share/entitlement';
 import { focusQueue } from '../focus/appFocusQueue';
 import { focusHold } from '../focus/focusQueue';
 // TEMP(diag-remote)
-import { diag, diagFlags } from '../diag/diagLog';
+import { diag } from '../diag/diagLog';
 import { useSessionDiag } from '../diag/useSessionDiag';
 import { useBluetoothRemote } from '../triggers/useBluetoothRemote';
 import { emitRemoteEnd } from '../triggers/remoteCommands';
@@ -19,8 +19,9 @@ import { type ReplaySession, type SessionDeps, useReplaySession } from './useRep
 import { useWatchTriggerGate } from './useWatchTriggerGate';
 
 /**
- * The Bluetooth remote in a game: a press saves a clip, a 3 s hold ends the recording (the recording screen does it),
- * and the volume is parked loud so the chimes reach the court. Its link coming back never saves a clip (linkMonitor).
+ * The Bluetooth remote in a game: a press saves a clip, a 2 s hold ends the recording (the recording screen does it),
+ * and the volume is parked loud so the chimes reach the court. Its link coming back never saves a clip (linkMonitor): the
+ * first press after the remote's 5-minute sleep only wakes it (2026-11-08 spec §4).
  */
 function useGameRemote(enabled: boolean, onPress: () => void): void {
   useBluetoothRemote(enabled, onPress, { onHold: emitRemoteEnd, parkAt: RECORDING_VOLUME });
@@ -40,7 +41,6 @@ const appDeps: SessionDeps = {
     diag(`clipe salvo (${clip ? clip.source : '?'})`); // TEMP(diag-remote)
     focusQueue.enqueue(clipId);
   },
-  diagGestureOff: () => diagFlags().gestureOff, // TEMP(diag)
 };
 
 const SessionContext = createContext<ReplaySession | null>(null);

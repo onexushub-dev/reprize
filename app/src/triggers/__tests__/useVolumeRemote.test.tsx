@@ -2,7 +2,6 @@ import { act, renderHook } from '@testing-library/react-native';
 
 import { AppState } from 'react-native';
 
-import { diagFlags, setDiagFlags } from '../../diag/diagLog';
 import { REMOTE_HOLD_MS } from '../pressHold';
 import { ARM_MS, SETTLE_MS, WATCH_MS, useVolumeRemote } from '../useVolumeRemote';
 
@@ -212,7 +211,7 @@ describe('2026-10-31 field logs', () => {
     expect(onPress).toHaveBeenCalledTimes(1);
   });
 
-  test('held 3 s it calls onHold, not onPress', async () => {
+  test('held 2 s it calls onHold, not onPress', async () => {
     jest.useFakeTimers();
     const onPress = jest.fn();
     const onHold = jest.fn();
@@ -413,25 +412,5 @@ describe('iOS: the library slider goes stale (2026-10-28 field log)', () => {
     await advance(3 * SETTLE_MS + 500);
     expect(ios.real).toBeCloseTo(0.5, 5);
     await act(async () => unmount());
-  });
-});
-
-describe('TEMP(diag-remote): volume path off from the Diagnóstico screen', () => {
-  beforeEach(() => setDiagFlags({ ...diagFlags(), volumePathOff: true }));
-  afterEach(() => setDiagFlags({ ...diagFlags(), volumePathOff: false }));
-
-  test('presses count only as capture events: no volume listener, no hidden volume view, no parking', async () => {
-    const onPress = jest.fn();
-    const { unmount } = await renderHook(() => useVolumeRemote(true, onPress));
-    await act(async () => {});
-    expect(lib.VolumeManager.addVolumeListener).not.toHaveBeenCalled();
-    expect(lib.VolumeManager.showNativeVolumeUI).not.toHaveBeenCalledWith({ enabled: false });
-    expect(lib.VolumeManager.setVolume).not.toHaveBeenCalled();
-    expect(camera.setCaptureButtons).toHaveBeenCalledWith(true);
-    await act(async () => fire('onCaptureButton', { button: 'secondary' }));
-    expect(onPress).toHaveBeenCalledTimes(1);
-    await act(async () => unmount());
-    expect(camera.setCaptureButtons).toHaveBeenLastCalledWith(false);
-    expect(lib.VolumeManager.setVolume).not.toHaveBeenCalled();
   });
 });
