@@ -299,6 +299,347 @@ func ballClip(_ clip: SoakClip, models: EdgeTAMModels, noMem: [Float], context: 
 }
 
 /// Today's Modo Foco analysis on one clip (FocusAnalyzer's reading and Vision requests; the path itself is negligible).
+// MARK: - lab tests 17 / 19: per-frame ball detector (YOLOX, COCO "sports ball"), whole frame + 640 px tiles
+
+/// YOLOX as Core ML (`yolox_s` / `yolox_tiny` / `yolox_nano`.mlpackage, made in the lab from Megvii's COCO weights,
+/// Apache-2.0): image side x side BGR (640 for S, 416 for Tiny and Nano), output [1, anchors, 85] = per anchor xy
+/// offsets, log wh, objectness, 80 class scores (already sigmoid).
+/// Test 34 (2026-11-08): also the lab's one-class basketball detector (`ball_tiny_hn`.mlpackage, YOLOX-Tiny fine-tuned
+/// by tools/lab/ball_train_pub.py, converted by yolox_coreml.py --ball): output [1, anchors, 6], the class in column 5.
+struct BallCandidate {
+    var x: Double  // centre in the upright frame, 0..1, origin top-left
+    var y: Double
+    var score: Float
+}
+
+final class BallDetector {
+    let model: MLModel
+    let context: CIContext
+    let name: String
+    let side: Int  // the model's input side
+    let tile: Int  // tile side in video px (scaled to `side`; test 19: 640 or 416)
+    private var pool: CVPixelBufferPool?
+    let timing = Timing()
+    private var grid: [(Float, Float, Float)] = []  // (gx, gy, stride) per anchor
+
+    init(context: CIContext, name: String = "yolox_s", tile: Int = 640) throws {
+        guard let url = bundleURL(name, "mlmodelc") else {
+            throw BenchError.missing("\(name).mlpackage (ios_bench.py prepare)")
+        }
+        let config = MLModelConfiguration()
+        config.computeUnits = .cpuAndNeuralEngine
+        let m = try MLModel(contentsOf: url, configuration: config)
+        var s = 640
+        if let input = m.modelDescription.inputDescriptionsByName["image"], let c = input.imageConstraint {
+            s = c.pixelsWide
+        }
+        model = m
+        side = s
+        self.name = name
+        self.tile = tile
+        self.context = context
+        let attrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: s, kCVPixelBufferHeightKey as String: s,
+            kCVPixelBufferIOSurfacePropertiesKey as String: [:] as [String: Any],
+        ]
+        var p: CVPixelBufferPool?
+        CVPixelBufferPoolCreate(nil, nil, attrs as CFDictionary, &p)
+        pool = p
+        for stride in [8, 16, 32] {
+            let n = s / stride
+            for y in 0..<n {
+                for x in 0..<n {
+                    grid.append((Float(x), Float(y), Float(stride)))
+                }
+            }
+        }
+    }
+
+    /// Tile origins along one side (as tools/lab/ball_detect.py: `t` px, 80 px overlap at least).
+    static func starts(_ n: Int, _ t: Int = 640, _ overlap: Int = 80) -> [Int] {
+        if n <= t {
+            return [0]
+        }
+        let k = Int((Double(n - overlap) / Double(t - overlap)).rounded(.up))
+        return (0..<k).map { i in Int((Double(i) * Double(n - t) / Double(k - 1)).rounded()) }
+    }
+
+    /// All tile origins (x, y from the top-left) of a W x H upright frame.
+    func tileOrigins(_ W: Int, _ H: Int) -> [(Int, Int)] {
+        var out: [(Int, Int)] = []
+        for y0 in BallDetector.starts(H, tile) {
+            for x0 in BallDetector.starts(W, tile) {
+                out.append((x0, y0))
+            }
+        }
+        return out
+    }
+
+    /// One upright frame (origin 0, 0): the whole frame and the tiles (`tiles` nil = all of them). Returns the number of
+    /// candidates with score >= conf, the best one, and the number of model calls.
+    func detect(_ image: CIImage, conf: Float = 0.05, tiles: [(Int, Int)]? = nil) throws
+        -> (count: Int, best: BallCandidate?, regions: Int) {
+        let W = Int(image.extent.width), H = Int(image.extent.height)
+        let S = CGFloat(side)
+        let grey = CIImage(color: CIColor(red: 114 / 255, green: 114 / 255, blue: 114 / 255))
+            .cropped(to: CGRect(x: 0, y: 0, width: S, height: S))
+        // (model input, model px per video px, tile origin in the frame)
+        var regions: [(CIImage, CGFloat, Int, Int)] = []
+        // whole frame, letterboxed into the top-left corner of a grey square
+        let r = min(S / CGFloat(W), S / CGFloat(H))
+        let scaled = image.transformed(by: CGAffineTransform(scaleX: r, y: r))
+        let top = scaled.transformed(by: CGAffineTransform(translationX: 0, y: S - scaled.extent.height))
+        regions.append((top.composited(over: grey), r, 0, 0))
+        let ts = S / CGFloat(tile)
+        var chosen: [(Int, Int)] = []
+        if let list = tiles {
+            chosen = list
+        } else {
+            chosen = tileOrigins(W, H)
+        }
+        for (x0, y0) in chosen {
+            let tw = min(tile, W), th = min(tile, H)
+            let rect = CGRect(x: x0, y: H - y0 - th, width: tw, height: th)  // CI: origin bottom-left
+            var crop = image.cropped(to: rect).transformed(by: CGAffineTransform(translationX: -rect.minX,
+                                                                                 y: -rect.minY))
+            if ts != 1 {
+                crop = crop.transformed(by: CGAffineTransform(scaleX: ts, y: ts))
+            }
+            crop = crop.transformed(by: CGAffineTransform(translationX: 0, y: S - crop.extent.height))
+            regions.append((ts == 1 && tw == tile && th == tile ? crop : crop.composited(over: grey), ts, x0, y0))
+        }
+        var found = 0
+        var best: BallCandidate?
+        for (region, scale, x0, y0) in regions {
+            var out: CVPixelBuffer?
+            if let pool = pool {
+                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
+            }
+            guard let buffer = out else {
+                throw BenchError.badOutput("pixel buffer")
+            }
+            let t0 = now()
+            context.render(region, to: buffer)
+            timing.add("detPrep", now() - t0)
+            let t1 = now()
+            let result = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(pixelBuffer: buffer)]))
+            timing.add("detModel", now() - t1)
+            let t2 = now()
+            guard let value = result.featureValue(for: "output"), let array = value.multiArrayValue else {
+                throw BenchError.badOutput("yolox output")
+            }
+            let s = scan(array, conf)
+            found += s.count
+            if s.index >= 0 && s.index < grid.count {
+                let isBetter: Bool
+                if let b = best {
+                    isBetter = s.score > b.score
+                } else {
+                    isBetter = true
+                }
+                if isBetter {
+                    let g = grid[s.index]
+                    let cx = (s.dx + g.0) * g.2, cy = (s.dy + g.1) * g.2  // model px
+                    best = BallCandidate(x: (Double(cx) / Double(scale) + Double(x0)) / Double(W),
+                                         y: (Double(cy) / Double(scale) + Double(y0)) / Double(H), score: s.score)
+                }
+            }
+            timing.add("detDecode", now() - t2)
+        }
+        return (found, best, regions.count)
+    }
+
+    /// Anchors whose objectness x ball class score >= conf, and the best one (index, raw xy offsets, score).
+    private func scan(_ a: MLMultiArray, _ conf: Float) -> (count: Int, index: Int, dx: Float, dy: Float, score: Float) {
+        let rows = a.shape[1].intValue
+        let rowStride = a.strides[1].intValue
+        let colStride = a.strides[2].intValue
+        // COCO (85 columns): class 32 "sports ball"; the lab's one-class ball model (6 columns): class 0
+        let cls = a.shape[2].intValue == 85 ? 32 : 0
+        var n = 0
+        var bi = -1
+        var bs: Float = 0
+        var dx: Float = 0
+        var dy: Float = 0
+        if a.dataType == .float16 {
+            let p = a.dataPointer.assumingMemoryBound(to: Float16.self)
+            for i in 0..<rows {
+                let obj = Float(p[i * rowStride + 4 * colStride])
+                if obj < conf {
+                    continue
+                }
+                let s = obj * Float(p[i * rowStride + (5 + cls) * colStride])
+                if s >= conf {
+                    n += 1
+                    if s > bs {
+                        bs = s
+                        bi = i
+                        dx = Float(p[i * rowStride])
+                        dy = Float(p[i * rowStride + colStride])
+                    }
+                }
+            }
+        } else {
+            let p = a.dataPointer.assumingMemoryBound(to: Float.self)
+            for i in 0..<rows {
+                let obj = p[i * rowStride + 4 * colStride]
+                if obj < conf {
+                    continue
+                }
+                let s = obj * p[i * rowStride + (5 + cls) * colStride]
+                if s >= conf {
+                    n += 1
+                    if s > bs {
+                        bs = s
+                        bi = i
+                        dx = p[i * rowStride]
+                        dy = p[i * rowStride + colStride]
+                    }
+                }
+            }
+        }
+        return (n, bi, dx, dy, bs)
+    }
+}
+
+/// Reads the clip's video as the app would, at the 100 ms ticks through the click, every `step`-th one: `body(j, image)`
+/// with j = the analysed frame's index (0 at the click, negative before it) and the upright image (origin 0, 0).
+private func readTicks(_ clip: SoakClip, step: Int, shouldStop: () -> Bool,
+                       _ body: (Int, CIImage) throws -> Void) throws {
+    guard let videoName = clip.video, let url = bundleURL((videoName as NSString).deletingPathExtension, "mp4") else {
+        throw BenchError.missing("\(clip.name).mp4 (run ios_bench.py prepare again)")
+    }
+    let asset = AVURLAsset(url: url)
+    guard let track = asset.tracks(withMediaType: .video).first else {
+        throw BenchError.missing(url.lastPathComponent)
+    }
+    let orientation = orientationOf(track.preferredTransform)
+    let reader = try AVAssetReader(asset: asset)
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+    ])
+    output.alwaysCopiesSampleData = false
+    reader.add(output)
+    guard reader.startReading() else {
+        throw BenchError.badOutput("video reader")
+    }
+    var next = 0.0
+    var tick = 0
+    while let buffer = output.copyNextSampleBuffer() {
+        if shouldStop() {
+            reader.cancelReading()
+            throw BenchError.stopped
+        }
+        let t = CMSampleBufferGetPresentationTimeStamp(buffer).seconds * 1000
+        if t + 0.5 < next {
+            continue
+        }
+        while next <= t + 0.5 {
+            next += 100
+        }
+        let k = tick
+        tick += 1
+        if (k - clip.seedFrame) % step != 0 {
+            continue
+        }
+        guard let pixels = CMSampleBufferGetImageBuffer(buffer) else {
+            continue
+        }
+        try autoreleasepool {
+            var image = CIImage(cvPixelBuffer: pixels).oriented(orientation)
+            image = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
+            try body((k - clip.seedFrame) / step, image)
+        }
+    }
+    if reader.status == .failed {
+        var detail = ""
+        if let e = reader.error {
+            detail = ": " + e.localizedDescription
+        }
+        throw BenchError.badOutput("video reader failed" + detail)
+    }
+}
+
+private func floorMod(_ a: Int, _ n: Int) -> Int {
+    let r = a % n
+    return r < 0 ? r + n : r
+}
+
+/// The detector over a clip at 5 fps (`step` 2). `anchor` 0 (test 17): the whole frame and all the tiles on every
+/// analysed frame. `anchor` A > 0 (test 19, two stages, the video read twice): all the tiles on every A-th analysed
+/// frame; then, on the others, the whole frame and only the `k` tiles nearest the ball interpolated between those frames
+/// (here the best candidate of each anchor frame; the lab picks it with ball_track.py's path, the same cost).
+func ballDetectPass(_ clip: SoakClip, detector: BallDetector, step: Int, anchor: Int = 0, k: Int = 2,
+                    shouldStop: () -> Bool) throws -> (seconds: Double, frames: Int, candidates: Int, regions: Int) {
+    let t0 = now()
+    var frames = 0
+    var candidates = 0
+    var regions = 0
+    if anchor <= 0 {
+        try readTicks(clip, step: step, shouldStop: shouldStop) { _, image in
+            let r = try detector.detect(image)
+            candidates += r.count
+            regions += r.regions
+            frames += 1
+        }
+        return (now() - t0, frames, candidates, regions)
+    }
+    var best: [Int: BallCandidate] = [:]
+    try readTicks(clip, step: step, shouldStop: shouldStop) { j, image in
+        if floorMod(j, anchor) != 0 {
+            return
+        }
+        let r = try detector.detect(image)
+        candidates += r.count
+        regions += r.regions
+        frames += 1
+        if let b = r.best {
+            best[j] = b
+        }
+    }
+    let keys = best.keys.sorted()
+    try readTicks(clip, step: step, shouldStop: shouldStop) { j, image in
+        if floorMod(j, anchor) == 0 {
+            return
+        }
+        // the ball between the anchor frames around j (the frame centre when there is none yet)
+        var prev: Int?
+        var nextKey: Int?
+        for key in keys {
+            if key <= j {
+                prev = key
+            } else if nextKey == nil {
+                nextKey = key
+            }
+        }
+        var tx = 0.5
+        var ty = 0.5
+        if let a = prev, let pa = best[a], let b = nextKey, let pb = best[b] {
+            let f = Double(j - a) / Double(b - a)
+            tx = pa.x + (pb.x - pa.x) * f
+            ty = pa.y + (pb.y - pa.y) * f
+        } else if let a = prev, let pa = best[a] {
+            tx = pa.x
+            ty = pa.y
+        } else if let b = nextKey, let pb = best[b] {
+            tx = pb.x
+            ty = pb.y
+        }
+        let W = Double(image.extent.width), H = Double(image.extent.height)
+        let half = Double(detector.tile) / 2
+        let px = tx * W, py = ty * H
+        let order = detector.tileOrigins(Int(W), Int(H)).sorted { u, v in
+            hypot(Double(u.0) + half - px, Double(u.1) + half - py) < hypot(Double(v.0) + half - px, Double(v.1) + half - py)
+        }
+        let r = try detector.detect(image, tiles: Array(order.prefix(k)))
+        candidates += r.count
+        regions += r.regions
+        frames += 1
+    }
+    return (now() - t0, frames, candidates, regions)
+}
+
 // MARK: - optical flow (lab test 13; the same code as tools/lab/flow-probe.swift)
 
 /// Scales frames to `side` px on the long side (upright) and returns, per pair, the peak of the flow magnitude.
