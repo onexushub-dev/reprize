@@ -120,14 +120,14 @@ export function useReplaySession(deps: SessionDeps) {
       const sessionId = stateRef.current.sessionId;
       if (saving.current || stateRef.current.phase !== 'recording' || !sessionId) return;
       saving.current = true;
-      dispatch({ type: 'saveStarted' });
-      // Feedback right away: the 60s are already captured, the file just isn't written yet.
-      const prefs = deps.repo.getPrefs();
-      deps.camera.signalSaved({ sound: prefs.soundOnSave, flash: prefs.flashOnSave });
       // Fixed before the save finishes: the clip covers the time since the previous clip, up to the player's clip length.
       const floors = cutFloors.current;
       const clipSeconds = cutSeconds.current;
       const cutMs = cutMsFor(clipSeconds, at, floors.length > 0 ? floors[floors.length - 1] : at - clipSeconds * 1000);
+      // Feedback right away, card, sound and torch together: the 60s are already captured, the file just isn't written yet.
+      dispatch({ type: 'saveStarted', source, at, cutMs });
+      const prefs = deps.repo.getPrefs();
+      deps.camera.signalSaved({ sound: prefs.soundOnSave, flash: prefs.flashOnSave });
       try {
         const saved = await deps.camera.saveClip({ source, at, keepMs: keepMsFor(cutMs) });
         const clip = deps.repo.addClip({
