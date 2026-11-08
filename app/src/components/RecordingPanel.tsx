@@ -3,13 +3,14 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Alert, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { addReplayListener, getWatchStatus, setScreenEconomy } from '../../modules/replay-camera';
+import { addReplayListener, getWatchStatus, setScreenEconomy, signalAction } from '../../modules/replay-camera';
 import { VOICE_WORD } from '../i18n';
 import { useT } from '../i18n/useT';
 import { removeFile, repo } from '../data/mmkv';
 import { useRemoteLink } from '../devices/bluetoothRemote';
 import { triggerAllowed } from '../payments/limits';
 import { useRemoteLost } from '../triggers/useRemoteLost';
+import { onRemoteEnd } from '../triggers/remoteCommands';
 import { useSession } from '../session/SessionContext';
 import { useScreenEconomy } from '../session/useScreenEconomy';
 import { diag, diagFlags } from '../diag/diagLog'; // TEMP(diag-remote)
@@ -27,6 +28,8 @@ function subscribeWatch(onChange: () => void): () => void {
 }
 
 const OVERLAY_MS = 2000;
+/** How long the "ended" chime plays before the camera (and its audio session) stops. */
+export const REMOTE_END_SIGNAL_MS = 700;
 /** How long the battery-saving notice stays up: when a recording starts with it on, and after a tap on its button. */
 const ECONOMY_NOTICE_MS = 5000;
 /** How long the heat tip stays up (thermal work, item 5). */
@@ -186,6 +189,34 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
     const id = await stop();
     if (id) leaveEnded(id);
   }
+
+  /**
+   * Ended from the remote's 3 s hold (2026-11-07 spec §5.1): its sound and torch first, then the recording ends and
+   * the player stays on the setup screen, the camera coming back for the next hold. The recording is in Minhas
+   * gravações (one with no clips is deleted, as `leaveEnded` does).
+   */
+  const endingFromRemote = useRef(false);
+  async function endFromRemote() {
+    if (endingFromRemote.current) return;
+    endingFromRemote.current = true;
+    // The screen comes back first, as when the player touches it to end: ending with it dark (preview paused, brightness
+    // down) left the phone on the black screen until the app went away and came back (2026-11-07 field test).
+    economy.wake();
+    const prefs = repo.getPrefs();
+    signalAction('ended', { sound: prefs.soundOnSave, flash: prefs.flashOnSave });
+    // The chime plays in the camera's audio session: give it time before the camera stops.
+    await new Promise<void>((resolve) => setTimeout(resolve, REMOTE_END_SIGNAL_MS));
+    const id = await stop();
+    if (id && repo.listClips(id).length === 0) repo.deleteSession(id).forEach((path) => removeFile(path));
+    reset();
+    endingFromRemote.current = false;
+  }
+
+  useEffect(() =>
+    onRemoteEnd(() => {
+      if (state.phase === 'recording') void endFromRemote();
+    }),
+  );
 
   // The remote phone's "Segure para encerrar a gravação" ends the game the same way the one on this screen does.
   useEffect(() => {

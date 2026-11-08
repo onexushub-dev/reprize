@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { bluetoothConnected } from '../../modules/replay-camera';
 import { repo } from '../data/mmkv';
@@ -6,7 +6,7 @@ import { diag } from '../diag/diagLog'; // TEMP(diag-remote)
 import { describeLinkEvent } from '../diag/remoteLinkDiag'; // TEMP(diag-remote)
 import { linkOf } from '../devices/bluetoothRemote';
 import { createLinkMonitor, type LinkMonitor } from './linkMonitor';
-import { useVolumeRemote } from './useVolumeRemote';
+import { useVolumeRemote, type VolumeRemoteOptions } from './useVolumeRemote';
 
 /** TEMP(diag-remote): while listening, how often the remote's link is looked at, for the diagnostic log only. */
 export const LINK_POLL_MS = 500;
@@ -16,17 +16,32 @@ export const LINK_POLL_MS = 500;
  * (asleep, or out of range and back) never saves a clip (2026-11-03, see linkMonitor); while listening, the link is
  * followed for the diagnostic log only, for a BLE remote the app has learnt (devices/bluetoothRemote).
  */
-export function useBluetoothRemote(enabled: boolean, onPress: () => void): void {
+export function useBluetoothRemote(enabled: boolean, onPress: () => void, options: VolumeRemoteOptions = {}): void {
   const onPressRef = useRef(onPress);
   useEffect(() => {
     onPressRef.current = onPress;
   }, [onPress]);
   const monitor = useRef<LinkMonitor | undefined>(undefined);
 
-  useVolumeRemote(enabled, () => {
+  const { onHold, parkAt } = options;
+  const holdRef = useRef(onHold);
+  useEffect(() => {
+    holdRef.current = onHold;
+  }, [onHold]);
+  const hasHold = onHold !== undefined;
+  const hold = useCallback(() => {
     if (monitor.current !== undefined) monitor.current.press();
-    onPressRef.current();
-  });
+    const fn = holdRef.current;
+    if (fn !== undefined) fn();
+  }, []);
+  useVolumeRemote(
+    enabled,
+    () => {
+      if (monitor.current !== undefined) monitor.current.press();
+      onPressRef.current();
+    },
+    { onHold: hasHold ? hold : undefined, parkAt },
+  );
 
   // TEMP(diag-remote): the link's drops and comebacks, with how long after a press and how long away (range vs sleep).
   useEffect(() => {

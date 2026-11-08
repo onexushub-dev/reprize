@@ -33,6 +33,8 @@ import {
   remoteHostControllers,
   ReplayCameraView,
   requestSpeechPermission,
+  signalAction,
+  signalSaveFailed,
   supportsQuality,
 } from "../../modules/replay-camera";
 import type {
@@ -419,6 +421,11 @@ export default function Setup() {
     else void release();
   }, [live, prepare, release, modeId, lens, plan]);
 
+  // A recording ended from the remote leaves the player on this screen: the camera comes back for the next hold.
+  useEffect(() => {
+    if (live && phase === "idle" && camera === "off") void prepare(modeId, plan);
+  }, [live, phase, camera, prepare, modeId, plan]);
+
   useEffect(() => {
     if (!focused) return;
     void activateKeepAwakeAsync("setup");
@@ -427,9 +434,11 @@ export default function Setup() {
 
   // A press of the Bluetooth remote here proves it is paired and reaching the app.
   // The connection test: the remote's presses (a press that only wakes it does not show; the player presses again).
+  // Held 3 s, it starts a recording from the court (2026-11-07 spec §5.1).
   useBluetoothRemote(
     live && phase === "idle" && remoteAllowed,
     remoteTest.press,
+    { onHold: startFromRemote },
   );
 
   // Coming back from another app, whether the remote is still on is unknown: until it is pressed again it shows as paired.
@@ -469,6 +478,26 @@ export default function Setup() {
     if (hideNextTime) repo.setPrefs({ prepareTipSeen: true });
     setPreparing(false);
     void onStart();
+  }
+
+  /** The remote held 3 s here: the same start as the button, answered by its own sound and torch (or the failure beep). */
+  async function startFromRemote() {
+    remoteTest.press(); // a hold proves the remote works too
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      const result = await session.start(modeId);
+      const prefs = repo.getPrefs();
+      if (result === "started")
+        signalAction("started", {
+          sound: prefs.soundOnSave,
+          flash: prefs.flashOnSave,
+        });
+      else if (result === "failed")
+        signalSaveFailed({ sound: prefs.soundOnSave });
+    } finally {
+      busy.current = false;
+    }
   }
 
   const opening = camera === "starting";

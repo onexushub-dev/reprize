@@ -23,6 +23,8 @@ final class CaptureButtons {
   /// With two previews on screen, one press could reach both: it is emitted once.
   private var lastPressAt: CFTimeInterval = 0
   private static let duplicateWindow: CFTimeInterval = 0.15
+  /// When the press now down began (its `began` was emitted and its end not yet): its length goes out with the end.
+  private var downAt: CFTimeInterval?
 
   /// Whether this phone can deliver capture events (iOS 17.2+).
   nonisolated static var supported: Bool {
@@ -82,8 +84,10 @@ final class CaptureButtons {
     interactions.removeAllObjects()
   }
 
-  /// One press per `began` (`onCaptureButton` in JS): a remote's press and release come together, and a `cancelled`
-  /// after it changes nothing. `button`: "primary" (volume down, Action button, Camera Control) or "secondary" (volume up).
+  /// Each press goes to JS twice (`onCaptureButton`): `began`, then `ended` with its length in ms (a `cancelled` ends it
+  /// too). JS tells a press from a 3 s hold (start or end a recording from the remote, 2026-11-07 spec §5.1). Whether
+  /// the AB Shutter3 reports a hold at all, or sends press and release together, is what the field test checks.
+  /// `button`: "primary" (volume down, Action button, Camera Control) or "secondary" (volume up).
   @available(iOS 17.2, *)
   private func handle(_ event: AVCaptureEvent, button: String) {
     // TEMP(diag-remote): every event, for the field test.
@@ -95,11 +99,19 @@ final class CaptureButtons {
     @unknown default: phase = "fase \(event.phase.rawValue)"
     }
     ReplayEngine.shared.diag("controle: evento de captura (\(button), \(phase))")
-    guard event.phase == .began else { return }
     let now = CACurrentMediaTime()
-    if now - lastPressAt < Self.duplicateWindow { return }
-    lastPressAt = now
-    ReplayEngine.shared.emit?("onCaptureButton", ["button": button])
+    if event.phase == .began {
+      if now - lastPressAt < Self.duplicateWindow { return }
+      lastPressAt = now
+      downAt = now
+      ReplayEngine.shared.emit?("onCaptureButton", ["button": button, "phase": "began"])
+      return
+    }
+    // The end of the press that began (a second preview's copy finds none and is dropped).
+    guard let down = downAt else { return }
+    downAt = nil
+    let ms = Int(((now - down) * 1000).rounded())
+    ReplayEngine.shared.emit?("onCaptureButton", ["button": button, "phase": "ended", "ms": ms])
   }
 
   /// TEMP(diag-remote): what is installed right now, in one line for the diagnostic log.
