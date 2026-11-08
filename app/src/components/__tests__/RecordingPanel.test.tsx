@@ -214,7 +214,7 @@ test('a remote phone asking to end the recording ends it like the hold button do
   expect(router.push).toHaveBeenCalledWith('/session/s1');
 });
 
-describe('the remote held 3 s ends the recording (2026-11-07)', () => {
+describe('the remote held 2 s ends the recording (2026-11-07)', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
