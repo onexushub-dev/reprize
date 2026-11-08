@@ -39,10 +39,6 @@ A wave counts only when the person faces the camera (`Facing.towardCamera`, Repl
   `facing`, so the thresholds can be tuned from field data.
 - Target: a deliberate wave recognised from **10–15 m**. The four clips of 2026-11-07 are the negative cases.
 
-**Diagnóstico switch "Gesto desligado"** (diagnostic builds only): the next recording runs with the gesture off,
-whatever the setup says, so two recordings in the same conditions show how much heat and battery the gesture costs
-(the session pulse already logs both every minute). The recording's first log line says so.
-
 ## 3. Recordings left open by a closed app
 
 At launch no recording can be running, so every recording without an end gets one: the time of its last clip, or its
@@ -97,8 +93,8 @@ No more two minutes at 60 fps followed by a restart. The heat banner shows from 
 
 Capture events (iOS 17.2+) now reach JS with their phase, `began` and `ended`:
 
-- **Press** (released before 3 s): saves a clip, as before. Decided when the button is released.
-- **Hold 3 s** (`REMOTE_HOLD_MS`): decided while the button is still down, with its own sound and flash.
+- **Press** (released before 2 s): saves a clip, as before. Decided when the button is released.
+- **Hold 2 s** (`REMOTE_HOLD_MS`, 2026-11-08 spec §4.1): decided while the button is still down, with its own sound and flash.
   - Recording → ends it. The phone stays on the setup screen, camera on, ready for the next hold; the recording is in
     Minhas gravações (a recording with no clips is deleted, as the screen's own end does). The recording screen is
     not opened: from the court nobody looks at it, and the next start needs the camera.
@@ -112,10 +108,8 @@ Capture events (iOS 17.2+) now reach JS with their phase, `began` and `ended`:
 
 | Action | Sound | Torch |
 |---|---|---|
-| Clip saved | rising two notes (as now) | 2 short blinks (as now) |
-| Recording started | three rising notes | 1 long blink |
-| Recording ended | three falling notes | 3 short blinks |
-| Failed | low double beep (as now) | — |
+The sounds and torch patterns are in the 2026-11-08 spec (§5): started, clip and ended are told apart by the torch's
+rhythm (1 steady light / 2 short blinks / 3 slow pulses).
 
 The player's sound and flash preferences apply to all of them.
 
@@ -127,9 +121,9 @@ instead of at the player's level (0.75 + one press step stays below the top, so 
 
 ### 5.4 Not done
 
-- Keeping the remote awake: iOS owns its connection and the AB Shutter3 sleeps on its own timer, reset only by a press.
-  The drops of 2026-11-07 came after 52–63 s without a press, too soon for its sleep: range and the body blocking the
-  signal (remote in a pocket). Carry the remote on the wrist or arm.
+- Keeping the remote awake: iOS owns its connection and the AB Shutter3 sleeps on its own timer (300 s), reset only by
+  a press. The drops of 2026-11-07 came after 52–63 s without a press: range and the body blocking the signal (remote
+  in a pocket). Carry the remote on the wrist or arm. The press that wakes it: 2026-11-08 spec §4.
 
 ## 6. Clip label
 
@@ -161,11 +155,11 @@ written. "Desfazer" tapped before the file exists undoes the clip as soon as it 
 ## 9. Field test checklist
 
 1. Gesture: deliberate waves facing the camera at 5, 10 and 15 m (5 each): how many saved. A full game: false saves.
-2. Gesture off vs on (Diagnóstico): two 10 min recordings back to back, same place; heat and battery per minute.
+2. Gesture off vs on (the setup's gesture tile): two 10 min recordings back to back, same place; heat and battery per minute.
 3. Heat: a recording started hot opens at 1080p30 with the banner; no camera restart in the first minutes.
 4. Modo Foco: no analysis on the setup screen or while recording; opening a recording analyses its clips.
-5. Remote: the log shows press lengths; hold 3 s on the setup screen → start (sound + 1 long blink); hold 3 s while
-   recording → end (sound + 3 blinks), back on the setup screen; short presses still save clips.
+5. Remote: the log shows press lengths; hold 2 s on the setup screen → start (sound + torch); hold 2 s while
+   recording → end (sound + torch), back on the setup screen; short presses still save clips.
 6. The save chime heard from the far end of the court.
 7. Close the app mid-recording, open it again: the recording has an end and can be deleted.
 8. Labels: add from the list, reuse a suggestion, share a labelled clip.

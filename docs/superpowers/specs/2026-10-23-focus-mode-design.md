@@ -40,7 +40,7 @@ landscape clip (section 10), Android, 4K capture, live framing during the record
 | The spike (YOLO people detection + the path rules below) gave smooth, correct framing in all 6 clips. Ball was found in 3–15% of frames on basketball and beach tennis (42% volleyball). | v1 follows the players only. The ball is a later, per-sport model (section 10). |
 | Spike problems: balls lying on the floor and spectators in the stands pulled the framing. A "same place for several seconds" filter fixed both. | The static filter is part of the path rules. |
 | Ultralytics YOLO (used in the spike) is AGPL-3.0, including models trained with it; a closed app needs a paid Enterprise license. | Not used in the app. People come from Apple Vision (`VNDetectHumanRectanglesRequest`, iOS 13+, free). `GestureDetector` already uses Vision to find people at a distance. |
-| `ClipExporter` places the video with one `AVMutableVideoCompositionLayerInstruction` transform and draws the overlay PNG (bands, gradient, mark) on a separate `AVVideoCompositionCoreAnimationTool` layer on top. | The moving framing becomes transform ramps (`setTransformRamp`) on the same layer instruction. The overlay path does not change, so the mark stays put by construction. |
+| `ClipExporter` places the video with one `AVMutableVideoCompositionLayerInstruction` transform and draws the overlay PNG (bands, mark) on a separate `AVVideoCompositionCoreAnimationTool` layer on top. | The moving framing becomes transform ramps (`setTransformRamp`) on the same layer instruction. The overlay path does not change, so the mark stays put by construction. |
 | The editor plays with `expo-video` (`VideoView`) inside `ZoomableVideo`, which already shows a static `{scale, cx, cy}` zoom as a view transform. | The preview drives that same transform from the path, by the player's current time. No new native player in v1. |
 | `Clip.edit` holds the editor choices; `readEdit` fills defaults when a field is absent. Exports are landscape for landscape clips, vertical for vertical ones (`exportOptions`). | `edit.focus` (absent = on) joins `Edit`. The aspect of the framing is the aspect of today's export. |
 | Clip files hold up to the 60 s buffer; `bounds` is the part a clip may show; trims stay inside `bounds`. | The analysis covers `bounds` (or the whole file on old clips). A trim just reads part of the path. |
@@ -167,7 +167,7 @@ none replaced today's framing on video (Victor, 2026-11-05). Results, what not t
   `edit.focus` is on), `ClipExporter` replaces the single `setTransform` with one `setTransformRamp` per keyframe pair
   inside the cut, with times mapped to composition time: `(t − startMs) / speed`.
 - The transform for one keyframe is today's `crop` math with that keyframe's rect, so a still path equals today's zoom.
-- The overlay (bands, gradient, mark) is unchanged and stays on top: the mark is in the corner of the video image in
+- The overlay (bands, mark) is unchanged and stays on top: the mark is in the corner of the video image in
   every frame. Covered by a test on the overlay layout (portrait and landscape) and the field checklist.
 - Manual zoom and Modo Foco never apply together (section 5).
 

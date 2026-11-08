@@ -228,7 +228,7 @@ Field checklist for this update (two physical iPhones):
 **Change.**
 - `ReplayEngine.saveClip` reads `gesture.currentUpright().videoRotationDegrees` when the save is requested and passes it to `ClipConcat.normalize(_:to:rotationDegrees:)`.
 - `normalize` inserts the video into an `AVMutableComposition`, sets the track `preferredTransform` to that rotation and exports with the passthrough preset (no re-encode).
-- `ShareOverlay` anchors the logo (and the bottom gradient) to the bottom-right corner of the video image instead of the 9:16 frame, with the same margin (4.5% of frame width). Vertical clips look unchanged; landscape clips get the mark inside the image.
+- `ShareOverlay` anchors the logo to the bottom-right corner of the video image instead of the 9:16 frame, with the same margin (4.5% of frame width). Vertical clips look unchanged; landscape clips get the mark inside the image.
 - Clips saved before this change keep their stored rotation; the "Girar" edit still fixes them.
 
 **Field checklist (device, Release build).**
