@@ -1,6 +1,7 @@
 package expo.modules.replaycamera
 
 import android.Manifest
+import expo.modules.replaycamera.focus.FocusAnalyzer
 import expo.modules.replaycamera.remote.DeviceIdentity
 import expo.modules.replaycamera.remote.RemoteBle
 import expo.modules.replaycamera.remote.RemoteController
@@ -34,6 +35,19 @@ class ExportCrop : Record {
   @Field val height: Double = 1.0
 }
 
+class ExportFocus : Record {
+  @Field val path: String = ""
+  @Field val aspect: String = "landscape"
+}
+
+class AnalyzeFocusOptions : Record {
+  @Field val clipPath: String = ""
+  @Field val startMs: Double = 0.0
+  @Field val endMs: Double = 0.0
+  @Field val outPath: String = ""
+  @Field val debug: Boolean = false
+}
+
 class ExportClipOptions : Record {
   @Field val clipPath: String = ""
   @Field val startMs: Double = 0.0
@@ -42,6 +56,7 @@ class ExportClipOptions : Record {
   @Field val muted: Boolean = false
   @Field val rotation: Int = 0
   @Field val crop: ExportCrop? = null
+  @Field val focus: ExportFocus? = null
   @Field val width: Int = 1080
   @Field val height: Int = 1920
   @Field val overlayPngPath: String? = null
@@ -181,6 +196,8 @@ class ReplayCameraModule : Module() {
         ClipExporter.Options(
           o.clipPath, o.startMs.toLong(), o.endMs.toLong(), o.speed.toFloat(), o.muted, o.rotation,
           o.crop?.let { ClipExporter.Crop01(it.x, it.y, it.width, it.height) }, o.width, o.height, o.overlayPngPath,
+          // Modo Foco follows its track unless the player zoomed by hand.
+          focus = if (o.crop == null) o.focus?.let { ClipExporter.FocusTrack.read(it.path, it.aspect) } else null,
         ),
         onDone = { path, ms -> promise.resolve(mapOf("path" to path, "durationMs" to ms)) },
         onError = { promise.reject(ReplayException("ENCODER_FAILED", "$it")) },
@@ -207,6 +224,22 @@ class ReplayCameraModule : Module() {
         throw ReplayException("ENCODER_FAILED", "$e")
       }
     }
+
+    // Modo Foco: people found with an on-device detector, the framing written next to the clip (see FocusAnalyzer).
+    AsyncFunction("analyzeFocus") { o: AnalyzeFocusOptions ->
+      try {
+        val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.debug)
+        mapOf("status" to if (r.ready) "ready" else "none", "frames" to r.frames, "framesWithPeople" to r.framesWithPeople,
+          "meanPeople" to r.meanPeople, "elapsedMs" to r.elapsedMs)
+      } catch (e: FocusAnalyzer.Cancelled) {
+        throw ReplayException("CANCELLED", "Focus analysis cancelled")
+      } catch (e: Throwable) {
+        android.util.Log.e("ReprizeFocus", "analysis failed", e)
+        throw ReplayException("FOCUS_FAILED", "${e.cause ?: e}")
+      }
+    }
+
+    Function("cancelFocus") { clipPath: String -> FocusAnalyzer.cancel(clipPath) }
 
     AsyncFunction("createThumbnail") { clipPath: String, atMs: Double -> ClipThumbnail.make(clipPath, atMs) }
 

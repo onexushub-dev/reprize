@@ -213,7 +213,7 @@ export type ExportClipOptions = {
 
 export type ExportedClip = { path: string; durationMs: number };
 
-/** Modo Foco analysis of a clip (iOS only). Writes the framing to `outPath` (see `focusPath`). */
+/** Modo Foco analysis of a clip. Writes the framing to `outPath` (see `focusPath`). */
 export type AnalyzeFocusOptions = {
   clipPath: string;
   startMs: number;
