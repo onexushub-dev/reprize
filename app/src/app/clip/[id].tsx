@@ -261,10 +261,13 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     if (track) focusChip = focusActive ? 'on' : 'off';
     else if (focusSupported && (!focusState || focusState.status === 'pending')) focusChip = 'preparing';
   }
+  // The analysis starts once the clip's shape is known: it takes the processor, and the thumbnail that measures the
+  // video must not wait behind it (the frame would stay in its default landscape shape meanwhile).
   useEffect(() => {
+    if (!sizeKnown) return;
     const current = repo.getClip(id);
     if (current && focusSupported) focusQueue.ensure(current);
-  }, [id, focusSupported]);
+  }, [id, focusSupported, sizeKnown]);
   // The introduction, once ever: the framing grows out of the whole video with a caption.
   const reduceMotion = useReduceMotion();
   const [introDue] = useState(() => !repo.getPrefs().focusIntroSeen);
