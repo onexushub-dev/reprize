@@ -59,7 +59,7 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   createThumbnail(clipPath: string, atMs: number): Promise<string>;
   findContentStart?(clipPath: string): Promise<number>;
   exportClip(opts: ExportClipOptions): Promise<ExportedClip>;
-  // Modo Foco (iOS only: missing on Android and in older builds).
+  // Modo Foco (missing in older builds).
   analyzeFocus?(opts: AnalyzeFocusOptions): Promise<FocusAnalysis>;
   cancelFocus?(clipPath: string): void;
   getWatchStatus(): WatchStatus;

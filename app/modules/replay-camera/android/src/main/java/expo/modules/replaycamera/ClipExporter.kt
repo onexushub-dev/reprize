@@ -4,6 +4,7 @@ package expo.modules.replaycamera
 
 import android.content.Context
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -13,6 +14,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.Crop
+import androidx.media3.effect.MatrixTransformation
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.ScaleAndRotateTransformation
@@ -24,6 +26,8 @@ import androidx.media3.transformer.Effects
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
+import expo.modules.replaycamera.focus.FocusRamp
+import expo.modules.replaycamera.focus.FocusRect
 import java.io.File
 import java.util.UUID
 
@@ -46,7 +50,21 @@ object ClipExporter {
     val width: Int,
     val height: Int,
     val overlayPngPath: String?,
+    /** Modo Foco: the framing that follows the play, replacing a still crop. */
+    val focus: FocusTrack? = null,
   )
+
+  /** The framing file's track for one shape (see FocusAnalyzer): one rect every `stepMs` from `startMs`. */
+  class FocusTrack(val rects: List<FocusRect>, val startMs: Double, val stepMs: Double) {
+    companion object {
+      fun read(path: String, aspect: String): FocusTrack? = runCatching {
+        val o = org.json.JSONObject(File(path).readText())
+        val rows = o.getJSONArray(if (aspect == "portrait") "portrait" else "landscape")
+        val rects = (0 until rows.length()).map { i -> rows.getJSONArray(i).let { FocusRect(it.getDouble(0), it.getDouble(1), it.getDouble(2), it.getDouble(3)) } }
+        if (rects.isEmpty()) null else FocusTrack(rects, o.getDouble("startMs"), o.getDouble("stepMs"))
+      }.getOrNull()
+    }
+  }
 
   data class Crop01(val x: Double, val y: Double, val width: Double, val height: Double)
 
@@ -63,6 +81,23 @@ object ClipExporter {
       .build()
 
     val videoEffects = mutableListOf<Effect>()
+    // Modo Foco first, so its clock is the source clip's (before any speed change): zoom on the rect at that moment,
+    // then trim the frame to the rect's shape (the shape is the same all along, so one static crop does it).
+    if (o.focus != null && o.crop == null) {
+      val track = o.focus
+      videoEffects += MatrixTransformation { presentationTimeUs ->
+        val r = FocusRamp.rect(o.startMs + presentationTimeUs / 1000.0, track.rects, track.startMs, track.stepMs)
+        val k = minOf(1 / r.width, 1 / r.height).toFloat()
+        Matrix().apply {
+          postTranslate((-(2 * (r.x + r.width / 2) - 1)).toFloat(), (-(1 - 2 * (r.y + r.height / 2))).toFloat())
+          postScale(k, k)
+        }
+      }
+      val first = track.rects[0]
+      val keepW = minOf(1.0, first.width / first.height).toFloat()
+      val keepH = minOf(1.0, first.height / first.width).toFloat()
+      videoEffects += Crop(-keepW, keepW, -keepH, keepH)
+    }
     if (slow) videoEffects += SpeedChangeEffect(o.speed)
     val turn = ((o.rotation % 360) + 360) % 360
     // Media3 turns counterclockwise; the app's turn is clockwise (as on iOS).
