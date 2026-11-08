@@ -64,8 +64,9 @@ save ─► repo.addClip ─► FocusQueue (JS, one at a time)
   orientation (track `preferredTransform` applied), scaled to 960 px on the long side.
 - Runs `VNDetectHumanRectanglesRequest` (`upperBodyOnly = false`) on each frame. Keeps boxes with confidence ≥ 0.3.
 - Passes the samples to `FocusPath` (Core) and writes the result next to the clip: same name, `.focus.json` (like the `.thumb.jpg` thumbnail).
-- Runs at `.utility` priority. While a recording is running and `ProcessInfo.thermalState` is `.serious` or above, the
-  queue waits (the camera has priority; the thermal fallback already exists for the camera).
+- Runs at `.utility` priority, one clip at a time, only for the clips of a recording that is open (its screen) and
+  never while the camera is on (setup preview or recording): the camera and the phone's heat come first. A clip opened
+  in the editor goes first. See `2026-11-07-basketball-field-test-fixes-design.md` §4.1.
 - Cancellable: deleting a clip or a game cancels its pending analysis and removes the file.
 
 ### 4.2 Path rules (`FocusPath.swift`, ReplayCore, pure, `swift test`)

@@ -48,7 +48,7 @@ Fluxo: **Boas-vindas → Posicionar câmera → Gravando → Clipe salvo (repete
 - Barra "Últimos N s prontos · o resto é apagado" (N = a janela da gravação: 60 s no PRO, 15 s no grátis).
 - Indicadores dos gatilhos remotos.
 - "Segure para encerrar o jogo" (toque longo, para evitar encerrar por engano).
-- Calor: o app reduz sozinho para 720p/30 e mostra o aviso "Celular quente… coloque na sombra".
+- Calor: em `serious` por 2 min (ou já quente ao abrir a câmera) o app passa para 1080p/30; em `critical`, para 720p/30 na hora. Só para quando o próprio iOS desliga a câmera. Mostra o aviso "Celular quente… tire a capinha e deixe na sombra".
 
 ### 3.4 Clipe salvo (feedback de ~2s)
 - Borda e flash na cor de destaque, som curto, vibração no relógio.
