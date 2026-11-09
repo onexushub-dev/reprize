@@ -4,6 +4,7 @@ import * as camera from '../../modules/replay-camera';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBallQueue } from './ballQueue';
+import { ballSportOf, labelSummary, sportVerdict } from './sportCheck';
 
 /** Seguir a Bola's speed rule (spec 2026-11-09 §4.7, Victor: per typical cut): up to 400 ms per 19-region frame. */
 export const BALL_PROBE_MAX_MS = 400;
@@ -71,4 +72,33 @@ export function probeBallOnce(): void {
     .finally(() => {
       probing = false;
     });
+}
+
+const checking = new Set<string>();
+
+/**
+ * Test 43: once per recording, Apple's scene classifier on 3 frames of one of its clips decides whether Seguir a Bola
+ * shows as "EM BREVE" (another sport for sure) or stays on offer. Recordings made in a sport mode need no look.
+ */
+export function checkSportOnce(sessionId: string, clip: { path: string; trim: { startMs: number; endMs: number } }): void {
+  const session = repo.getSession(sessionId);
+  if (!session || checking.has(sessionId) || ballSportOf(session) !== undefined) return;
+  checking.add(sessionId);
+  camera
+    .classifySport(clip.path, clip.trim.startMs, clip.trim.endMs)
+    .then((labels) => {
+      // Nothing seen (a build without the classifier, a frame that would not decode): ask again next time.
+      if (Object.keys(labels).length === 0) {
+        if (DIAGNOSTICS_ENABLED) diag('Seguir a Bola: esporte sem verificar (classificador sem resposta)');
+        return;
+      }
+      const verdict = sportVerdict(labels);
+      repo.setBallSport(sessionId, { v: 1, verdict, labels });
+      // TEMP(diag-remote): the field test checks the verdict on the Diagnóstico screen.
+      if (DIAGNOSTICS_ENABLED) {
+        diag(`Seguir a Bola: esporte ${verdict === 'other' ? 'OUTRO (EM BREVE)' : 'liberado'} — ${labelSummary(labels)}`);
+      }
+    })
+    .catch((e: unknown) => console.warn('[Reprize] sport check failed', e))
+    .finally(() => checking.delete(sessionId));
 }
