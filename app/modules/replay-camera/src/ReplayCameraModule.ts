@@ -1,7 +1,9 @@
 import { NativeModule, requireNativeModule } from 'expo';
 
 import type {
+  AnalyzeBallOptions,
   AnalyzeFocusOptions,
+  BallAnalysis,
   BluetoothConnected,
   DeviceUpright,
   ExportClipOptions,
@@ -68,6 +70,10 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   // Modo Foco (missing in older builds).
   analyzeFocus?(opts: AnalyzeFocusOptions): Promise<FocusAnalysis>;
   cancelFocus?(clipPath: string): void;
+  // Seguir a Bola (missing in older builds).
+  analyzeBall?(opts: AnalyzeBallOptions): Promise<BallAnalysis>;
+  cancelBall?(clipPath: string): void;
+  probeBall?(): Promise<number>;
   getWatchStatus(): WatchStatus;
   watchSync(recording: boolean, clipCount: number, startedAt: number | null): void;
   watchSignal(saved: boolean): void;

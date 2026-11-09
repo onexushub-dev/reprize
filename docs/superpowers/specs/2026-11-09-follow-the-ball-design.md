@@ -99,18 +99,28 @@ Non-goals for v1:
 A sibling of `FocusAnalyzer`, in `modules/replay-camera/ios`, with the same shape (one at a time, cancellable,
 `Outcome`, `Failure`):
 
-1. `AVAssetReader` over the cut (`startMs`…`endMs`), 32BGRA. Keep the first frame at or after each 200 ms tick, by
-   presentation time.
-2. Regions per frame (exactly as FocusBench's `BallDetector`, which matches the lab's `ball_detect.py`):
+1. `AVAssetReader` over the cut's missing frames, 420f (as FocusBench measured; Core Image converts). The cut's 100 ms
+   grid (`BallFraming`): row k at `startMs + k × 100`; every 2nd row is analysed (5 fps), with the picture that is the
+   first at or after its tick within 100 ms, by presentation time. The analysed rows' parity follows the cache, so a
+   cut moved by 100 ms still reuses it.
+2. Regions per frame (exactly as FocusBench's `BallDetector`, which matches the lab's `ball_detect.py`; `BallDetect`):
    - the whole upright frame, letterboxed into the top-left of a 416 grey (114) square;
    - every 416×416 tile, with origins from `starts(n, 416, overlap 80)` on each side.
 
    A 1080p frame gives 19 regions.
 3. One `model.predictions(fromBatch:)` per frame, compute units `.cpuAndNeuralEngine`.
 4. Decode **every** candidate with objectness × class ≥ 0.05, not only the best one, because the path needs them all.
-   Each candidate is centre, size and score, normalized to the upright frame. Tile candidates go back to frame
-   coordinates; duplicates across overlapping tiles are kept, because the path's filters handle them (as in the lab).
+   Tile candidates go back to frame coordinates; then, as the lab, all of the frame's candidates go through NMS at IoU
+   0.5 (highest score first, ties in region order) and are stored 0..1 with 4 decimals (score 3).
 5. Write the detections cache (§4.6), then run the path and the camera (§4.5) and write the framing file.
+
+Implementation (part 2): `ios/BallAnalyzer.swift` (reader, Core ML, heat, cancel, files) on top of `Core`'s
+`BallDetect` (regions, anchors, decoding, NMS) and `BallFraming` (grid, cache, path → trust → zoom → camera, file
+contents), tested in `BallFramingTests` (the parity fixture through `BallFraming.compute`). The module exposes
+`analyzeBall`, `cancelBall`, `probeBall` and the event `onBallProgress` (`done`, `total`, `state` cooling / running /
+framing) for the chip and bar on the video. The model ships compiled (`ios/Models/ball_tiny_gym.mlmodelc`, made with
+`xcrun coremlcompiler compile` from the lab's .mlpackage) in the pod's `ReplayCameraModels` resource bundle; a build
+without it rejects with `BALL_NO_MODEL`.
 
 Queue: its own, separate from the Modo Foco queue, which keeps running in the background as today.
 - It starts only from the switch.
@@ -168,9 +178,11 @@ These files sit next to the clip and are deleted with it (`mmkv.ts` cleanup list
 
 - Measured: iPhone 16 Pro Max (A18 Pro).
 - **Before release, measure FocusBench `det5b` on an iPhone 12 or 13** (A14/A15). Show Seguir a Bola where a 30 s
-  clip analyses in under ~30 s.
-- Gate by a one-time probe at first use: run one 19-region batch, and time it as the existing focus probe does. Hide
-  the row on phones that fail (e.g. the XR, A12).
+  clip analyses in under ~30 s. **Revised (Victor, 2026-11-09): the gate is per typical cut, not per 30 s clip**:
+  show the option where a 10 s cut analyses in about 20 s or less, i.e. `probeBall` ≤ 400 ms per 19-region frame
+  (50 frames). The iPhone XR (≈ 245 ms, 10 s cut in 12–15 s) passes.
+- Gate by a one-time probe at first use: run one 19-region batch (`probeBall`), and time it as the existing focus
+  probe does. Hide the row on phones above 400 ms per frame.
 
 ### 4.8 Export
 
@@ -207,7 +219,9 @@ The port must reproduce the lab, because the quality decisions were measured the
 
 ## 7. Open points
 
-- Older iPhones' speed (§4.7) decides the gate.
+- **Attribution (CC BY 4.0)**: the detector's training data asks for credit, "basketball_detection (cvsense, Roboflow
+  Universe), CC BY 4.0", in the app's credits/licences before release (lab README, test 33). Tracked in
+  `docs/superpowers/backlog.md`.
 - Analytics: a `ball_framing` event (clip seconds, analysis ms, ball share, zoom, thermal before/after), as for Modo
   Foco.
 - A recording made in portrait already has the 9:16 shape. There Seguir a Bola zooms in and follows (test 31's

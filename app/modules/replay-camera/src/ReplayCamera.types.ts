@@ -119,6 +119,11 @@ export type ReplayCameraModuleEvents = {
   /** TEMP(diag-remote): one line for the in-app diagnostic log. iOS only. */
   onDiag: (e: { message: string }) => void;
   onError: (e: { code: ReplayErrorCode; message: string }) => void;
+  /**
+   * Seguir a Bola analysis progress (iOS only): `done` of `total` analysed frames of the cut. `state`: 'cooling' (waiting
+   * for the phone to cool before starting), 'running', 'framing' (computing the 9:16 camera, almost done).
+   */
+  onBallProgress: (e: { clipPath: string; done: number; total: number; state: 'cooling' | 'running' | 'framing' }) => void;
   /** What the gesture detector saw lately (people, arms up, wave): the practice screen reads `raised`. */
   onGestureDebug: (e: GestureDebug) => void;
   /** Gesture test (spike screen): one event per gesture sample while setGestureTrace(true). iOS only. */
@@ -247,6 +252,34 @@ export type AnalyzeFocusOptions = {
   outPath: string;
   /** Also write the people found in each analysed frame (`samples`), for the test screen. */
   debug?: boolean;
+};
+
+/**
+ * Seguir a Bola analysis of the cut (spec 2026-11-09 §4.3). `detPath`: the detections cache (`<clip>.balldet.json`, reused
+ * by later cuts); `outPath`: the 9:16 framing (`<clip>.ball.json`, the Modo Foco file's format, track under "portrait");
+ * `focusPath`: today's Modo Foco file for the same cut (the camera's fallback; a centred crop when missing).
+ * Rejects with `CANCELLED`, `BALL_INTERRUPTED` (app in the background), `BALL_HOT` (phone critical; detections kept),
+ * `BALL_NO_MODEL` or `BALL_FAILED`.
+ */
+export type AnalyzeBallOptions = {
+  clipPath: string;
+  startMs: number;
+  endMs: number;
+  detPath: string;
+  outPath: string;
+  focusPath: string;
+};
+
+/** `ballShare`: share of the cut's frames with a trusted ball (under 0.35: show "Bola pouco visível"). */
+export type BallAnalysis = {
+  status: 'ready';
+  analysed: number;
+  reused: number;
+  ballFrames: number;
+  trustedFrames: number;
+  ballShare: number;
+  zoom: number;
+  elapsedMs: number;
 };
 
 /** `none`: too few people for a framing (the file has empty tracks). */
