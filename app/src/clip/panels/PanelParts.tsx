@@ -4,8 +4,23 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { LockIcon } from '../../components/icons';
 import { colors, fonts } from '../../theme/tokens';
 
-/** A tool panel's name and its one plain sentence. `pro`: the "Pro" pill beside the title, on a tool a free export leaves out. */
-export function PanelHead({ title, hint, right, pro }: { title: string; hint: string; right?: ReactNode; pro?: string }) {
+/**
+ * A tool panel's name and its one plain sentence. `pro`: the "Pro" pill beside the title, on a tool a free export leaves
+ * out. `badge`: a plain pill for a new tool ("NOVO").
+ */
+export function PanelHead({
+  title,
+  hint,
+  right,
+  pro,
+  badge,
+}: {
+  title: string;
+  hint: string;
+  right?: ReactNode;
+  pro?: string;
+  badge?: string;
+}) {
   return (
     <View style={styles.head}>
       <View style={styles.headText}>
@@ -15,6 +30,11 @@ export function PanelHead({ title, hint, right, pro }: { title: string; hint: st
             <View style={styles.pro} accessibilityLabel={pro}>
               <LockIcon color={colors.onAccent} size={9} />
               <Text style={styles.proText}>{pro}</Text>
+            </View>
+          ) : null}
+          {badge !== undefined ? (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{badge}</Text>
             </View>
           ) : null}
         </View>
@@ -72,6 +92,8 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   proText: { fontFamily: fonts.bodyBold, fontSize: 9, color: colors.onAccent },
+  badge: { borderRadius: 999, borderWidth: 1, borderColor: colors.accent, paddingHorizontal: 6, paddingVertical: 1 },
+  badgeText: { fontFamily: fonts.bodyBold, fontSize: 9, color: colors.accent, letterSpacing: 0.5 },
   title: { fontFamily: fonts.displayBold, fontSize: 18, letterSpacing: 0.7, textTransform: 'uppercase', color: colors.text },
   hint: { fontFamily: fonts.body, fontSize: 12, color: colors.muted },
   choice: {

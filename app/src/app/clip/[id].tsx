@@ -25,9 +25,11 @@ import { ClipWatch } from '../../clip/ClipWatch';
 import { beginEdit, type EditSnapshot, hasChanges, lastTool, rememberTool, restorePatch, type ToolId } from '../../clip/editSession';
 import { IconButton, SCRIM } from '../../clip/IconButton';
 import { NeighbourStage } from '../../clip/NeighbourStage';
-import { previewBox } from '../../clip/stage';
+import { BallChip, type BallChipState } from '../../clip/BallChip';
+import { BallIntroSheet } from '../../clip/BallIntroSheet';
+import { ballContent, previewBox } from '../../clip/stage';
 import { ToolBar } from '../../clip/ToolBar';
-import { EDIT_TOOLS, type EditTool, type FocusUi, type ToolContext } from '../../clip/tools';
+import { type BallUi, EDIT_TOOLS, type EditTool, type FocusUi, type ToolContext } from '../../clip/tools';
 import { WatchProgress } from '../../clip/WatchProgress';
 import { ExportProgress, type ExportJob } from '../../components/ExportProgress';
 import { clipNumber, seconds, timeOfDay } from '../../components/format';
@@ -42,15 +44,18 @@ import { useReduceMotion } from '../../components/useReduceMotion';
 import { sessionSummary, track as trackEvent } from '../../analytics';
 import { exportPlanOf } from '../../analytics/plans';
 import { askPhotos } from '../../share/askPhotos';
+import { ballForCut, readyBallFile } from '../../data/ballFile';
 import { readFocusFile } from '../../data/focusFile';
 import { removeFile, repo } from '../../data/mmkv';
+import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce } from '../../focus/appBallQueue';
+import { ballSportOf } from '../../focus/sportCheck';
 import { focusQueue } from '../../focus/appFocusQueue';
 import { useFocusFraming } from '../../focus/useFocusFraming';
 import type { MessageKey } from '../../i18n';
 import { useT } from '../../i18n/useT';
 import { effectiveSettings } from '../../modes/registry';
 import { captureOverlay } from '../../share/captureOverlay';
-import { contentFloor, nextRotation, outputMs, raiseToFloor, readEdit, turnedSize } from '../../share/editing';
+import { applyEdit, contentFloor, nextRotation, outputMs, raiseToFloor, readEdit, storedEdit, turnedSize } from '../../share/editing';
 import { clipWindow } from '../../share/trim';
 import { unlockRecording } from '../../payments/unlock';
 import { accessPlan } from '../../payments/rules';
@@ -81,6 +86,9 @@ const FOCUS_INTRO_MS = 3000;
 /** How long the framing takes to grow out of the whole video: the first time ever, and when it gets ready on screen. */
 const FOCUS_INTRO_EASE_MS = 700;
 const FOCUS_READY_EASE_MS = 400;
+/** Seguir a Bola: under this share of frames with the ball, a note says the camera follows the players when it loses it. */
+const BALL_SPARSE_SHARE = 0.35;
+const BALL_SPARSE_MS = 6000;
 
 type Player = ReturnType<typeof useVideoPlayer>;
 
@@ -256,6 +264,41 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const handZoom = edit.zoom !== undefined && edit.zoom.scale > 1;
   // Modo Foco works in the app for every plan, to be tried and wanted; a free export leaves without it (see the notice in `run`).
   const focusActive = track !== undefined && edit.focus && edit.rotation === 0 && !handZoom;
+
+  // Seguir a Bola (spec 2026-11-09): the 9:16 framing of the current cut, once its analysis is ready. Until then the
+  // preview keeps Modo Foco's framing (A3: the video keeps playing the current picture) and the chip shows the progress.
+  const ballChosen = edit.framing === 'ball';
+  const ballFile = clip ? readyBallFile(clip) : undefined;
+  const ballTrack = useMemo(
+    () => (ballFile && sizeKnown ? readFocusFile(ballFile, 'portrait') : undefined),
+    [ballFile, sizeKnown],
+  );
+  const ballOn = ballChosen && ballTrack !== undefined && edit.rotation === 0 && !handZoom;
+  const focusPreview = track !== undefined && edit.rotation === 0 && !handZoom && (edit.focus || (ballChosen && !ballOn));
+  const ballProgress = useSyncExternalStore(ballQueue.subscribe, () => ballQueue.progress(id));
+  const cutKey = clip ? `${clip.trim.startMs}:${clip.trim.endMs}` : '';
+  // On, with the cut changed or never analysed: the queue analyses it (the frames already found are reused).
+  useEffect(() => {
+    if (!ballChosen || leaving) return;
+    ballQueue.request(id);
+  }, [ballChosen, cutKey, id, leaving]);
+  // "Bola pouco visível": once per cut, for a few seconds under the chip.
+  const sparseKey =
+    ballOn && clip && clip.ball && clip.ball.share !== undefined && clip.ball.share < BALL_SPARSE_SHARE ? cutKey : undefined;
+  const [sparseDone, setSparseDone] = useState<string>();
+  useEffect(() => {
+    if (sparseKey === undefined) return;
+    const timer = setTimeout(() => setSparseDone(sparseKey), BALL_SPARSE_MS);
+    return () => clearTimeout(timer);
+  }, [sparseKey]);
+  const [ballIntro, setBallIntro] = useState(false);
+  let ballChip: BallChipState | undefined;
+  if (clip && ballChosen && edit.rotation === 0 && !handZoom) {
+    if (ballOn) ballChip = { kind: 'ready', sparse: sparseKey !== undefined && sparseDone !== sparseKey };
+    else if (clip.ball && clip.ball.status === 'failed' && ballForCut(clip.ball, clip.trim)) {
+      ballChip = { kind: 'failed', hot: clip.ball.hot === true };
+    } else ballChip = { kind: 'working', progress: ballProgress };
+  }
   let focusChip: 'preparing' | 'on' | 'off' | undefined;
   if (edit.rotation === 0) {
     if (track) focusChip = focusActive ? 'on' : 'off';
@@ -285,7 +328,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // The export of this clip as it looks now: the same job the recording screen's batch makes, so they cannot differ.
   // The size picked for the last export, if this clip offers it (a swipe to a Full HD clip falls back to Full HD).
   const side: ShortSide = exportChoices(clip ? clip.shortSide : undefined).includes(exportSide) ? exportSide : 1080;
-  const look = clip ? clipExportJob(clip, plan, videoSize, undefined, track !== undefined, side) : undefined;
+  const look = clip
+    ? clipExportJob(clip, plan, videoSize, undefined, track !== undefined, side, ballTrack !== undefined)
+    : undefined;
   // The export reads the job of the size just picked: it waits for the screen to redraw the overlay at that size.
   const lookRef = useRef(look);
   const sideWait = useRef<{ side: ShortSide; done: () => void } | null>(null);
@@ -300,6 +345,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const options = look ? look.options : undefined;
   const frame = look ? look.frame : landscape ? { width: 1920, height: 1080 } : { width: 1080, height: 1920 };
   const layout = look ? look.layout : frameLayout(shape, frame);
+  // What the screen shows: the export's frame, or Seguir a Bola's vertical one (also on a free plan).
+  const shown = look ? look.preview : { frame, layout };
   // The real aspect ratio (rotation applied) comes from the clip's thumbnail.
   const clipPath = clip?.path;
   const startMs = clip?.trim.startMs ?? 0;
@@ -338,7 +385,18 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     wantsPlay.current = false;
     setPlaying(player, false);
   }, [leaving, player]);
-  const follow = useFocusFraming(player, track, focusActive);
+  const focusFollow = useFocusFraming(player, track, focusPreview);
+  const ballFollow = useFocusFraming(player, ballTrack, ballOn, 'height');
+  const follow = ballOn ? ballFollow : focusFollow;
+  // The one-time speed check of Seguir a Bola, when the editor first opens on this phone; and once per recording, whether
+  // it looks like basketball (test 43).
+  const sessionId = clip ? clip.sessionId : undefined;
+  useEffect(() => {
+    if (mode !== 'edit') return;
+    probeBallOnce();
+    const c = repo.getClip(id);
+    if (sessionId && c && ballAvailable()) checkSportOnce(sessionId, c);
+  }, [mode, id, sessionId]);
 
   // The first time a clip opens, find where its picture starts: a black start is not part of the video.
   const hasFloor = clip?.contentStartMs !== undefined;
@@ -439,28 +497,58 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   }
 
   function setEdit(patch: Partial<ReturnType<typeof readEdit>>) {
-    const next = { ...edit, ...patch };
-    repo.updateClip(id, {
-      edit: {
-        speed: next.speed,
-        muted: next.muted,
-        ...(next.zoom ? { zoom: next.zoom } : {}),
-        ...(next.rotation ? { rotation: next.rotation } : {}),
-        ...(next.focus === false ? { focus: false } : {}),
-      },
-    });
+    repo.updateClip(id, { edit: storedEdit(applyEdit(edit, patch)) });
   }
 
   function commitZoom(z: { scale: number; cx: number; cy: number }) {
     // A pinch on the followed picture takes over: the hand zoom stays and Modo Foco turns off.
-    if (focusActive) setEdit({ zoom: z.scale > 1 ? z : undefined, focus: false });
+    if (ballOn) {
+      // A pinch turns Seguir a Bola off: back to the whole video, in the clip's own frame.
+      setEdit({ framing: 'none', zoom: undefined });
+      setZoomKey((k) => k + 1);
+      return;
+    }
+    if (focusActive) setEdit({ zoom: z.scale > 1 ? z : undefined, framing: 'none' });
     else setEdit({ zoom: z.scale > 1 ? z : undefined });
   }
 
   function toggleFocus() {
-    if (focusActive) return setEdit({ focus: false });
+    if (focusActive) return setEdit({ framing: 'none' });
     trackEvent('focus_mode_used');
-    setEdit({ focus: true, zoom: undefined });
+    // Modo Foco on stops Seguir a Bola's analysis at once (what it found stays for later).
+    if (ballChosen) ballQueue.cancel(id);
+    setEdit({ framing: 'focus', zoom: undefined });
+    setZoomKey((k) => k + 1);
+  }
+
+  /** Seguir a Bola on (the first-use sheet first, until it is turned off) or off (back to Modo Foco, the default). */
+  function toggleBall() {
+    if (ballChosen) {
+      ballQueue.cancel(id);
+      setEdit({ framing: 'focus' });
+      setZoomKey((k) => k + 1);
+      return;
+    }
+    if (!repo.getPrefs().ballIntroSeen) return setBallIntro(true);
+    turnBallOn();
+  }
+
+  function turnBallOn() {
+    setEdit({ framing: 'ball', zoom: undefined });
+    setZoomKey((k) => k + 1);
+  }
+
+  /** The first-use sheet answered: "Não mostrar de novo" is kept; "Seguir o clipe todo" turns it on. */
+  function answerBallIntro(go: boolean, hide: boolean) {
+    setBallIntro(false);
+    if (hide) repo.setPrefs({ ballIntroSeen: true });
+    if (go) turnBallOn();
+  }
+
+  /** ✕ on the chip: Seguir a Bola off, back to Modo Foco; the frames found so far stay for next time. */
+  function cancelBall() {
+    ballQueue.cancel(id);
+    setEdit({ framing: 'focus' });
     setZoomKey((k) => k + 1);
   }
 
@@ -600,7 +688,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     if (free) {
       const go = await freeGate.ask(
         clip!.sessionId,
-        { focus: focusActive, sound: !edit.muted && edit.speed === 1 },
+        { focus: focusActive || ballOn, sound: !edit.muted && edit.speed === 1 },
         kind === 'share' ? 'share' : 'save',
         { preview: { path: clip!.path, atMs: posterAt } },
       );
@@ -687,6 +775,11 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // A ready framing is read once the video's shape is known: until then it is still on its way, not impossible.
   else if (focusFile && !sizeKnown && edit.rotation === 0) focusUi = 'preparing';
   const tools = focusSupported ? EDIT_TOOLS : EDIT_TOOLS.filter((t) => t.id !== 'focus');
+  let ballUi: BallUi = 'hidden';
+  if (ballAvailable()) {
+    if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
+    else ballUi = ballSportOf(session) === 'other' ? 'soon' : 'off';
+  }
   const ctx: ToolContext = {
     edit,
     plan,
@@ -694,6 +787,11 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     setEdit,
     focus: focusUi,
     toggleFocus,
+    ball: ballUi,
+    toggleBall,
+    unlockBall: () => {
+      if (session) repo.setBallSport(session.id, { v: 1, verdict: 'allow', unlocked: true });
+    },
     resetZoom: () => {
       setEdit({ zoom: undefined });
       setZoomKey((k) => k + 1);
@@ -709,7 +807,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   /** The export's frame as large as `area` allows, the video in it, the app mark over it. */
   function renderStage(area: { width: number; height: number }) {
     // The same reckoning as the neighbours' stills, so that a swipe lands on the picture that slid in.
-    const { height: previewHeight, scale, video: videoBox } = previewBox(frame, layout, area);
+    const { height: previewHeight, scale, video: videoBox } = previewBox(shown.frame, shown.layout, area);
     return (
       <Animated.View testID="clip-stage" style={[styles.stage, { transform: [{ translateX: slide }] }]}>
         {/* What a drag uncovers on each side: the neighbouring clips' stills, or the way back on the first clip. */}
@@ -723,11 +821,11 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
             </View>
           </>
         ) : null}
-        <View style={[styles.preview, { width: frame.width * scale, height: previewHeight }]}>
+        <View style={[styles.preview, { width: shown.frame.width * scale, height: previewHeight }]}>
           <ZoomableVideo
             key={zoomKey}
             player={player}
-            area={{ width: frame.width * scale, height: previewHeight }}
+            area={{ width: shown.frame.width * scale, height: previewHeight }}
             box={videoBox}
             zoom={edit.zoom}
             rotation={edit.rotation}
@@ -739,13 +837,17 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
             poster={framed ? undefined : poster}
             onFirstFrame={() => setFramed(true)}
             follow={follow}
+            content={ballOn ? ballContent(shape, videoBox) : undefined}
             enterMs={focusEnterMs}
             pinch={editing}
             onHold={editing ? undefined : holdFast}
           />
           <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <ShareOverlay frame={frame} layout={layout} scale={scale} watermark={options?.watermark ?? true} />
+            <ShareOverlay frame={shown.frame} layout={shown.layout} scale={scale} watermark={options ? options.watermark : true} />
           </View>
+          {editing && ballChip ? (
+            <BallChip state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} />
+          ) : null}
           {!playing ? (
             <View pointerEvents="none" style={styles.pausedBadge}>
               <View style={styles.pausedDisc}>
@@ -811,7 +913,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           onSaveName={saveName}
           onBack={() => router.back()}
           onDelete={confirmDelete}
-          focusTag={focusChip === 'on' ? 'on' : focusChip === 'preparing' ? 'preparing' : undefined}
+          focusTag={ballChosen ? undefined : focusChip === 'on' ? 'on' : focusChip === 'preparing' ? 'preparing' : undefined}
+          ballTag={ballChip ? <BallChip state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} /> : undefined}
           onFocusTag={() => enterEdit('focus')}
           notice={busy || !notice ? undefined : t(notice)}
           position={siblings.length > 1 ? t('clip.ofTotal', { number, total: siblings.length }) : undefined}
@@ -838,6 +941,12 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       )}
 
       {freeGate.sheet}
+      <BallIntroSheet
+        visible={ballIntro}
+        onCut={(hide) => answerBallIntro(false, hide)}
+        onGo={(hide) => answerBallIntro(true, hide)}
+        onClose={() => setBallIntro(false)}
+      />
       {qualityGate.sheet}
 
       {/* Off-screen copy at exactly the export's pixel size, captured to PNG for the video overlay. */}

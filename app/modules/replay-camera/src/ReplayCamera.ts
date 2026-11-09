@@ -1,7 +1,9 @@
 import { Platform } from 'react-native';
 import ReplayCameraModule from './ReplayCameraModule';
 import type {
+  AnalyzeBallOptions,
   AnalyzeFocusOptions,
+  BallAnalysis,
   BluetoothConnected,
   DeviceUpright,
   ExportClipOptions,
@@ -238,6 +240,42 @@ export function analyzeFocus(opts: AnalyzeFocusOptions): Promise<FocusAnalysis> 
 export function cancelFocus(clipPath: string): void {
   const cancel = ReplayCameraModule.cancelFocus;
   if (typeof cancel === 'function') cancel.call(ReplayCameraModule, clipPath);
+}
+
+// ---- Seguir a Bola (iOS only). Without the native functions the option is not shown.
+
+export function isBallSupported(): boolean {
+  return typeof ReplayCameraModule.analyzeBall === 'function';
+}
+
+/** Analyses the cut for Seguir a Bola; progress arrives as `onBallProgress`. Rejects with `CANCELLED` after `cancelBall`. */
+export function analyzeBall(opts: AnalyzeBallOptions): Promise<BallAnalysis> {
+  const analyze = ReplayCameraModule.analyzeBall;
+  if (typeof analyze !== 'function') return Promise.reject(new Error('Seguir a Bola is not supported here'));
+  return analyze.call(ReplayCameraModule, opts);
+}
+
+/** Stops the Seguir a Bola analysis of this clip if it is waiting or running (the detections so far are kept). */
+export function cancelBall(clipPath: string): void {
+  const cancel = ReplayCameraModule.cancelBall;
+  if (typeof cancel === 'function') cancel.call(ReplayCameraModule, clipPath);
+}
+
+/** First-use probe: milliseconds for one 19-region frame through the ball detector (spec §4.7). */
+export function probeBall(): Promise<number> {
+  const probe = ReplayCameraModule.probeBall;
+  if (typeof probe !== 'function') return Promise.reject(new Error('Seguir a Bola is not supported here'));
+  return probe.call(ReplayCameraModule);
+}
+
+/**
+ * Test 43: Apple's scene classifier on 3 frames of the clip between `startMs` and `endMs`: each label's highest
+ * confidence (>= 0.01). Empty where it cannot run.
+ */
+export function classifySport(clipPath: string, startMs: number, endMs: number): Promise<Record<string, number>> {
+  const run = ReplayCameraModule.classifySport;
+  if (typeof run !== 'function') return Promise.resolve({});
+  return run.call(ReplayCameraModule, clipPath, startMs, endMs);
 }
 
 /** Opens Instagram's Story composer with the video; 'unavailable' without a Meta App ID or Instagram. */

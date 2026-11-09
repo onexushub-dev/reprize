@@ -95,3 +95,15 @@ basket-app-1108-e|refs/2026-11-08/DC51F978-CE93-4047-AF0C-791530CFF38E.mp4|0|820
 basket-app-1108-f|refs/2026-11-08/Etiqueta.mp4|0|4600|basquete
 basket-app-1108-g|refs/2026-11-08/F132104A-F036-4E93-B557-5C0183301A97.mp4|0|11500|basquete
 basket-app-1108-h|refs/2026-11-08/Victo.mp4|0|7400|basquete
+# 2026-11-09: other courts (screen recordings of web videos Victor gathered): outdoor, 3 indoor gyms; 12 s windows; eval only (test 40)
+basket-ext-1109-a|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.44.55.mov|2000|12000|basquete
+basket-ext-1109-b|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.46.57.mov|2000|12000|basquete
+basket-ext-1109-c|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.49.03.mov|2000|10900|basquete
+basket-ext-1109-d|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.49.24.mov|2000|9600|basquete
+basket-ext-1109-e|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.50.41.mov|2000|12000|basquete
+basket-ext-1109-f|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.51.14.mov|2000|12000|basquete
+basket-ext-1109-g|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.52.18.mov|2000|12000|basquete
+basket-ext-1109-h|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.54.06.mov|2000|5500|basquete
+basket-ext-1109-i|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.54.22.mov|2000|5200|basquete
+basket-ext-1109-j|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.54.36.mov|2000|12000|basquete
+basket-ext-1109-k|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.55.03.mov|2000|12000|basquete

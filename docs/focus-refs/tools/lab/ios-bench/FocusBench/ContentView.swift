@@ -275,6 +275,11 @@ final class BenchModel: ObservableObject {
                 if mode.hasPrefix("det5") || mode.hasPrefix("ball5det") {
                     self.post("loading the ball detector (\(detectorName), tiles \(detectorTile) px)...")
                     detector = try BallDetector(context: context, name: detectorName, tile: detectorTile)
+                    // lab test 42: one Core ML call per frame for all the regions; checked against one by one
+                    if let d = detector, mode == "det5b" {
+                        d.batched = true
+                        d.verifyNext = true
+                    }
                 }
                 let start = now()
                 let startBattery = batteryPercent()
@@ -305,6 +310,9 @@ final class BenchModel: ObservableObject {
                             res.detail["detMs"] = ["prep": d.timing.stats("detPrep")["median"] ?? 0,
                                                    "model": d.timing.stats("detModel")["median"] ?? 0,
                                                    "decode": d.timing.stats("detDecode")["median"] ?? 0]
+                            if d.batched {
+                                res.detail["batchMaxDiff"] = Double(d.batchMaxDiff)
+                            }
                             return res
                         }
                         if let m = models {
@@ -553,6 +561,7 @@ struct ContentView: View {
                         Text("Bola: passada 1 a 3,3 fps + passada 2 a 5 fps (teste 14)").tag("ball35")
                         Text("Bola: 1 passada a 5 fps (teste 14)").tag("ball1_5")
                         Text("Detector de bola a 5 fps (teste 17)").tag("det5")
+                        Text("Detector de bola a 5 fps, recortes em lote (teste 42)").tag("det5b")
                         Text("Detector + 2 passadas a 5 fps (teste 17)").tag("ball5det")
                         Text("Detector em 2 etapas a 5 fps (teste 19)").tag("det5a3")
                         Text("Detector em 2 etapas + 2 passadas a 5 fps (teste 19)").tag("ball5deta3")
@@ -562,6 +571,7 @@ struct ContentView: View {
                         Text("YOLOX-Tiny (416, recortes 640)").tag("yolox_tiny@640")
                         Text("YOLOX-Tiny (416, recortes 416)").tag("yolox_tiny@416")
                         Text("Bola basquete ball_tiny_hn (416, recortes 416, teste 34)").tag("ball_tiny_hn@416")
+                        Text("Bola basquete ball_tiny_gym (416, recortes 416, teste 38)").tag("ball_tiny_gym@416")
                     }
                     Stepper("Minutes: \(bench.soakMinutes)", value: $bench.soakMinutes, in: 5...90, step: 5)
                     Button("Start soak") {

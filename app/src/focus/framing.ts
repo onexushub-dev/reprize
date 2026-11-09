@@ -3,9 +3,10 @@ import type { Zoom } from '../share/editing';
 
 /**
  * The Modo Foco framing at clip time `tMs`, as the editor's zoom: linear between the two nearest keyframes, the nearest one
- * held outside the track. The track has the video's own shape, so one scale fits both sides.
+ * held outside the track. The track has the video's own shape, so one scale fits both sides. Seguir a Bola's 9:16 track
+ * (`fit` 'height') is shown in a picture as tall as the 9:16 box: its scale is by the height.
  */
-export function framingAt(track: FocusTrack, tMs: number): Zoom {
+export function framingAt(track: FocusTrack, tMs: number, fit: 'width' | 'height' = 'width'): Zoom {
   const { rects } = track;
   const pos = (tMs - track.startMs) / track.stepMs;
   let rect = rects[0];
@@ -18,5 +19,5 @@ export function framingAt(track: FocusTrack, tMs: number): Zoom {
     rect = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f, a[3] + (b[3] - a[3]) * f];
   }
   const [x, y, width, height] = rect;
-  return { scale: 1 / width, cx: x + width / 2, cy: y + height / 2 };
+  return { scale: 1 / (fit === 'height' ? height : width), cx: x + width / 2, cy: y + height / 2 };
 }

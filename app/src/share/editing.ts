@@ -12,17 +12,62 @@ export const NO_ZOOM: Zoom = { scale: 1, cx: 0.5, cy: 0.5 };
 /** Clockwise degrees the player turned the video, for a clip recorded with the phone's position misread. */
 export type Rotation = 0 | 90 | 180 | 270;
 
-/** `focus`: Modo Foco on (the default) or turned off for this clip. */
-export type Edit = { speed: Speed; muted: boolean; zoom: Zoom | undefined; rotation: Rotation; focus: boolean };
+/**
+ * How the clip is framed (spec 2026-11-09 §4.2): Modo Foco (the default), Seguir a Bola (9:16 following the ball) or
+ * neither. One field, so the two modes can never be on together.
+ */
+export type Framing = 'focus' | 'ball' | 'none';
 
-/** What the editor works with. Clips saved before speeds existed only have the slow motion switch. */
+/** `focus`: `framing === 'focus'`, kept for the callers that only know Modo Foco. */
+export type Edit = {
+  speed: Speed;
+  muted: boolean;
+  zoom: Zoom | undefined;
+  rotation: Rotation;
+  framing: Framing;
+  focus: boolean;
+};
+
+/**
+ * What the editor works with. Clips saved before speeds existed only have the slow motion switch; clips saved before
+ * Seguir a Bola only have `focus` (false = neither).
+ */
 export function readEdit(edit: Clip['edit']): Edit {
+  let framing: Framing = 'focus';
+  if (edit !== undefined && edit.framing !== undefined) framing = edit.framing;
+  else if (edit !== undefined && edit.focus === false) framing = 'none';
   return {
     speed: edit?.speed ?? (edit?.slowmo ? 0.5 : 1),
     muted: edit?.muted ?? false,
     zoom: edit?.zoom,
     rotation: edit?.rotation ?? 0,
-    focus: edit !== undefined && edit.focus === false ? false : true,
+    framing,
+    focus: framing === 'focus',
+  };
+}
+
+/**
+ * The edit after `patch`. A patch may still say only `focus` (Modo Foco on or off): on sets `framing` to 'focus'; off
+ * turns Modo Foco off and leaves Seguir a Bola as it is.
+ */
+export function applyEdit(edit: Edit, patch: Partial<Edit>): Edit {
+  const next = { ...edit, ...patch };
+  let framing = next.framing;
+  if (patch.framing === undefined && patch.focus !== undefined) {
+    if (patch.focus) framing = 'focus';
+    else if (edit.framing === 'focus') framing = 'none';
+  }
+  return { ...next, framing, focus: framing === 'focus' };
+}
+
+/** How an edit is stored: defaults left out (Modo Foco on, no turn, no zoom). */
+export function storedEdit(edit: Edit): NonNullable<Clip['edit']> {
+  return {
+    speed: edit.speed,
+    muted: edit.muted,
+    ...(edit.zoom ? { zoom: edit.zoom } : {}),
+    ...(edit.rotation ? { rotation: edit.rotation } : {}),
+    ...(edit.framing !== 'focus' ? { framing: edit.framing } : {}),
   };
 }
 

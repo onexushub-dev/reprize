@@ -53,6 +53,8 @@ struct CropRect: Record {
 struct FocusOption: Record {
   @Field var path: String = ""
   @Field var aspect: String = "landscape"
+  /// Seguir a Bola: the crop fills the whole frame (a 9:16 crop in a 9:16 frame), not the video's fitted spot.
+  @Field var fill: Bool = false
 }
 
 struct ExportClipOptions: Record {
@@ -78,6 +80,47 @@ struct AnalyzeFocusOptions: Record {
   @Field var debug: Bool = false
 }
 
+/// Seguir a Bola (spec 2026-11-09 §4.3): the cut, the detections cache, the framing file and today's Modo Foco file.
+struct AnalyzeBallOptions: Record {
+  @Field var clipPath: String = ""
+  @Field var startMs: Double = 0
+  @Field var endMs: Double = 0
+  @Field var detPath: String = ""
+  @Field var outPath: String = ""
+  @Field var focusPath: String = ""
+}
+
+/// Seguir a Bola, kept out of `definition()` like the other do/catch helpers.
+private func analyzeBallResult(_ o: AnalyzeBallOptions) async throws -> [String: Any] {
+  do {
+    let r = try await BallAnalyzer.analyze(clipPath: o.clipPath, startMs: o.startMs, endMs: o.endMs, detPath: o.detPath,
+                                           outPath: o.outPath, focusPath: o.focusPath)
+    return ["status": "ready", "analysed": r.analysed, "reused": r.reused, "ballFrames": r.ballFrames,
+            "trustedFrames": r.trustedFrames, "ballShare": r.ballShare, "zoom": r.zoom, "elapsedMs": r.elapsedMs]
+  } catch BallAnalyzer.Failure.cancelled {
+    throw ReplayException("CANCELLED", "Ball analysis cancelled")
+  } catch BallAnalyzer.Failure.interrupted {
+    throw ReplayException("BALL_INTERRUPTED", "Ball analysis interrupted (app in the background)")
+  } catch BallAnalyzer.Failure.hot {
+    throw ReplayException("BALL_HOT", "Ball analysis stopped: the phone is too hot")
+  } catch BallAnalyzer.Failure.noModel {
+    throw ReplayException("BALL_NO_MODEL", "The ball model is missing from this build")
+  } catch {
+    throw ReplayException("BALL_FAILED", "\(error)")
+  }
+}
+
+/// Seguir a Bola's first-use probe: ms for one 19-region frame.
+private func probeBallResult() async throws -> Double {
+  do {
+    return try await BallAnalyzer.probe()
+  } catch BallAnalyzer.Failure.noModel {
+    throw ReplayException("BALL_NO_MODEL", "The ball model is missing from this build")
+  } catch {
+    throw ReplayException("BALL_FAILED", "\(error)")
+  }
+}
+
 /// Kept out of `definition()`: the module's result builder is big enough that a do/catch inside it makes the type
 /// checker give up ("failed to produce diagnostic").
 private func concatVideosResult(paths: [String], outPath: String) async throws -> [String: Any] {
@@ -100,7 +143,8 @@ public class ReplayCameraModule: Module {
     Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onGestureTrace", "onWatchStatus",
            "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteStop",
            "onRemoteStart", "onRemoteFrame", "onRemoteCheck", "onRemoteVoice", "onCaptureButton", "onAudioChange",
-           "onDiag") // onDiag: TEMP(diag-remote)
+           "onDiag", // onDiag: TEMP(diag-remote)
+           "onBallProgress")
 
     OnCreate {
       self.engine.emit = { [weak self] name, body in self?.sendEvent(name, body) }
@@ -108,6 +152,9 @@ public class ReplayCameraModule: Module {
       RemoteHost.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
       RemoteController.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
       RemoteVoice.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
+      BallAnalyzer.emit = { [weak self] clipPath, done, total, state in
+        self?.sendEvent("onBallProgress", ["clipPath": clipPath, "done": done, "total": total, "state": state])
+      }
       WatchBridge.shared.preview = self.engine.watchPreview
       self.engine.remotePreview.onFrame = { RemoteHost.shared.sendFrame($0) }
       RemoteHost.shared.onPreview = { [weak self] on in self?.engine.remotePreview.ask(on) }
@@ -232,7 +279,7 @@ public class ReplayCameraModule: Module {
           rotation: o.rotation,
           crop: o.crop.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) },
           width: o.width, height: o.height, overlayPngPath: o.overlayPngPath, background: UIColor(hex: o.background))
-        options.focus = o.focus.map { (path: $0.path, aspect: $0.aspect) }
+        options.focus = o.focus.map { (path: $0.path, aspect: $0.aspect, fill: $0.fill) }
         let result = try await ClipExporter.export(options)
         return ["path": result.path, "durationMs": result.durationMs]
       } catch {
@@ -276,6 +323,20 @@ public class ReplayCameraModule: Module {
     }
 
     Function("cancelFocus") { (clipPath: String) in FocusAnalyzer.cancel(clipPath: clipPath) }
+
+    AsyncFunction("analyzeBall") { (o: AnalyzeBallOptions) async throws -> [String: Any] in
+      try await analyzeBallResult(o)
+    }
+
+    Function("cancelBall") { (clipPath: String) in BallAnalyzer.cancel(clipPath: clipPath) }
+
+    AsyncFunction("classifySport") { (clipPath: String, startMs: Double, endMs: Double) async -> [String: Double] in
+      await SportCheck.classify(clipPath: clipPath, startMs: startMs, endMs: endMs)
+    }
+
+    AsyncFunction("probeBall") { () async throws -> Double in
+      try await probeBallResult()
+    }
 
     Function("getWatchStatus") { () -> String in WatchBridge.shared.status }
 

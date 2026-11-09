@@ -14,8 +14,9 @@ enum ClipExporter {
     let rotation: Int
     /// The visible part of the video, 0..1 of its (rotated) size; nil = all of it.
     let crop: CGRect?
-    /// Modo Foco: the framing file and which track to follow (ignored when `crop` is set).
-    var focus: (path: String, aspect: String)? = nil
+    /// Modo Foco: the framing file and which track to follow (ignored when `crop` is set). `fill`: Seguir a Bola's 9:16
+    /// crop fills the whole frame instead of the spot the whole video would take.
+    var focus: (path: String, aspect: String, fill: Bool)? = nil
     let width: Int
     let height: Int
     let overlayPngPath: String?
@@ -58,7 +59,8 @@ enum ClipExporter {
     let transform = try await source.load(.preferredTransform).concatenating(turn)
     let natural = try await source.load(.naturalSize)
     let rotated = CGRect(origin: .zero, size: natural).applying(transform)
-    let target = FitRect.fit(rotated.size, into: render)
+    let filled = o.crop == nil && o.focus.map { $0.fill } == true
+    let target = filled ? CGRect(origin: .zero, size: render) : FitRect.fit(rotated.size, into: render)
     func placement(_ crop: CGRect?) -> CGAffineTransform {
       let visible = crop.map {
         CGRect(x: $0.minX * rotated.width, y: $0.minY * rotated.height, width: $0.width * rotated.width, height: $0.height * rotated.height)

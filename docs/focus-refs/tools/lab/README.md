@@ -33,6 +33,12 @@ ball): with `ball_tiny_hn` on all tiles the detector alone (no tap) is on the ba
 57%), precision 84%; with EdgeTAM 76%. Next: basketball's remaining loss is the detector (20% of the points with no
 candidate on the ball); then the other sports, each with its own tests.
 
+**Update 2026-11-08 (tests 37–38)**: on 12 clips Victor labelled in our gym (never used for tuning) the current path
+with `ball_tiny_hn` gets 75% / 89%; trained also on those clips' labels (by halves) **82% cover, 92% precision**, story
+camera ball in crop 98% at 1.2x. **App model: `ball_tiny_gym`** (YOLOX-Tiny 416, all 416 tiles + whole frame on every
+analysed frame at 5 fps, path with still 0.5). Test 39 (2026-11-09): a motion model in the path does not
+help basketball at 5 fps (the ball bounces and is passed); the path stays as is.
+
 A per-frame AI ball detector mixed with the EdgeTAM tracker, then the hybrid framing:
 
 1. **Detector**: YOLOX-Tiny (Megvii, Apache-2.0, COCO class 32 "sports ball"; 416 x 416 input) at 5 fps, in **two
@@ -140,6 +146,12 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 6 | Hybrid framing: the ball while SAM 2 is sure of it, today's Modo Foco when not (`hybrid.py`, videos in `lab/tests/framing/`) | **first round done** (below) |
 | 10 | iPhone step 1: EdgeTAM as 4 fixed-shape Core ML models + the tracking loop (`loop.py`, `coreml_export.py`, `coreml-mac.sh`) | **done: same quality as EdgeTAM, 45 ms/frame on the Mac's Neural Engine** (below) |
 | 11 | iPhone step 2: time and check the Core ML models on the phones (16 Pro Max, XR) with FocusBench, a throwaway test app (`ios-bench/`, `ios_bench.py`) | **done: 16 Pro Max 122 ms/frame, all on the Neural Engine, same track as the Mac; XR 0.55–0.72 s/frame with GPU, same track, heats up** (below) |
+| 44 | Beach tennis baseline for Seguir a Bola: the basketball detector (`ball_tiny_gym`, all tiles, 5 fps) and today's path, zero-shot, on the 8 labelled beach tennis clips (`det_report.py --det bgymall-n5 --track det-t44-bgymall`) | **far from basketball's bar: detector ceiling 0–60%, path cover 0–36% (basketball: ceiling ~90%, cover 82%); a beach tennis detector is needed (public data + "not a ball" crops + Victor's recordings), and more labels (two clips have 1 point)** (below) |
+| 43 | Can the app tell a basketball clip from the other sports by itself (no question to the player)? 43a Apple's built-in scene classifier (Vision `VNClassifyImageRequest`, 3 frames per clip, `sport_classify.swift`); 43b the app's detector and path (trusted-ball share, `sport_report.py`) | **43a works as a "not basketball" signal: another sport's label (volleyball, tennis…) >= 0.4 with "basketball" < 0.1 catches 14 of the 18 readable non-basketball clips and hides none of the 75 basketball clips (at 0.3: 16/18, 1 basketball hidden); the "basketball" label itself is precise but finds only 40%. 43b separates poorly (basketball 22–100%, others 11–62%). Proposed: classify a few frames per recording, show "EM BREVE" only on a confident other sport, otherwise allow** (below) |
+| 42 | Phone cost of "Seguir a Bola" (no tap, so no EdgeTAM) and all a frame's tiles in one Core ML call (FocusBench `det5`, `det5b`) | **one call per frame: ~11 s per 30 s clip (was 64 s with EdgeTAM, 34 s without), identical output (`batchMaxDiff` 0, same candidates); about 4 s for a 10 s cut. Adopted for the app** (below) |
+| 40 | Does the app's detector (`ball_tiny_gym`) hold on other courts? 11 clips Victor labelled (outdoor + 3 gyms, web videos, measure only) | **yes: 82% cover / 90% precision, the same as in our gym; `ball_tiny_hn` 82% / 89%; still filter 0.5 +10 again. Weakest: outdoor (57%), a far small ball (70%), one gym with many false candidates (51%)** (below) |
+| 39 | A motion model in the ball path (constant velocity, offline Kalman idea) and a straight line through gaps (`ball_track.py dp=2 acc_cost`, `fill`) | **no: the motion model raises precision but loses the bouncing / passed ball at 5 fps (cover −1 to −3, story camera up to −9 on one clip, test 37's torso case back); the line through gaps +3–4 cover but −4–6 precision, camera unchanged. Default stays test 38's path; options kept for the racket sports** (below) |
+| 38 | `ball_tiny_hn` + crops from our 12 labelled gym clips (+ its false candidates there), scored by halves (`ball_train.py dataset --det`, `ball_train_pub.py --extra`) | **our gym, unseen half: detector alone (no tap) 75 → 82% cover, precision 89 → 92%; story camera 1.2x 92 → 98% (1107); other courts unchanged on average. App model: `ball_tiny_gym` (all 12 clips)** (below) |
 | 37 | Do tests 32–35 hold on 12 newly labelled clips from our own gym (1107 + 1108, never used for tuning)? | **yes: detector alone (no tap) 59% (test 32's path) → 75% cover now, precision 89%; all tiles +9, still filter 0.5 +7; our old hand labels make it worse here (72%), so the app's model is `ball_tiny_hn`; story camera 1.2x ball in crop 75% today → 92%. Left: ball behind the railing / players 14%, a ball held still > 2 s 5%, torso taken for the ball 4%** (below) |
 | 36 | Are the ball labels in time with the detector's frames (ffmpeg versions, Mac vs cloud)? (`frame_sync.py`, `label_sync.py`) | **yes: the labelling frames and the detector's frames are identical on all 7 clips; a first "~33 ms late" reading was an error of the reference grid. About a third of the "blind" points are imprecise clicks on a blurred ball, the rest real misses (ball in hands, in the net, behind a player, under the watermark)** (below) |
 | 35 | Basketball: where does the ball path lose the ball (ceiling 80% vs cover 57%)? (`path_diag.py`, `ball_track.py` `SPORT_P`) | **the still-object filter threw away the held / dribbled ball (13% of the points); at 0.5 for basketball: detector alone, no tap, 57 → 71% cover, precision 79 → 84%; mix 68 → 76%; story camera ball in crop 95 → 96% (1.2x) / 90 → 95% (closer zoom), a little more movement. Default for basketball** (below) |
@@ -168,6 +180,219 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 12 | Foco na Bola in ONE EdgeTAM pass instead of two: crops guided by the players only (`roi.py --guide p`), or following the previous frame's ball as tracking goes (`single_pass.py`) | **done: no one-pass variant ties with the two passes on every clip; keep two passes** (below) |
 
 Run the Mac tests with `bash tools/lab/mac-tests.sh` (ball) or `bash tools/lab/mac-tests.sh person`.
+
+### Test 44 result (2026-11-09) — beach tennis baseline (zero-shot)
+
+First step of the new-sport path (skill `seguir-a-bola-novo-esporte`): what the basketball pipeline does on beach
+tennis as it is. Detector `ball_tiny_gym` (all tiles + whole frame, 5 fps, `<clip>.bgymall-n5.json` from test 43b),
+path `ball_track.py` with the default parameters (beach tennis has no `SPORT_P` yet), report
+`report.t44-bt-base.md`:
+
+| Clip | pts | detector ceiling | path: mode / prec / cover | EdgeTAM fused (test 15, with a tap) |
+|---|---|---|---|---|
+| bt-0AE39B33 | 30 | 60% | 4% / 80% / 13% | 14% / 94% / 50% |
+| bt-E5003B6B | 32 | 31% | 16% / 83% / 16% | 27% / 93% / 44% |
+| bt-rz-1105-a | 73 | 55% | 51% / 79% / 36% | 75% / 100% / 81% |
+| bt-rz-1105-b | 73 | 12% | 46% / 0% / 0% | 61% / 8% / 3% |
+| bt-rz-1105-v | 54 | 31% | 41% / 19% / 6% | 9% / 0% / 0% |
+| yt1105-bt | 41 | 0% | 32% / 0% / 0% | 72% / 30% / 7% |
+| bt-wa-1028, yt-bt-06 | 1 each | — | — | — |
+
+- The basketball detector sees the small yellow ball in 0–60% of the labelled points (basketball: ~90%); the path then
+  follows something else on most clips. Nothing to tune in the path before a beach tennis detector exists.
+- Labels are thin: 6 clips with 30–73 points, 2 with one. Before training: more of Victor's recordings (2–3 venues,
+  side and end views, day and night) and denser labels, split in two halves by venue.
+- Next: a one-class beach tennis detector (public tennis/beach tennis ball data with a commercial licence, checked one
+  by one; "not a ball" crops of rackets, heads, net tape, lights; Victor's clips by fold), then the path's racket options
+  (test 39 `dp=2`, `fill`; test 6 round 5 trust rules).
+
+### Test 43 result (2026-11-09) — telling basketball from the other sports automatically
+
+Victor (2026-11-09): rather than asking the player the sport before Seguir a Bola (basketball only for now), can the app
+tell by itself? Two free, on-device signals, on every clip of clips.txt (75 basketball: our gyms, other courts, web
+clips; 19 other sports: beach tennis, volleyball, beach volleyball, futevôlei, tennis, society; web clips used only to
+measure). Results: `lab/tests/sport/t43a.json`, `t43b.json`.
+
+**43a — Apple's scene classifier** (Vision `VNClassifyImageRequest`, built into iOS/macOS, no model to ship;
+`sport_classify.swift` on Victor's Mac, 3 frames per clip at 20/50/80% of its window, 94 clips in 7 s; the label's
+highest confidence over the 3 frames; ref-tennis-02 gave no frame, its codec):
+
+| Rule | basketball clips kept as basketball | other sports recognised |
+|---|---|---|
+| "basketball" >= 0.1 (is basketball) | 40% | — (0% of the others reach it) |
+| another sport's label (volleyball, tennis, ping_pong, badminton, soccer, football) >= 0.3 and "basketball" < 0.1 | 74 / 75 | 16 / 18 |
+| same at **>= 0.4** | **75 / 75** | **14 / 18** |
+| same at >= 0.5 | 75 / 75 | 11 / 18 |
+
+- The classifier rarely says "basketball" on our amateur gym footage (people, structure, fence, window come first), so
+  it cannot confirm basketball; but it often names the other sports (beach tennis comes out as "volleyball"), so it can
+  rule basketball out. Missed at 0.4: two beach tennis clips (bt-wa-1028 0.29, bt-rz-1105-v 0.14), futevôlei/volleyball
+  near the line. Basketball clips closest to the line: own side-low-normal-05 (volleyball 0.32), yt-basket-04 (tennis
+  0.50 but basketball 0.12), side-low ping_pong ~0.2–0.3.
+- Small sample on the other side (18 clips, mostly web videos), and the basketball side is mostly two gyms: to be
+  confirmed in the field before it hides anything for good.
+
+**43b — the app's own detector** (`ball_tiny_gym`, all tiles, 5 fps, path with still 0.5, trusted points; 19 new runs
+`<clip>.bgymall-n5.json`, basketball from tests 38–40): share of frames with a trusted ball, basketball 22–100%
+(median ~72%), other sports 11–62% (it does find volleyballs and tennis balls). Any threshold drops basketball clips or
+keeps most others (>= 0.35: 97% / 53%). Not a usable signal on its own.
+
+- **Proposed for the app**: classify 3 frames of the first clip(s) of a recording (milliseconds), and only when another
+  sport's label is >= 0.4 with "basketball" < 0.1 show Seguir a Bola as "EM BREVE" (B3) for that recording; in every
+  other case allow it. Wrongly hiding it from a basketball player is worse than letting another sport try it.
+
+### Test 42 result (2026-11-09) — phone cost of "Seguir a Bola" without EdgeTAM, and all tiles in one Core ML call (FocusBench `det5`, `det5b`)
+
+Victor (2026-11-09): the vertical export that follows the ball is named **"Seguir a Bola"**, a switch under Modo Foco in
+the Edit screen's Foco panel (the two exclude each other; Modo Foco stays the default); it asks for **no tap**, so the
+two EdgeTAM passes are not needed (tests 35–40 scored the detector alone); the user cuts the clip first. Two runs on the
+iPhone 16 Pro Max (iOS 27.0.1, unplugged, brightness 66%, Low Power off, the 3 bench clips in a loop, 10 min each,
+`ball_tiny_gym@416`, all tiles + whole frame at 5 fps; `lab/tests/ios/soak.det5{,b}-gym416.iPhone17_2.20261109-*.json`):
+
+- **A, `det5`**: one Core ML call per region (as tests 34/38).
+- **B, `det5b`** (new): all a frame's regions in ONE call (`MLModel.predictions(fromBatch:)`, the same model file);
+  on the first frame it also runs them one by one and records the largest output difference (`batchMaxDiff`).
+
+| Run | per 30 s clip (19 regions per frame), first 5 min | after 5 min | model ms per region | thermal | battery (Victor's readings) |
+|---|---|---|---|---|---|
+| A, one call per region | **34 s** (max 36) | 14 s (the "fast state" again) | 11 → 4.5 | fair at 6.5 min | 72 → 69% for 40 clips |
+| **B, one call per frame** | **10.6 s** (max 12.3) | 11 s | **2.5–2.9** | fair at 1.1 min, serious at 6.6 min | 68 → 62% for 72 clips |
+
+- **Identical results**: `batchMaxDiff` = 0 on every clip and the candidate counts match run A exactly (7407 / 1697 /
+  1112): batching changes nothing in the output.
+- **From 64 s (test 34, with EdgeTAM) to ~11 s per 30 s clip**, about 6x: EdgeTAM out (−26 s) and batching (34 → 11 s).
+  Steady from the first clip, with no reliance on the Neural Engine's unexplained fast state. For the cut clips Victor
+  expects (≤ 10 s), about 4 s.
+- Analysing at 2.5 fps instead of 5 would halve the time but loses the ball (simulated by dropping every other analysed
+  frame of the held-out detections; reports `report.t42-{gym,ext}-s4.md`): cover 82 → 64% on our gym and 82 → 59% on
+  other courts, precision 92 → 78%, story ball in crop 98 → 95% (1107). Not an option.
+- Heat and battery per clip are about the same (B does ~1.8x the clips per minute in this nonstop loop, so it warms
+  sooner: about 0.08% battery per clip in both). In the app one clip at a time is a few seconds of work.
+- **iPhone XR (A12, iOS 18.7, run B, 2026-11-09)**, same setup (brightness 75%, unplugged;
+  `soak.det5b-gym416.iPhone11_8.20261109-1052.json`), 19 clips in 10 min: **36.5 s per 30 s clip** at first, 3.4x the
+  16 Pro Max, rising to 45.6 s at the end (model 9.0 → 11.5 ms per region as it throttled); the 9-region beach clip
+  12 → 15 s. A 10 s cut ≈ 12–15 s. Thermal fair after the 2nd clip (0.8 min) and **serious from the 3rd (1.4 min) to the
+  end**, though Victor felt the phone no warmer than "fair" by hand (the OS's state follows the chip, not the case).
+  Battery 68 → 60% (Victor's reading). `batchMaxDiff` 0 on every clip; candidate counts 7496 / 1715 / 1126 vs 7407 /
+  1697 / 1112 on the 16 Pro Max (about 1% more, the A12's Neural Engine rounds differently): the spec's on-device
+  detector check (§5) must compare paths, not raw counts.
+- **Decision for the app**: Seguir a Bola = `ball_tiny_gym`, all tiles + whole frame, one batched Core ML call per
+  analysed frame (5 fps), path (`ball_track.py`, still 0.5) and camera C; no EdgeTAM.
+- **App port, parity (2026-11-09, spec `docs/superpowers/specs/2026-11-09-follow-the-ball-design.md` §5)**: the path,
+  trusted points, camera C and zoom rule are ported to Swift (`ReplayCore` `BallPath`, `BallTrust`, `BallCamera`,
+  `BallZoom`). `ball_parity.py --out …/Fixtures/ball-parity.json` writes the lab's inputs and results for 4 clips
+  (1107-a, 1107-d, ext 1109-b, yt1105-a); `BallParityTests` replays them: same ball frames and positions (1e-6), same
+  trusted frames, same zoom (1.2, 1.2, 1.0, 1.05), 9:16 rects within 5e-8 (the fixture's 7-decimal rounding).
+  `ball_parity.py --check` asserts its camera still equals `story.camera`.
+
+### Test 40 result (2026-11-09) — the app's detector on other courts (11 newly labelled clips)
+
+Victor gathered 11 clips of other courts (2026-11-09, `refs/2026-11-09/`: screen recordings of web videos, so used to
+measure only), and labelled 12 s windows of them (`basket-ext-1109-a..k`: a = outdoor court with a scoreboard overlay;
+b–d a wooden-floor gym; e–f a gym with teal walls; g–k a black-and-yellow gym; several camera spots; 441 points with
+the ball in play and visible). Detector alone (no tap), all tiles, path with still 0.5; reports `report.t40-*.md`:
+
+| Detector | ceiling | precision | **cover** |
+|---|---|---|---|
+| `ball_tiny_hn` (public + "not a ball") | 92% | 89% | **82%** |
+| **`ball_tiny_gym`** (+ our gym's 12 clips, the app's model) | 91% | 90% | **82%** |
+| `ball_tiny_gym` with the old still filter 0.2 | 91% | 87% | 72% |
+
+- **Other courts are as good as our gym** (82% / 90%, against 82% / 92% on our gym by halves): the detector carries over.
+  Our gym's labels neither help nor hurt elsewhere on average (per clip: outdoor a 71 → 57%, b 45 → 51%, c 84 → 91%).
+- The still filter at 0.5 holds on new courts too (+10 cover).
+- Story camera C at 1.2x on 5 of them (a, b, e, j, k; `lab/tests/story/basket-ext-1109-*.story-compare-t40.mp4`,
+  left panel: a fixed centre 9:16 crop, because these clips have no Vision "today" framing — the stub
+  `lab/tests/framing/basket-ext-1109-*.current.focus.json` is that centre crop, also camera C's fallback): ball inside
+  the crop 96.7% (centre crop 57%); outdoor a 84%, the others 98–100%; 2.3 direction changes per 10 s.
+- Victor saw a slight stutter in some of these videos. Cause: the clips are screen recordings with a variable frame
+  rate (frames 15–48 ms apart; on 1109-b 40% of the frames are repeats of the previous one), and `story.py` read every
+  frame with OpenCV and timed it as k / nominal fps, so the export played them at uneven speed and the crop drifted off
+  its time. Fixed: `story.frames` now decodes with ffmpeg's fps filter from the real timestamps onto a constant 30 fps
+  timeline (60 when the source averages ≥ 55 fps); the videos were re-rendered. Constant-rate sources (the app's
+  recordings) render exactly as before (1107-a: the same 505 frames). For the app: its export must place frames by
+  their presentation timestamps (AVFoundation does), never by frame count.
+- Victor (2026-11-09) first asked to train on these clips too (test 41: crops built, two venue-held-out models started),
+  then stopped it to keep the data policy: web videos are used to **measure only**, never to train. The crops were
+  deleted; no model was trained on them.
+- Where it loses the ball (`path_diag.py`, 441 points): blind 11% (outdoor a 27%, k 28%: small far ball), another
+  candidate 5% (b 18%), still 2%, empty path 2%, trusted 2%. Weakest clips: a (outdoor, 57%), b (51%), k (70%).
+
+### Test 39 result (2026-11-09) — a motion model in the ball path (the Kalman idea, offline) (`ball_track.py dp=2`, `fill`)
+
+Why: after test 38 the path still loses the ball behind the railing / players and sometimes stays on a wrong candidate
+(test 37/38 `path_diag.py`). Victor asked about Kalman filters (2026-11-08): their core is a motion model that predicts
+where the ball goes and carries the track through short gaps. Our path is offline (it sees the whole clip), so the
+offline forms were tried, as options of `ball_track.py` (default off):
+
+- `dp=2 acc_cost=a`: Viterbi whose state is (candidate, previous candidate): each step also costs a × its distance from
+  where the previous step's velocity would put the ball (constant velocity), on top of the distance cost; the 8
+  strongest candidates per frame (`dp_topk`).
+- `fill=1`: the frames a path jumps over (≤ 1 s) get the straight line between the points around them (a smoother
+  through the gap) instead of "no ball".
+
+Scored on held-out detections only: gym halves with `bgym-n5` (each clip detected by the half-model that never saw it),
+the 7 old clips with `bgymX-n5`. Detector alone (no tap); reports `report.t39-<variant>-{X,Y,O}.md`:
+
+| Path | gym half X: prec / cover | gym half Y: prec / cover | 7 old clips: prec / cover |
+|---|---|---|---|
+| test 38 (dp=1) | 90% / 82% | 94% / 83% | 87% / 74% |
+| motion model, `acc_cost` 0.5 / 1 / 2 / 4 | 90 / 80, 89 / 79, 91 / 78, 90 / 74 | 96 / 81, 99 / 82, 99 / 80, 99 / 76 | 89 / 75, 89 / 75, 91 / 73, 91 / 71 |
+| straight line through gaps (`fill`) | 84% / 82% | 90% / 86% | 81% / 77% |
+| both (`acc_cost` 1 + `fill`) | 86% / 81% | 92% / 86% | 84% / 80% |
+
+Story camera C (ball inside the 9:16 crop; 1107 clips 1.2x / 1.5x; 7 old clips at their lower / higher zoom):
+
+| Path | 1107 | 7 old clips |
+|---|---|---|
+| test 38 | 98.3% / 95.8% | 97.1% / 95.7% |
+| motion model (`acc_cost` 1) | 98.3% / 97.4% | 95.5% / 93.9% |
+| `fill` | 98.3% / 97.4% | 97.4% / 95.8% |
+| both | 98.3% / 98.3% | 96.5% / 94.8% |
+
+- **The motion model does not pay.** It raises precision (fewer jumps: half Y 94 → 99%) but loses the ball where it
+  changes direction abruptly, which in basketball is all the time: a dribble bounces every ~0.4 s, a pass is caught, a
+  shot hits the rim, and we see the ball only every 200 ms (5 fps). It even brings back test 37's torso case (1108-c
+  78 → 65%) and 1108-b (82 → 65%), and the story camera loses up to 9 points on yt1105-basket-b (88 → 79%). Higher
+  `acc_cost` is worse. A Kalman/constant-velocity prior suits a ball in flight (tennis, volleyball serves), not a
+  dribbled ball at 5 fps.
+- **The straight line through gaps** adds cover where the ball is labelled behind something (half Y +3, old clips +4:
+  1107-d 68 → 77%, 1108-c 78 → 83%, rp-1105-h 64 → 72%) but costs 4–6 points of precision (a bounce or a pass is not
+  a straight line), and the story camera barely changes (≤ +1.6): its dead zone and smoothing already carry it through
+  short gaps.
+- **Not adopted**; the default stays test 38's path. The options stay in `ball_track.py` for the racket sports, where a
+  ball in flight is the common case (to try in their own tests).
+
+### Test 38 result (2026-11-08) — `ball_tiny_hn` + our gym's labels (`ball_train.py dataset --det`, `ball_train_pub.py --extra`)
+
+Why: test 37's losses in our gym (the ball behind the railing's bars, a shirtless torso taken for the ball). Training
+crops from Victor's 12 labelled gym clips (`ball_train.py dataset --det bhn-n5`: 2 crops of 320 px per labelled ball,
+box size from `ball_tiny_hn`'s candidate on it, + a random crop without the ball + crops around `ball_tiny_hn`'s two
+strongest false candidates per labelled frame — torsos, heads, the railing; `lab/train/basket-app-110{7,8}-*`, 2,000
+crops, 709 with the ball). Two halves, each mixing both camera spots: X = 1107-a, 1107-c, 1108-a, 1108-b, 1108-e,
+1108-g; Y = the other six. `ball_tiny_gym{X,Y}`: init `ball_tiny_hn`, the same public + "not a ball" sets, `--extra
+<the OTHER half's 6 sets> --extra-weight 1.0`, 1000 iters, lr 0.0005, frozen BN; each scored on the half it never saw.
+All tiles, path with still 0.5, detector alone (no tap):
+
+| Clips | `ball_tiny_hn`: ceiling / prec / **cover** | + our gym's labels (by half): ceiling / prec / **cover** |
+|---|---|---|
+| half X (6 clips) | 88% / 93% / **76%** | 91% / 90% / **82%** |
+| half Y (6 clips) | 82% / 86% / **73%** | 88% / 94% / **83%** |
+| **all 12 gym clips** | 85% / 89% / **75%** | **89% / 92% / 82%** |
+| the 7 old clips (other courts), model X / Y | 80% / 84% / **71%** | 82% / 87% / **74%**; 77% / 88% / **68%** |
+
+- **+7 cover and +3 precision in our gym**, on clips the model never saw. Per clip: 1107-a 71 → 100%, 1108-b 59 → 82%,
+  1108-c 43 → 78% (the torso is gone), 1108-f 77 → 92%; worse on 1108-e 96 → 78% and 1108-a 78 → 70%. Where it
+  loses the ball now (`path_diag.py`): blind 14 → 10%, still filter 5 → 2%, another candidate 4%.
+- Elsewhere it does not get worse on average: on the 7 old clips (other courts) cover +3 / −3 (model X / Y), precision
+  +3 for both.
+- Story camera C on the 4 1107 clips (ball inside the 9:16 crop): 1.2x 92 → **98%**, 1.5x 85 → **96%**, direction
+  changes per 10 s 3.1 → 2.1 (it holds the ball instead of jumping between candidates). Videos (Hoje | T35 | T38):
+  `lab/tests/story/basket-app-1107-{a,d}.story-compare-t38.mp4`.
+- Caveat: all 12 clips are from one gym and one day, so the gain is measured where the labels come from; the 7 old
+  clips say it does not hurt other courts, but clips from another gym will tell how much of it carries over.
+- **The app's model: `ball_tiny_gym`** (the same recipe with all 12 gym clips; nothing left to score it on in that gym,
+  its estimate is the halves' 82% / 92%).
 
 ### Test 37 result (2026-11-08) — 12 new labelled clips from our gym: an independent check of tests 32–35
 
@@ -1616,7 +1841,11 @@ the labels in `docs/focus-refs/labels/`, which is allow-listed in `docs/focus-re
 | `tools/lab/low_fps.py`, `tools/lab/mac-lowfps.sh` | test 14: Foco na Bola at 5 fps (frames, simulation, report; the Mac run) | yes |
 | `tools/lab/ball_detect.py`, `ball_track.py`, `det_report.py`, `ball_train.py` | tests 17–18: per-frame ball detector (YOLOX ONNX), ball path, report, fine-tuning | yes |
 | `lab/tests/detect/`, `lab/train/` | test 17 detections and reports; test 18 crops (regenerable by `ball_train.py dataset`) | no |
-| `tools/lab/ball_train_pub.py`, `hard_neg.py`, `pseudo_label.py`, `path_diag.py`, `story.py`, `yolox_coreml.py` | tests 28–35: basketball detector training (public data, "not a ball" crops, automatic labels), where the path loses the ball, the 9:16 story export, Core ML for FocusBench | yes |
+| `tools/lab/ball_train_pub.py`, `hard_neg.py`, `pseudo_label.py`, `path_diag.py`, `story.py`, `yolox_coreml.py`, `frame_sync.py`, `label_sync.py`, `report_mean.py` | tests 28–38: basketball detector training (public data, "not a ball" crops, automatic labels), where the path loses the ball, the 9:16 story export, Core ML for FocusBench, label/frame timing checks, report means | yes |
+| `tools/lab/sport_classify.swift`, `sport_report.py` | test 43: Apple's scene classifier on 3 frames per clip (run on a Mac) and the report with the detector's signal | yes |
+| `lab/tests/sport/` | test 43 results | no |
+| `tools/lab/ball_parity.py` | Seguir a Bola: parity fixtures for the Swift port (`ReplayCore` `BallParityTests`) | yes |
+| `tools/lab/handoff-test-39.md` | the state after test 38 and the plan for test 39, for a new session | yes |
 | `tools/lab/ball_gate.py` | test 15: per-clip signals and the proposed rule for offering the ball framing | yes |
 | `lab/tests/gate/` | test 15 reports | no |
 | `lab/tests/lowfps/` | test 14 reports | no |
