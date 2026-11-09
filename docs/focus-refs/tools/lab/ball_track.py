@@ -36,7 +36,13 @@ P = dict(box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=
          # dp=1: the ball per frame by dynamic programming over all the candidates (best total score along a path that
          # moves like a ball: at most vmax long sides per 100 ms, a cost per long side moved, a frame without the ball
          # costs nothing), instead of the tracklets
-         dp=1.0, s0=0.05, vmax=0.12, move_cost=1.0, dp_gap=10, still_cost=0.05)
+         dp=1.0, s0=0.05, vmax=0.12, move_cost=1.0, dp_gap=10, still_cost=0.05,
+         # test 39: dp=2 adds a motion model (the Kalman idea, offline): the state is (candidate, previous candidate), so
+         # a step costs acc_cost x its distance from where the ball's velocity on the previous step would put it
+         # (constant velocity; on top of move_cost x distance); only the dp_topk strongest candidates per frame.
+         # fill=1: the frames a path skips (behind the railing, behind a player; at most dp_gap) get the straight line
+         # between the two points around them (a smoother through the gap) instead of no ball.
+         acc_cost=0.0, dp_topk=8, fill=0.0)
 # test 35 (2026-11-08): per sport. Basketball with its own detector (tests 28/32): the still-object filter at 0.2 threw
 # away the real ball while it was held or dribbled in place (13% of the labelled points); at 0.5 a spare ball, the rim
 # or a painted ball (there on nearly every frame) are still left out. The other sports keep test 17's values for now.
@@ -73,6 +79,8 @@ def track(det, P):
                 continue
             keep.append(c)
         moving[k] = keep
+    if P["dp"] >= 2:
+        return dp2_track(an, moving, W, H, n, step, P)
     if P["dp"]:
         return dp_track(an, moving, W, H, n, step, P)
     # 3. tracklets
@@ -162,6 +170,7 @@ def dp_track(an, moving, W, H, n, step, P):
     # the best path ends anywhere; then the remaining frames get the next best disjoint paths (several rallies)
     chosen = {}
     used = set()
+    links = []
     while True:
         cands = [(v, key) for key, v in best.items() if key not in used and key[0] not in chosen]
         if not cands:
@@ -180,10 +189,17 @@ def dp_track(an, moving, W, H, n, step, P):
         for kk in path:
             chosen[kk[0]] = moving[kk[0]][kk[1]]
             used.add(kk)
+        fr = sorted(kk[0] for kk in path)
+        links += [(a, b) for a, b in zip(fr, fr[1:]) if b - a > step]
         # nodes of frames now taken can no longer be used
         for key2 in list(best):
             if key2[0] in chosen:
                 used.add(key2)
+    return finish(an, chosen, n, step, P, links)
+
+
+def finish(an, chosen, n, step, P, links=()):
+    """chosen {analysed frame: candidate} -> the track; links: (a, b) frames a path joins directly over a gap."""
     pred = {}
     for k in an:
         c = chosen.get(k)
@@ -192,8 +208,95 @@ def dp_track(an, moving, W, H, n, step, P):
             continue
         cx, cy, w, h, s = c
         pred[k] = [cx, cy, cx - w / 2, cy - h / 2, w, h, round(math.pi / 4 * w * h, 7), 1.0, s]
+    if P.get("fill"):
+        for a, b in links:
+            ca, cb = chosen[a], chosen[b]
+            for k in an:
+                if a < k < b and pred.get(k) is None:
+                    f = (k - a) / (b - a)
+                    cx, cy = ca[0] + (cb[0] - ca[0]) * f, ca[1] + (cb[1] - ca[1]) * f
+                    w, h = ca[2] + (cb[2] - ca[2]) * f, ca[3] + (cb[3] - ca[3]) * f
+                    pred[k] = [cx, cy, cx - w / 2, cy - h / 2, w, h, round(math.pi / 4 * w * h, 7), 1.0, 0.0]
     off = an[0] % step if an else 0
     return (low_fps.upsample(pred, n, step, off) if step > 1 else pred), len(chosen)
+
+
+def dp2_track(an, moving, W, H, n, step, P):
+    """Test 39: Viterbi with a constant-velocity motion model. State = (node, previous node) on the path; gain as
+    dp_track, minus acc_cost x the distance between the candidate and the point the previous step's velocity
+    predicts."""
+    L = max(W, H)
+    cand = {k: sorted(moving[k], key=lambda c: -c[4])[: int(P["dp_topk"])] for k in an}
+    idx = {k: i for i, k in enumerate(an)}
+
+    def dist(a, b):
+        return math.hypot((a[0] - b[0]) * W, (a[1] - b[1]) * H) / L
+
+    best, back = {}, {}  # (node, prev node or None) -> value, previous state
+    states = {}  # node -> [(state, value)] of the states ending in it
+    for k in an:
+        i = idx[k]
+        prevs = [q for q in an[max(0, i - int(P["dp_gap"] / step) - 1):i] if k - q <= P["dp_gap"]]
+        for j, c in enumerate(cand[k]):
+            g = c[4] - P["s0"]
+            node = (k, j)
+            best[(node, None)] = g
+            back[(node, None)] = None
+            for q in prevs:
+                for jj, cc in enumerate(cand[q]):
+                    pn = (q, jj)
+                    d = dist(c, cc)
+                    if d > P["vmax"] * (k - q):
+                        continue
+                    step_cost = P["move_cost"] * d + (P["still_cost"] if d < 0.005 * (k - q) else 0)
+                    bv, bs = None, None
+                    for st, v0 in states.get(pn, ()):
+                        pp = st[1]
+                        if pp is None:
+                            acc = 0.0
+                        else:
+                            cp = cand[pp[0]][pp[1]]
+                            t0 = q - pp[0]
+                            px = cc[0] + (cc[0] - cp[0]) * (k - q) / t0
+                            py = cc[1] + (cc[1] - cp[1]) * (k - q) / t0
+                            acc = dist(c, (px, py))
+                        v = v0 + g - step_cost - P["acc_cost"] * acc
+                        if bv is None or v > bv:
+                            bv, bs = v, st
+                    if bv is None:
+                        continue
+                    best[(node, pn)] = bv
+                    back[(node, pn)] = bs
+        for j in range(len(cand[k])):
+            node = (k, j)
+            states[node] = [((node, pn), best[(node, pn)])
+                            for pn in [None] + [(q, jj) for q in prevs for jj in range(len(cand[q]))]
+                            if (node, pn) in best]
+    chosen, links, used = {}, [], set()
+    while True:
+        cs = [(v, st) for st, v in best.items() if st not in used and st[0][0] not in chosen]
+        if not cs:
+            break
+        v, st = max(cs)
+        if v <= 0.5:
+            break
+        path = []
+        while st is not None and st[0][0] not in chosen and st not in used:
+            path.append(st[0])
+            used.add(st)
+            st = back[st]
+        if len(path) < P["min_len"]:
+            continue
+        path.reverse()
+        for a, b in zip(path, path[1:]):
+            if b[0] - a[0] > step:
+                links.append((a[0], b[0]))
+        for nd in path:
+            chosen[nd[0]] = cand[nd[0]][nd[1]]
+        for st2 in list(best):
+            if st2[0][0] in chosen:
+                used.add(st2)
+    return finish(an, chosen, n, step, P, links)
 
 
 def main():
