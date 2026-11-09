@@ -34,3 +34,8 @@ test('a track with one keyframe holds it everywhere', () => {
   expect(framingAt(one, 5000).cx).toBeCloseTo(0.5, 6);
   expect(framingAt(one, 5000).scale).toBeCloseTo(1 / 0.6, 6);
 });
+
+test("Seguir a Bola's 9:16 track is scaled by its height (the picture is as tall as the 9:16 box)", () => {
+  const ball: FocusTrack = { startMs: 1000, stepMs: 100, rects: [[0.2, 0.25, 0.1582, 0.5]] };
+  expect(framingAt(ball, 1000, 'height')).toEqual({ scale: 2, cx: 0.2791, cy: 0.5 });
+});

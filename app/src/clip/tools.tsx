@@ -14,6 +14,12 @@ import { ZoomPanel } from './panels/ZoomPanel';
 /** Modo Foco as a panel shows it: on/off, still analysing, or not possible for this clip. */
 export type FocusUi = 'on' | 'off' | 'preparing' | 'unavailable';
 
+/**
+ * Seguir a Bola as the Foco panel shows it: on (ready), analysing (the switch is on, the progress is on the video), off,
+ * or `hidden` on a phone that cannot run it.
+ */
+export type BallUi = 'on' | 'analysing' | 'off' | 'hidden';
+
 /** Everything a tool panel reads and does; the clip screen builds it. */
 export type ToolContext = {
   edit: Edit;
@@ -24,6 +30,8 @@ export type ToolContext = {
   setEdit(patch: Partial<Edit>): void;
   focus: FocusUi;
   toggleFocus(): void;
+  ball: BallUi;
+  toggleBall(): void;
   resetZoom(): void;
   turn(): void;
 };

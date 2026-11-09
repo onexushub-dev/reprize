@@ -138,3 +138,4 @@ Adiado:
 
 ## Seguir a Bola (spec 2026-11-09)
 - **Antes da loja — créditos CC BY 4.0**: o detector de bola (`ball_tiny_gym`) foi treinado com dados públicos que exigem atribuição. Colocar na tela de créditos/licenças do app: "basketball_detection (cvsense, Roboflow Universe), CC BY 4.0" (detalhes no README do lab, testes 28 e 33).
+- Esporte da gravação: o app não sabe se o clipe é de basquete. Por enquanto o Seguir a Bola roda em todos os clipes (fase de testes); decidir como perguntar o esporte quando a feature estiver completa.

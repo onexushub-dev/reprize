@@ -230,8 +230,11 @@ export type ExportClipOptions = {
   muted: boolean;
   /** The visible part of the video (0..1 of its size) after a zoom; omit for the whole video. */
   crop?: { x: number; y: number; width: number; height: number };
-  /** Modo Foco: follow this framing file's track (ignored when `crop` is set). iOS only. */
-  focus?: { path: string; aspect: 'landscape' | 'portrait' };
+  /**
+   * Modo Foco: follow this framing file's track (ignored when `crop` is set). iOS only. `fill`: the crop fills the whole
+   * frame instead of the video's fitted spot (Seguir a Bola's 9:16 crop in a 9:16 frame).
+   */
+  focus?: { path: string; aspect: 'landscape' | 'portrait'; fill?: boolean };
   /** Extra clockwise turn (0, 90, 180 or 270) on top of the clip's own. */
   rotation?: number;
   width: number;

@@ -53,6 +53,8 @@ struct CropRect: Record {
 struct FocusOption: Record {
   @Field var path: String = ""
   @Field var aspect: String = "landscape"
+  /// Seguir a Bola: the crop fills the whole frame (a 9:16 crop in a 9:16 frame), not the video's fitted spot.
+  @Field var fill: Bool = false
 }
 
 struct ExportClipOptions: Record {
@@ -277,7 +279,7 @@ public class ReplayCameraModule: Module {
           rotation: o.rotation,
           crop: o.crop.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) },
           width: o.width, height: o.height, overlayPngPath: o.overlayPngPath, background: UIColor(hex: o.background))
-        options.focus = o.focus.map { (path: $0.path, aspect: $0.aspect) }
+        options.focus = o.focus.map { (path: $0.path, aspect: $0.aspect, fill: $0.fill) }
         let result = try await ClipExporter.export(options)
         return ["path": result.path, "durationMs": result.durationMs]
       } catch {

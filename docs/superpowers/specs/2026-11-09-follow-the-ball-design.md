@@ -217,8 +217,28 @@ The port must reproduce the lab, because the quality decisions were measured the
 4. Device checks: §5.3–4, FocusBench `det5b` on an older iPhone (§4.7).
 5. Field test: Victor's club, basketball, cut clips, Seguir a Bola on; compare with Modo Foco by eye.
 
+### Part 3 as built (2026-11-09)
+
+- `Edit.framing` (`readEdit` falls back to the old `focus`; `applyEdit`/`storedEdit`), `Clip.ball` (`ClipBall`: status,
+  cut, file, share, `hot`), prefs `ballIntroSeen` and `ballProbeMs`.
+- `focus/ballQueue.ts` (+ `appBallQueue.ts`): one at a time, the latest asked first; held while the camera is on and in
+  the background; a new cut while it runs stops it and analyses the new cut from the cache; a late result for a cut no
+  longer wanted is dropped. `ballAvailable()` = native support and the probe ≤ 400 ms (run once when the editor first
+  opens).
+- Switching off (switch or ✕) goes back to Modo Foco, the default; Modo Foco on stops the analysis; a pinch on the
+  9:16 picture turns Seguir a Bola off (whole video, clip frame). While it analyses, the preview keeps Modo Foco's
+  framing.
+- Preview: the stage's `preview` frame is 9:16 whenever Seguir a Bola shows (also on a free plan, whose export leaves
+  without it); `ZoomableVideo` gets `content` (the video as tall as the box) and the framing is scaled by height.
+- Export: `focus = { path: ballPath, aspect: 'portrait', fill: true }` in a 9:16 frame; `ClipExporter` fills the frame
+  with the crop when `fill`. A compilation forced landscape leaves Seguir a Bola out.
+- No sport gate yet (Victor, 2026-11-09: the analysis runs on every clip while testing; how to ask the sport comes
+  after the feature is complete). Analytics event not added yet.
+
 ## 7. Open points
 
+- **Sport**: the app has no sport per recording. Seguir a Bola runs on every clip for now; decide how to ask (once per
+  recording, or at setup) when the feature is complete.
 - **Attribution (CC BY 4.0)**: the detector's training data asks for credit, "basketball_detection (cvsense, Roboflow
   Universe), CC BY 4.0", in the app's credits/licences before release (lab README, test 33). Tracked in
   `docs/superpowers/backlog.md`.

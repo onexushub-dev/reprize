@@ -19,6 +19,8 @@ type Props = {
   onDelete: () => void;
   focusTag: 'on' | 'preparing' | undefined;
   onFocusTag: () => void;
+  /** Seguir a Bola's chip, in the Modo Foco tag's place. */
+  ballTag?: ReactNode;
   notice?: string;
   position?: string;
   progress: ReactNode;
@@ -77,6 +79,11 @@ export function ClipWatch(p: Props) {
             <TrashIcon />
           </IconButton>
         </View>
+        {p.ballTag ? (
+          <View pointerEvents="box-none" style={styles.ballRow}>
+            {p.ballTag}
+          </View>
+        ) : null}
         {p.focusTag ? (
           <View pointerEvents="box-none" style={styles.tagRow}>
             <Pressable accessibilityRole="button" accessibilityLabel={t('clip.focusMode')} onPress={p.onFocusTag} style={styles.tag}>
@@ -158,6 +165,7 @@ function Action({
 }
 
 const styles = StyleSheet.create({
+  ballRow: { height: 72 },
   root: { flex: 1, backgroundColor: colors.ground },
   top: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: 12 },
   topRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },

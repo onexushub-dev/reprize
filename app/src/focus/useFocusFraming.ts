@@ -27,7 +27,12 @@ const JUMP_S = 0.3;
  * Drives the framing from the player's time: each `timeUpdate` (every 0.1 s) glides to where the path will be at the next
  * one, so the picture moves continuously. Undefined when Modo Foco is off or there is no track.
  */
-export function useFocusFraming(player: Player, track: FocusTrack | undefined, enabled: boolean): FocusFollow | undefined {
+export function useFocusFraming(
+  player: Player,
+  track: FocusTrack | undefined,
+  enabled: boolean,
+  fit: 'width' | 'height' = 'width',
+): FocusFollow | undefined {
   const scale = useSharedValue(1);
   const cx = useSharedValue(0.5);
   const cy = useSharedValue(0.5);
@@ -40,7 +45,7 @@ export function useFocusFraming(player: Player, track: FocusTrack | undefined, e
       cx.set(z.cx);
       cy.set(z.cy);
     };
-    set(framingAt(track, player.currentTime * 1000));
+    set(framingAt(track, player.currentTime * 1000, fit));
     let last = player.currentTime;
     const sub = player.addListener('timeUpdate', ({ currentTime }) => {
       const rate = player.playbackRate > 0 ? player.playbackRate : 1;
@@ -48,15 +53,15 @@ export function useFocusFraming(player: Player, track: FocusTrack | undefined, e
       const jumped = Math.abs(currentTime - (last + step)) > JUMP_S;
       last = currentTime;
       // The cut looping back or a seek: be there at once, never pan across the court.
-      if (jumped) return set(framingAt(track, currentTime * 1000));
-      const z = framingAt(track, (currentTime + step) * 1000);
+      if (jumped) return set(framingAt(track, currentTime * 1000, fit));
+      const z = framingAt(track, (currentTime + step) * 1000, fit);
       const glide = { duration: STEP_MS, easing: Easing.linear };
       scale.set(withTiming(z.scale, glide));
       cx.set(withTiming(z.cx, glide));
       cy.set(withTiming(z.cy, glide));
     });
     return () => sub.remove();
-  }, [active, track, player, scale, cx, cy]);
+  }, [active, track, player, scale, cx, cy, fit]);
 
   // One object per track and switch, so the video view keeps following across re-renders.
   return useMemo<FocusFollow | undefined>(() => {
@@ -66,12 +71,12 @@ export function useFocusFraming(player: Player, track: FocusTrack | undefined, e
       cx,
       cy,
       sync: (tMs) => {
-        const z = framingAt(track, tMs);
+        const z = framingAt(track, tMs, fit);
         scale.set(z.scale);
         cx.set(z.cx);
         cy.set(z.cy);
       },
       read: () => ({ scale: scale.get(), cx: cx.get(), cy: cy.get() }),
     };
-  }, [active, track, scale, cx, cy]);
+  }, [active, track, scale, cx, cy, fit]);
 }

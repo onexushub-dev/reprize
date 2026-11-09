@@ -12,6 +12,8 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     setEdit: jest.fn(),
     focus: 'on',
     toggleFocus: jest.fn(),
+    ball: 'hidden',
+    toggleBall: jest.fn(),
     resetZoom: jest.fn(),
     turn: jest.fn(),
     ...over,
@@ -60,7 +62,7 @@ test('Zoom shows the hand zoom and goes back to 1x', async () => {
   const Panel = panel('zoom');
   const c = ctx({ edit: { ...readEdit(undefined), zoom: { scale: 2, cx: 0.5, cy: 0.5 } } });
   const view = await render(<Panel ctx={c} />);
-  expect(screen.getByText('Pince o vídeo para aproximar. Com zoom manual o Modo Foco desliga.')).toBeTruthy();
+  expect(screen.getByText('Pince o vídeo para aproximar. Com zoom manual o Modo Foco e o Seguir a Bola desligam.')).toBeTruthy();
   expect(screen.getByText('2.0x')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Voltar zoom para 1x' }));
   expect(c.resetZoom).toHaveBeenCalled();
@@ -96,6 +98,33 @@ test('Foco: a switch when ready, a wait while preparing, a message when it canno
   await view.rerender(<Panel ctx={ctx({ focus: 'unavailable' })} />);
   expect(screen.getByText('Modo Foco indisponível para esse clipe.')).toBeTruthy();
   expect(screen.queryByRole('switch', { name: 'Modo Foco' })).toBeNull();
+});
+
+test('Seguir a Bola: a second switch under Modo Foco, hidden on phones that cannot run it', async () => {
+  const Panel = panel('focus');
+  const view = await render(<Panel ctx={ctx({ ball: 'hidden' })} />);
+  expect(screen.queryByRole('switch', { name: 'Seguir a Bola' })).toBeNull();
+  const c = ctx({ ball: 'off' });
+  await view.rerender(<Panel ctx={c} />);
+  expect(screen.getByText('A câmera segue a bola, na vertical 9:16 para Stories, Reels e TikTok.')).toBeTruthy();
+  expect(screen.getByText('NOVO')).toBeTruthy();
+  const sw = screen.getByRole('switch', { name: 'Seguir a Bola' });
+  expect(sw.props.accessibilityState).toMatchObject({ checked: false });
+  await fireEvent.press(sw);
+  expect(c.toggleBall).toHaveBeenCalledTimes(1);
+});
+
+test('Seguir a Bola on: Modo Foco says why it is off, and how to go back while it analyses', async () => {
+  const Panel = panel('focus');
+  const view = await render(<Panel ctx={ctx({ focus: 'off', ball: 'analysing' })} />);
+  expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ checked: true });
+  expect(screen.getByText('Ligue para voltar na hora; a análise para.')).toBeTruthy();
+  // the progress is on the video, never in the panel
+  expect(screen.queryByText(/analisando/)).toBeNull();
+  await view.rerender(<Panel ctx={ctx({ focus: 'off', ball: 'on' })} />);
+  expect(screen.getByText('Desligado enquanto Seguir a Bola estiver ligado.')).toBeTruthy();
+  expect(screen.getByText('Pronto. Trocar de modo agora é instantâneo.')).toBeTruthy();
+  expect(screen.getByRole('switch', { name: 'Modo Foco' }).props.accessibilityState).toMatchObject({ checked: false });
 });
 
 test('on a free recording the sound works, and the hint says it does not leave the app', async () => {

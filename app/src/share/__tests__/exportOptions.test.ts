@@ -115,3 +115,37 @@ test('the export size: Full HD by default, 4K or 2K when picked, in the frame or
   expect(exportOptions('pro', undefined, trim, true, undefined, 2160)).toMatchObject({ width: 3840, height: 2160 });
   expect(exportOptions('pro', undefined, trim, false, undefined, 1440)).toMatchObject({ width: 1440, height: 2560 });
 });
+
+describe('Seguir a Bola', () => {
+  const ball = { path: '/c/1.ball.json', ready: true };
+  const on: Clip['edit'] = { muted: false, framing: 'ball' };
+
+  test('a ready framing makes a vertical 9:16 video of any clip, its crop filling the frame', () => {
+    const o = exportOptions('pro', on, trim, true, undefined, 1080, ball);
+    expect(o).toMatchObject({ width: 1080, height: 1920 });
+    expect(o.focus).toEqual({ path: '/c/1.ball.json', aspect: 'portrait', fill: true });
+    expect(o.crop).toBeUndefined();
+  });
+
+  test('not when off, not ready, turned, or on a free export (as Modo Foco)', () => {
+    expect(exportOptions('pro', { muted: false }, trim, true, undefined, 1080, ball).focus).toBeUndefined();
+    expect(exportOptions('pro', on, trim, true, undefined, 1080, { ...ball, ready: false })).toMatchObject({ width: 1920, height: 1080 });
+    expect(exportOptions('pro', { ...on, rotation: 90 }, trim, true, undefined, 1080, ball).focus).toBeUndefined();
+    const free = exportOptions('free', on, trim, true, undefined, 1080, ball);
+    expect(free.focus).toBeUndefined();
+    expect(free).toMatchObject({ width: 1280, height: 720 });
+  });
+
+  test('Modo Foco and Seguir a Bola never both: the ball framing wins only when it is the one chosen', () => {
+    const focusReady = { path: '/c/1.focus.json', ready: true };
+    expect(exportOptions('pro', on, trim, true, focusReady, 1080, ball).focus).toEqual({ path: '/c/1.ball.json', aspect: 'portrait', fill: true });
+    expect(exportOptions('pro', { muted: false }, trim, true, focusReady, 1080, ball).focus).toEqual({ path: '/c/1.focus.json', aspect: 'landscape' });
+  });
+
+  test('freeLosses counts it as the framing a free export drops', () => {
+    const ready = { v: 1, status: 'ready', startMs: 30000, endMs: 60000, file: '/c/1.ball.json' } as Clip['ball'];
+    expect(freeLosses({ edit: on, focus: undefined, ball: ready, trim }).focus).toBe(true);
+    // ready for another cut: nothing to lose yet
+    expect(freeLosses({ edit: on, focus: undefined, ball: ready, trim: { startMs: 0, endMs: 1000 } }).focus).toBe(false);
+  });
+});

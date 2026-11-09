@@ -28,6 +28,11 @@ type Props = {
   onSwipe?: (step: 1 | -1) => void;
   /** Modo Foco: the picture follows this moving framing until a gesture takes over (then `onCommit` as usual). */
   follow?: FocusFollow;
+  /**
+   * The picture's own size inside `box`, centred in it; absent = the box. Seguir a Bola: the video as tall as the 9:16
+   * box (so wider than it), moved and scaled by `follow`; "the whole video" is then the picture fitted into the box.
+   */
+  content?: { width: number; height: number };
   /** When `follow` starts: ease from the whole video into the framing over this long (0 = at once). */
   enterMs?: number;
   /** False in watch mode: no zoom by hand. */
@@ -44,7 +49,7 @@ type Props = {
 };
 
 /** The video with pinch zoom (around the fingers), drag to move it, and tap. Remount it to start again from `zoom`. */
-export function ZoomableVideo({ player, area, box, zoom, rotation, onCommit, onTap, onSwipe, follow, enterMs = 0, pinch, onHold, onDrag, onDragCancel, poster, onFirstFrame }: Props) {
+export function ZoomableVideo({ player, area, box, zoom, rotation, onCommit, onTap, onSwipe, follow, content, enterMs = 0, pinch, onHold, onDrag, onDragCancel, poster, onFirstFrame }: Props) {
   const { t } = useT();
   const [live, setLive] = useState<Zoom>(zoom ?? NO_ZOOM);
   // A gesture on a followed picture takes over from where the framing is, and the picture stops following.
@@ -104,12 +109,17 @@ export function ZoomableVideo({ player, area, box, zoom, rotation, onCommit, onT
   }, [live, liveScale, liveCx, liveCy]);
   const source = following && follow && !peek ? follow : { scale: liveScale, cx: liveCx, cy: liveCy };
   const easing = following && follow && !peek;
-  const width = box.width;
-  const height = box.height;
+  const width = content ? content.width : box.width;
+  const height = content ? content.height : box.height;
+  // The whole video in the box: scale 1, or (a picture bigger than the box) fitted into it.
+  const whole = content ? Math.min(box.width / content.width, box.height / content.height) : 1;
+  const place = content
+    ? { position: 'absolute' as const, left: (box.width - width) / 2, top: (box.height - height) / 2, width, height }
+    : StyleSheet.absoluteFill;
   const picture = useAnimatedStyle(() => {
-    // While easing in, the framing grows out of the whole video (scale 1, centred).
+    // While easing in, the framing grows out of the whole video (centred).
     const b = easing ? blend.value : 1;
-    const scale = (peek ? 1 : source.scale.value) * b + (1 - b);
+    const scale = (peek ? whole : source.scale.value) * b + whole * (1 - b);
     const cx = (peek ? 0.5 : source.cx.value) * b + 0.5 * (1 - b);
     const cy = (peek ? 0.5 : source.cy.value) * b + 0.5 * (1 - b);
     return {
@@ -120,15 +130,15 @@ export function ZoomableVideo({ player, area, box, zoom, rotation, onCommit, onT
   return (
     <View {...panHandlers} accessibilityLabel={t('clip.video')} style={[styles.area, area]}>
       <View pointerEvents="none" style={[styles.box, box]}>
-        <Animated.View style={[StyleSheet.absoluteFill, picture]}>
+        <Animated.View style={[place, picture]}>
           <VideoView
             player={player}
             contentFit="contain"
             nativeControls={false}
-            style={turned(box, rotation)}
+            style={turned({ width, height }, rotation)}
             onFirstFrameRender={onFirstFrame}
           />
-          {poster ? <Image source={{ uri: poster }} contentFit="contain" style={turned(box, rotation)} /> : null}
+          {poster ? <Image source={{ uri: poster }} contentFit="contain" style={turned({ width, height }, rotation)} /> : null}
         </Animated.View>
       </View>
     </View>

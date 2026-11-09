@@ -25,7 +25,7 @@ export function hasChanges(snapshot: EditSnapshot, clip: Clip): boolean {
     a.speed !== b.speed ||
     a.muted !== b.muted ||
     a.rotation !== b.rotation ||
-    a.focus !== b.focus ||
+    a.framing !== b.framing ||
     !sameZoom(a.zoom, b.zoom)
   );
 }

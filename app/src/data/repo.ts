@@ -216,7 +216,9 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
           if (!path || path === clip.path || !files.exists(path)) continue;
           const file = clip.focus && clip.focus.file ? rebase(clip.focus.file) : undefined;
           const focus = clip.focus && file ? { ...clip.focus, file } : clip.focus;
-          write(key.clip(clipId), { ...clip, path, ...(focus ? { focus } : {}) });
+          const ballFile = clip.ball && clip.ball.file ? rebase(clip.ball.file) : undefined;
+          const ball = clip.ball && ballFile ? { ...clip.ball, file: ballFile } : clip.ball;
+          write(key.clip(clipId), { ...clip, path, ...(focus ? { focus } : {}), ...(ball ? { ball } : {}) });
           moved += 1;
         }
       }
@@ -271,6 +273,7 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
         savedAt?: number;
         sharedAt?: number;
         focus?: Clip['focus'];
+        ball?: Clip['ball'];
       },
     ): Clip | undefined {
       const existing = read<Clip>(key.clip(id));

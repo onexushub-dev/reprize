@@ -8,6 +8,7 @@ import { payments } from '../payments';
 import { triggerAllowed } from '../payments/limits';
 import { usePlan } from '../share/entitlement';
 import { focusQueue } from '../focus/appFocusQueue';
+import { ballQueue } from '../focus/appBallQueue';
 import { focusHold } from '../focus/focusQueue';
 // TEMP(diag-remote)
 import { diag } from '../diag/diagLog';
@@ -62,7 +63,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   // The camera and the heat come first: no Modo Foco analysis while the camera is on, on the setup screen or recording
   // (a running one is stopped and redone afterwards).
   const hold = focusHold(recording || session.state.camera !== 'off');
-  useEffect(() => focusQueue.setHold(hold), [hold]);
+  useEffect(() => {
+    focusQueue.setHold(hold);
+    ballQueue.setHold(hold);
+  }, [hold]);
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
 }
 
