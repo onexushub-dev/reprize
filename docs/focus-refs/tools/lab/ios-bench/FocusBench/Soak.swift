@@ -321,6 +321,12 @@ final class BallDetector {
     private var pool: CVPixelBufferPool?
     let timing = Timing()
     private var grid: [(Float, Float, Float)] = []  // (gx, gy, stride) per anchor
+    /// Test 42 (2026-11-09): all the regions of a frame in ONE Core ML call (`predictions(fromBatch:)`) instead of one
+    /// call per region; the same model, so the same results. `verifyNext`: on the next frame also run them one by one
+    /// and keep the largest difference of the outputs in `batchMaxDiff` (expected ~0).
+    var batched = false
+    var verifyNext = false
+    var batchMaxDiff: Float = -1
 
     init(context: CIContext, name: String = "yolox_s", tile: Int = 640) throws {
         guard let url = bundleURL(name, "mlmodelc") else {
@@ -411,7 +417,9 @@ final class BallDetector {
         }
         var found = 0
         var best: BallCandidate?
-        for (region, scale, x0, y0) in regions {
+        // render every region into its own buffer, then run the model (one call per region, or one batch)
+        var inputs: [MLDictionaryFeatureProvider] = []
+        for (region, _, _, _) in regions {
             var out: CVPixelBuffer?
             if let pool = pool {
                 CVPixelBufferPoolCreatePixelBuffer(nil, pool, &out)
@@ -422,13 +430,46 @@ final class BallDetector {
             let t0 = now()
             context.render(region, to: buffer)
             timing.add("detPrep", now() - t0)
-            let t1 = now()
-            let result = try model.prediction(from: MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(pixelBuffer: buffer)]))
-            timing.add("detModel", now() - t1)
-            let t2 = now()
-            guard let value = result.featureValue(for: "output"), let array = value.multiArrayValue else {
-                throw BenchError.badOutput("yolox output")
+            inputs.append(try MLDictionaryFeatureProvider(dictionary: ["image": MLFeatureValue(pixelBuffer: buffer)]))
+        }
+        var outputs: [MLMultiArray] = []
+        let t1 = now()
+        if batched {
+            let batch = try model.predictions(fromBatch: MLArrayBatchProvider(array: inputs))
+            for i in 0..<batch.count {
+                guard let array = batch.features(at: i).featureValue(for: "output")?.multiArrayValue else {
+                    throw BenchError.badOutput("yolox output")
+                }
+                outputs.append(array)
             }
+        } else {
+            for input in inputs {
+                guard let array = try model.prediction(from: input).featureValue(for: "output")?.multiArrayValue else {
+                    throw BenchError.badOutput("yolox output")
+                }
+                outputs.append(array)
+            }
+        }
+        // per region, so the batched and the one-by-one runs compare directly
+        timing.add("detModel", (now() - t1) / Double(max(inputs.count, 1)))
+        if batched && verifyNext {
+            verifyNext = false
+            var worst: Float = 0
+            for (i, input) in inputs.enumerated() {
+                guard let single = try model.prediction(from: input).featureValue(for: "output")?.multiArrayValue else {
+                    throw BenchError.badOutput("yolox output")
+                }
+                let a = outputs[i]
+                let n = min(a.count, single.count)
+                for j in 0..<n {
+                    worst = max(worst, abs(a[j].floatValue - single[j].floatValue))
+                }
+            }
+            batchMaxDiff = worst
+        }
+        for (i, (_, scale, x0, y0)) in regions.enumerated() {
+            let t2 = now()
+            let array = outputs[i]
             let s = scan(array, conf)
             found += s.count
             if s.index >= 0 && s.index < grid.count {

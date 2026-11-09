@@ -82,7 +82,7 @@ def frames_at(meta, ks, W, H):
     return out
 
 
-def ball_sizes(name, truth, W, H):
+def ball_sizes(name, truth, W, H, det_tag="yolox-s-t5"):
     """Box (w, h) in px per labelled frame from the masks / detector boxes near the label."""
     R = ev.radius_px(truth["size"])
     sources = []
@@ -90,7 +90,7 @@ def ball_sizes(name, truth, W, H):
         p = os.path.join(ONECLICK, f"{name}.ball.{tag}.json")
         if os.path.exists(p):
             sources.append(("mask", json.load(open(p))["pred_one"]))
-    p = os.path.join(DET, f"{name}.yolox-s-t5.json")
+    p = os.path.join(DET, f"{name}.{det_tag}.json")
     det = json.load(open(p))["frames"] if os.path.exists(p) else None
     sizes = {}
     for ms, g in truth["samples"].items():
@@ -120,12 +120,12 @@ def cmd_dataset(a):
         W, H = upright(os.path.join(ev.ROOT, meta["video"]))
         balls = {ms // 100: g for ms, g in truth["samples"].items() if isinstance(g, tuple) and ms // 100 < meta["count"]}
         empty = [ms // 100 for ms, g in truth["samples"].items() if not isinstance(g, tuple) and ms // 100 < meta["count"]]
-        sizes = ball_sizes(name, truth, W, H)
+        sizes = ball_sizes(name, truth, W, H, a.det)
         if sizes:
             med = (float(np.median([s[0] for s in sizes.values()])), float(np.median([s[1] for s in sizes.values()])))
         else:
             med = (0.012 * max(W, H), 0.012 * max(W, H))
-        p = os.path.join(DET, f"{name}.yolox-s-t5.json")
+        p = os.path.join(DET, f"{name}.{a.det}.json")  # test 38: --det bhn-n5 (sizes + its false candidates)
         det = json.load(open(p))["frames"] if os.path.exists(p) else None
         frames = frames_at(meta, sorted(set(balls) | set(empty)), W, H)
         d = os.path.join(TRAIN, name)
@@ -323,6 +323,8 @@ def main():
     ap.add_argument("--yolox", default=os.environ.get("YOLOX_SRC", "/tmp/yxsrc/yolox-0.3.0"))
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("dataset")
+    p.add_argument("--det", default="yolox-s-t5", help="test 38: detections for the ball's box size and the 'not a "
+                   "ball' crops (bhn-n5 = ball_tiny_hn on all tiles)")
     p.add_argument("clips", nargs="*")
     p = sub.add_parser("train")
     p.add_argument("--fold", required=True, choices=["A", "B", "C", "all"])

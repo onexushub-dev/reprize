@@ -21,4 +21,7 @@ Pod::Spec.new do |s|
 
   s.source_files = "**/*.{h,m,mm,swift,hpp,cpp}"
   s.exclude_files = ["Core/Package.swift", "Core/Tests/**/*", "Core/.build/**/*"]
+  # Seguir a Bola's ball detector (ball_tiny_gym, YOLOX-Tiny 416), compiled from the lab's .mlpackage with
+  # `xcrun coremlcompiler compile`; BallAnalyzer looks for it in this bundle.
+  s.resource_bundles = { "ReplayCameraModels" => ["Models/*.mlmodelc"] }
 end

@@ -5,48 +5,85 @@ import { colors, fonts } from '../../theme/tokens';
 import type { ToolContext } from '../tools';
 import { PanelHead } from './PanelParts';
 
+/** The panel's on/off switch (amber when on). */
+function Toggle({ label, on, disabled, onPress }: { label: string; on: boolean; disabled?: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="switch"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: on, disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={8}
+      style={[styles.track, on ? styles.trackOn : null, disabled ? styles.off : null]}>
+      <View style={[styles.knob, on ? styles.knobOn : null]} />
+    </Pressable>
+  );
+}
+
+/**
+ * The Foco panel: Modo Foco and, below it, Seguir a Bola (spec 2026-11-09 §4.1, layouts A1–A3). The two exclude each
+ * other; the analysis' progress is shown on the video, never here.
+ */
 export function FocusPanel({ ctx }: { ctx: ToolContext }) {
   const { t } = useT();
-  if (ctx.focus === 'unavailable') {
-    return (
-      <View style={{ gap: 10 }}>
-        <PanelHead title={t('clip.focusMode')} hint={t('clip.focusUnavailable')} />
-      </View>
+  // On a free recording the framing works here, but it does not leave the app: the hints say so.
+  const free = ctx.plan === 'free';
+  const ballShown = ctx.ball !== 'hidden' && ctx.ball !== 'soon';
+  const ballOn = ctx.ball === 'on' || ctx.ball === 'analysing';
+  const focusOn = ctx.focus === 'on';
+  const preparing = ctx.focus === 'preparing';
+
+  let focusHint = free ? t('clip.focusPro') : t('clip.focusHint');
+  if (ctx.focus === 'unavailable') focusHint = t('clip.focusUnavailable');
+  else if (ctx.ball === 'analysing') focusHint = t('clip.focusBackNow');
+  else if (ctx.ball === 'on') focusHint = t('clip.focusOffForBall');
+
+  let note = <Text style={styles.noteText}>{t('clip.focusHold')}</Text>;
+  if (ctx.ball === 'on') note = <Text style={styles.noteText}>{t('clip.ballReadyNote')}</Text>;
+  else if (preparing && !ballOn) {
+    note = (
+      <>
+        <ActivityIndicator size="small" color={colors.soft} />
+        <Text style={styles.noteText}>{t('clip.focusPreparingNote')}</Text>
+      </>
     );
   }
-  const on = ctx.focus === 'on';
-  const preparing = ctx.focus === 'preparing';
-  // On a free recording the framing works here, but it does not leave the app: the hint says so.
-  const free = ctx.plan === 'free';
+
   return (
     <View style={{ gap: 10 }}>
       <PanelHead
         title={t('clip.focusMode')}
-        hint={free ? t('clip.focusPro') : t('clip.focusHint')}
-        pro={free ? t('setup.proBadge') : undefined}
+        hint={focusHint}
+        pro={free && ctx.focus !== 'unavailable' ? t('setup.proBadge') : undefined}
         right={
-          <Pressable
-            accessibilityRole="switch"
-            accessibilityLabel={t('clip.focusMode')}
-            accessibilityState={{ checked: on, disabled: preparing }}
-            disabled={preparing}
-            onPress={ctx.toggleFocus}
-            hitSlop={8}
-            style={[styles.track, on ? styles.trackOn : null, preparing ? styles.off : null]}>
-            <View style={[styles.knob, on ? styles.knobOn : null]} />
-          </Pressable>
+          ctx.focus === 'unavailable' ? undefined : (
+            <Toggle label={t('clip.focusMode')} on={focusOn} disabled={preparing && !ballOn} onPress={ctx.toggleFocus} />
+          )
         }
       />
-      {preparing ? (
-        <View style={styles.note}>
-          <ActivityIndicator size="small" color={colors.soft} />
-          <Text style={styles.noteText}>{t('clip.focusPreparingNote')}</Text>
+      {ctx.ball === 'soon' ? (
+        <View style={{ gap: 6 }}>
+          <PanelHead
+            title={t('clip.ballMode')}
+            hint={t('clip.ballSoonHint')}
+            badge={t('clip.ballSoon')}
+            right={<Toggle label={t('clip.ballMode')} on={false} disabled onPress={ctx.toggleBall} />}
+          />
+          <Pressable accessibilityRole="button" onPress={ctx.unlockBall} hitSlop={8}>
+            <Text style={styles.link}>{t('clip.ballUnlock')}</Text>
+          </Pressable>
         </View>
-      ) : (
-        <View style={styles.note}>
-          <Text style={styles.noteText}>{t('clip.focusHold')}</Text>
-        </View>
-      )}
+      ) : ballShown ? (
+        <PanelHead
+          title={t('clip.ballMode')}
+          hint={free ? t('clip.ballPro') : t('clip.ballHint')}
+          pro={free ? t('setup.proBadge') : undefined}
+          badge={free ? undefined : t('clip.ballNew')}
+          right={<Toggle label={t('clip.ballMode')} on={ballOn} onPress={ctx.toggleBall} />}
+        />
+      ) : null}
+      <View style={styles.note}>{note}</View>
     </View>
   );
 }
@@ -66,5 +103,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: colors.surface,
   },
-  noteText: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
+  link: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
+  noteText: { flexShrink: 1, fontFamily: fonts.body, fontSize: 12, color: colors.soft },
 });

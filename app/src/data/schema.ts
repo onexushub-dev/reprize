@@ -43,13 +43,36 @@ export type ModeSettings = {
 /** What was saved for a mode: before zoom existed it held `lens` (read, never written). */
 export type StoredModeSettings = Partial<ModeSettings> & { lens?: 'ultraWide' | 'wide' };
 
-export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean };
+export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean; /** Seguir a Bola: whether the recording looks like basketball (test 43). */ ballSport?: BallSport };
+
+/**
+ * Whether a recording looks like basketball to Apple's scene classifier (test 43): `other` = another sport for sure, so
+ * Seguir a Bola shows "EM BREVE"; `allow` otherwise. `unlocked`: the player said it is basketball after all. `labels`:
+ * what the classifier saw (the field test reads them).
+ */
+export type BallSport = { v: 1; verdict: 'other' | 'allow'; labels?: Record<string, number>; unlocked?: boolean };
 
 export const MAX_GAME_NAME = 40;
 /** A clip's label (its name): short, to tell at a glance who or what it is (2026-11-07 spec §6). */
 export const MAX_CLIP_NAME = 25;
 
 export type ClipFocus = { v: 1; status: 'pending' | 'ready' | 'none' | 'failed'; file?: string };
+
+/**
+ * Seguir a Bola for one cut (spec 2026-11-09 §4.6): `pending` while queued or running, `ready` with the 9:16 framing
+ * `file`, `failed` when the analysis broke (`hot`: stopped because the phone got too hot). Valid only while the clip's
+ * cut is `startMs`…`endMs`; another cut is analysed again (the detections already found are reused). `share`: the share
+ * of the cut's frames with a trusted ball.
+ */
+export type ClipBall = {
+  v: 1;
+  status: 'pending' | 'ready' | 'failed';
+  startMs: number;
+  endMs: number;
+  file?: string;
+  share?: number;
+  hot?: boolean;
+};
 
 export type Clip = {
   id: string;
@@ -78,14 +101,18 @@ export type Clip = {
     muted: boolean;
     zoom?: { scale: number; cx: number; cy: number };
     rotation?: 0 | 90 | 180 | 270;
-    /** Modo Foco for this clip; absent = on. */
+    /** Modo Foco for this clip; absent = on. Read only when `framing` is absent (clips from before Seguir a Bola). */
     focus?: boolean;
+    /** Modo Foco, Seguir a Bola or neither; absent = Modo Foco (or what `focus` says). */
+    framing?: 'focus' | 'ball' | 'none';
   };
   /**
    * The Modo Foco analysis: `pending` while queued or running, `ready` with the framing `file`, `none` when there were
    * too few people for a framing, `failed` when the analysis broke. Absent = never analysed (clips from before it).
    */
   focus?: ClipFocus;
+  /** The Seguir a Bola analysis of the cut; absent = never asked for. */
+  ball?: ClipBall;
   /** Optional name the player gives the clip (like a recording's name). */
   name?: string;
   /** When the edited video was last saved to Photos / sent through the share sheet (the clip itself stays inside the app). */
@@ -113,6 +140,10 @@ export type Prefs = {
   remoteBleName?: string;
   /** The Modo Foco introduction (the first framed clip) was shown. */
   focusIntroSeen?: boolean;
+  /** The Seguir a Bola first-use sheet was turned off for good ("Não mostrar de novo"). */
+  ballIntroSeen?: boolean;
+  /** Seguir a Bola's one-time speed probe: ms for one 19-region frame on this phone (the option shows up to 400). */
+  ballProbeMs?: number;
   /** Battery saving while recording: the screen goes dark after a while without a touch (the recording goes on). */
   screenEconomy: boolean;
   /** Battery saving on the remote phone while the camera records: the screen dims after a minute without a touch. */

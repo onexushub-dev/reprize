@@ -58,6 +58,8 @@ def source_size(meta):
     st = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_streams", "-of", "json",
                                     v], capture_output=True, text=True, check=True).stdout)["streams"][0]
     W, H = st["width"], st["height"]
+    num, _, den = st.get("avg_frame_rate", "30/1").partition("/")
+    OUT_FPS = 60 if float(num) / max(1.0, float(den or 1)) >= 55 else 30
     rot = 0
     for sd in st.get("side_data_list", []):
         rot = int(sd.get("rotation", rot))
@@ -313,19 +315,37 @@ def cmd_auto(a):
 
 
 def frames(meta, n):
-    """Yield (t seconds, BGR frame) over the analysis window, upright."""
-    import cv2
-    cap = cv2.VideoCapture(os.path.join(ev.ROOT, meta["video"]))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    cap.set(cv2.CAP_PROP_POS_MSEC, meta["startMs"])
+    """Yield (t seconds, BGR frame, fps) over the analysis window, upright, on a constant timeline: 60 fps when the
+    source averages >= 55 fps (the app's 60 fps recordings), else 30.
+    Test 40 (2026-11-09): decoded by ffmpeg's fps filter from the frames' real timestamps. Before, OpenCV read every
+    frame and took t = k / nominal fps, so a variable-frame-rate source (screen recordings, some phone videos) played
+    at uneven speed in the export and the crop drifted off its time: the stutter Victor saw on the web clips."""
+    import subprocess as sp
+    import numpy as np
+    video = os.path.join(ev.ROOT, meta["video"])
+    st = json.loads(sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                            "stream=width,height,avg_frame_rate:stream_side_data=rotation:stream_tags=rotate", "-of", "json",
+                            video],
+                           capture_output=True, text=True, check=True).stdout)["streams"][0]
+    W, H = st["width"], st["height"]
+    num, _, den = st.get("avg_frame_rate", "30/1").partition("/")
+    OUT_FPS = 60 if float(num) / max(1.0, float(den or 1)) >= 55 else 30
+    rot = abs(int(float(st.get("tags", {}).get("rotate", 0) or 0)))
+    for sd in st.get("side_data_list", []):
+        rot = abs(int(float(sd.get("rotation", rot))))
+    if rot in (90, 270):
+        W, H = H, W
+    dur = (n - 1) * 0.1 + 1.0 / OUT_FPS
+    dec = sp.Popen(["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{meta['startMs'] / 1000}", "-i", video, "-t", f"{dur}",
+                    "-vf", f"fps={OUT_FPS}:start_time=0", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"], stdout=sp.PIPE)
     k = 0
-    while k / fps <= (n - 1) * 0.1:
-        ok, fr = cap.read()
-        if not ok:
+    while k / OUT_FPS <= (n - 1) * 0.1:
+        buf = dec.stdout.read(W * H * 3)
+        if len(buf) < W * H * 3:
             break
-        yield k / fps, fr, fps
+        yield k / OUT_FPS, np.frombuffer(buf, np.uint8).reshape(H, W, 3), OUT_FPS
         k += 1
-    cap.release()
+    dec.kill()
 
 
 def crop_at(fr, r, t, grid, size, interp):

@@ -3,6 +3,7 @@ import { File, Paths } from 'expo-file-system';
 import { createMMKV } from 'react-native-mmkv';
 
 import { withoutSavedZoom } from '../modes/registry';
+import { ballDetPath, ballPath } from './ballFile';
 import { focusPath } from './focusFile';
 import { createRepo, type FileProbe, type KV } from './repo';
 import { thumbnailPath } from './thumbnailPath';
@@ -67,11 +68,15 @@ export function onFileRemoved(listener: (clipPath: string) => void): () => void 
   return () => void removalListeners.delete(listener);
 }
 
-/** Deletes a saved clip's file, its cached thumbnail and its Modo Foco framing; files already gone are the goal. */
+/**
+ * Deletes a saved clip's file, its cached thumbnail, its Modo Foco framing and its Seguir a Bola files; files already
+ * gone are the goal.
+ */
 export function removeFile(path: string): void {
   removalListeners.forEach((listener) => listener(path));
   // The last one is where thumbnails were kept before they were checked for being black.
-  for (const p of [path, thumbnailPath(path), path.replace(/\.[^./]+$/, '') + '.jpg', focusPath(path)]) {
+  const own = [path, thumbnailPath(path), path.replace(/\.[^./]+$/, '') + '.jpg', focusPath(path), ballPath(path), ballDetPath(path)];
+  for (const p of own) {
     try {
       new File(`file://${p}`).delete();
     } catch {

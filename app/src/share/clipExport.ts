@@ -3,6 +3,7 @@ import { Image } from 'react-native';
 import { createThumbnail } from '../../modules/replay-camera';
 import { clipStage } from '../clip/stage';
 import { knownShape, rememberShape } from '../components/clipShape';
+import { readyBallFile } from '../data/ballFile';
 import { readFocusFile } from '../data/focusFile';
 import type { Clip } from '../data/schema';
 import { readEdit, turnedSize } from './editing';
@@ -20,6 +21,10 @@ export type ClipJob = {
   /** The same key means the same exported file: the clip, every edit, the frame and the plan's mark. */
   key: string;
   watermark: boolean;
+  /** What the app shows: the export's frame, or Seguir a Bola's vertical frame (also on a free plan). */
+  preview: ReturnType<typeof clipStage>['preview'];
+  /** Seguir a Bola is what the preview shows. */
+  ball: boolean;
 };
 
 /**
@@ -34,14 +39,28 @@ export function clipExportJob(
   orientation?: Orientation,
   trackFound?: boolean,
   side?: ShortSide,
+  /** As `trackFound`, for Seguir a Bola's file of the current cut. */
+  ballFound?: boolean,
 ): ClipJob {
   const shape = turnedSize(videoSize, readEdit(clip.edit).rotation);
   const landscape = orientation ? orientation === 'landscape' : shape.width > shape.height;
   const file = clip.focus && clip.focus.status === 'ready' ? clip.focus.file : undefined;
   const found =
     file !== undefined && (trackFound !== undefined ? trackFound : readFocusFile(file, landscape ? 'landscape' : 'portrait') !== undefined);
+  const ballFile = readyBallFile(clip);
+  const ballOk =
+    ballFile !== undefined && (ballFound !== undefined ? ballFound : readFocusFile(ballFile, 'portrait') !== undefined);
   // A forced frame is passed as the shape the stage lays out in; the video still keeps its own shape inside it.
-  const stage = clipStage(plan, clip.edit, clip.trim, videoSize, found ? file : undefined, landscape, side);
+  const stage = clipStage(
+    plan,
+    clip.edit,
+    clip.trim,
+    videoSize,
+    found ? file : undefined,
+    orientation ? landscape : undefined,
+    side,
+    ballOk ? ballFile : undefined,
+  );
   const options = stage.options;
   return {
     options,
@@ -49,6 +68,8 @@ export function clipExportJob(
     layout: stage.layout,
     key: JSON.stringify([clip.path, options, stage.layout]),
     watermark: options.watermark,
+    preview: stage.preview,
+    ball: stage.ball,
   };
 }
 

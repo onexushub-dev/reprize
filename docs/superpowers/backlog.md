@@ -135,3 +135,7 @@ Antes de lançar com a chave:
 Adiado:
 - `paywall_viewed` com origem `onboarding` não existe ainda: nenhuma tela das stories abre o paywall.
 - Exportação em lote conta no `session_summary`, mas não gera `export_completed` por clipe (e por isso não diz o plano: só a exportação de um clipe traz `plan`).
+
+## Seguir a Bola (spec 2026-11-09)
+- **Antes da loja — créditos CC BY 4.0**: o detector de bola (`ball_tiny_gym`) foi treinado com dados públicos que exigem atribuição. Colocar na tela de créditos/licenças do app: "basketball_detection (cvsense, Roboflow Universe), CC BY 4.0" (detalhes no README do lab, testes 28 e 33).
+- Esporte da gravação: detectado sozinho (teste 43, classificador de cenas da Apple). Conferir no teste de campo, pela tela Diagnóstico, que nenhuma gravação de basquete ficou com "EM BREVE"; se ficar, ajustar o limite (0,4) em `focus/sportCheck.ts`.

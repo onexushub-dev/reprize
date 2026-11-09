@@ -18,13 +18,15 @@ jest.mock('react-native-mmkv', () => ({
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'id' }));
 
 
-test('deleting a clip also deletes its thumbnail and its Modo Foco file', () => {
+test('deleting a clip also deletes its thumbnail, its Modo Foco file and its Seguir a Bola files', () => {
   removeFile('/docs/clips/ABC.mp4');
   expect(mockDeleted).toEqual(
     expect.arrayContaining([
       'file:///docs/clips/ABC.mp4',
       'file:///docs/clips/ABC.thumb.jpg',
       'file:///docs/clips/ABC.focus.json',
+      'file:///docs/clips/ABC.ball.json',
+      'file:///docs/clips/ABC.balldet.json',
     ]),
   );
 });
