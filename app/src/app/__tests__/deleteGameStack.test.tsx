@@ -27,6 +27,7 @@ jest.mock('../../focus/appBallQueue', () => ({
   ballQueue: { request: jest.fn(), cancel: jest.fn(), progress: jest.fn(() => undefined), subscribe: jest.fn(() => () => {}) },
   ballAvailable: jest.fn(() => false),
   probeBallOnce: jest.fn(),
+  checkSportOnce: jest.fn(),
 }));
 jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
 jest.mock('../../session/SessionContext', () => ({ useSession: () => ({ reset: jest.fn(), state: {} }) }));

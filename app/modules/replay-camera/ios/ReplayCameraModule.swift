@@ -330,6 +330,10 @@ public class ReplayCameraModule: Module {
 
     Function("cancelBall") { (clipPath: String) in BallAnalyzer.cancel(clipPath: clipPath) }
 
+    AsyncFunction("classifySport") { (clipPath: String, startMs: Double, endMs: Double) async -> [String: Double] in
+      await SportCheck.classify(clipPath: clipPath, startMs: startMs, endMs: endMs)
+    }
+
     AsyncFunction("probeBall") { () async throws -> Double in
       try await probeBallResult()
     }

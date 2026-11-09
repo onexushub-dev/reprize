@@ -268,6 +268,16 @@ export function probeBall(): Promise<number> {
   return probe.call(ReplayCameraModule);
 }
 
+/**
+ * Test 43: Apple's scene classifier on 3 frames of the clip between `startMs` and `endMs`: each label's highest
+ * confidence (>= 0.01). Empty where it cannot run.
+ */
+export function classifySport(clipPath: string, startMs: number, endMs: number): Promise<Record<string, number>> {
+  const run = ReplayCameraModule.classifySport;
+  if (typeof run !== 'function') return Promise.resolve({});
+  return run.call(ReplayCameraModule, clipPath, startMs, endMs);
+}
+
 /** Opens Instagram's Story composer with the video; 'unavailable' without a Meta App ID or Instagram. */
 export function shareToInstagramStory(videoPath: string, metaAppId: string): Promise<'opened' | 'unavailable'> {
   return ReplayCameraModule.shareToInstagramStory(videoPath, metaAppId);

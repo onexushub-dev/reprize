@@ -47,7 +47,8 @@ import { askPhotos } from '../../share/askPhotos';
 import { ballForCut, readyBallFile } from '../../data/ballFile';
 import { readFocusFile } from '../../data/focusFile';
 import { removeFile, repo } from '../../data/mmkv';
-import { ballAvailable, ballQueue, probeBallOnce } from '../../focus/appBallQueue';
+import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce } from '../../focus/appBallQueue';
+import { ballSportOf } from '../../focus/sportCheck';
 import { focusQueue } from '../../focus/appFocusQueue';
 import { useFocusFraming } from '../../focus/useFocusFraming';
 import type { MessageKey } from '../../i18n';
@@ -387,10 +388,15 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const focusFollow = useFocusFraming(player, track, focusPreview);
   const ballFollow = useFocusFraming(player, ballTrack, ballOn, 'height');
   const follow = ballOn ? ballFollow : focusFollow;
-  // The one-time speed check of Seguir a Bola, when the editor first opens on this phone.
+  // The one-time speed check of Seguir a Bola, when the editor first opens on this phone; and once per recording, whether
+  // it looks like basketball (test 43).
+  const sessionId = clip ? clip.sessionId : undefined;
   useEffect(() => {
-    if (mode === 'edit') probeBallOnce();
-  }, [mode]);
+    if (mode !== 'edit') return;
+    probeBallOnce();
+    const c = repo.getClip(id);
+    if (sessionId && c && ballAvailable()) checkSportOnce(sessionId, c);
+  }, [mode, id, sessionId]);
 
   // The first time a clip opens, find where its picture starts: a black start is not part of the video.
   const hasFloor = clip?.contentStartMs !== undefined;
@@ -770,7 +776,10 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   else if (focusFile && !sizeKnown && edit.rotation === 0) focusUi = 'preparing';
   const tools = focusSupported ? EDIT_TOOLS : EDIT_TOOLS.filter((t) => t.id !== 'focus');
   let ballUi: BallUi = 'hidden';
-  if (ballAvailable()) ballUi = ballChosen ? (ballOn ? 'on' : 'analysing') : 'off';
+  if (ballAvailable()) {
+    if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
+    else ballUi = ballSportOf(session) === 'other' ? 'soon' : 'off';
+  }
   const ctx: ToolContext = {
     edit,
     plan,
@@ -780,6 +789,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     toggleFocus,
     ball: ballUi,
     toggleBall,
+    unlockBall: () => {
+      if (session) repo.setBallSport(session.id, { v: 1, verdict: 'allow', unlocked: true });
+    },
     resetZoom: () => {
       setEdit({ zoom: undefined });
       setZoomKey((k) => k + 1);

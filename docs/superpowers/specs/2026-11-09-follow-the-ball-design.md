@@ -232,13 +232,17 @@ The port must reproduce the lab, because the quality decisions were measured the
   without it); `ZoomableVideo` gets `content` (the video as tall as the box) and the framing is scaled by height.
 - Export: `focus = { path: ballPath, aspect: 'portrait', fill: true }` in a 9:16 frame; `ClipExporter` fills the frame
   with the crop when `fill`. A compilation forced landscape leaves Seguir a Bola out.
-- No sport gate yet (Victor, 2026-11-09: the analysis runs on every clip while testing; how to ask the sport comes
-  after the feature is complete). Analytics event not added yet.
+- Sport, without asking (Victor, 2026-11-09, test 43): once per recording, when the editor opens, Apple's scene
+  classifier (`SportCheck.swift`, `classifySport`) looks at 3 frames of the clip; another sport's label >= 0.4 with
+  "basketball" < 0.1 (`focus/sportCheck.ts`) stores `Session.ballSport = other` and the row shows "EM BREVE" (B3) with
+  "É basquete? Liberar nesta gravação" (stores `unlocked`). Recordings made in a beach tennis / futevôlei / vôlei de
+  praia mode are "EM BREVE" without a look. Unsure = allowed. The verdict and labels go to the Diagnóstico log for the
+  field test. Analytics event not added yet.
 
 ## 7. Open points
 
-- **Sport**: the app has no sport per recording. Seguir a Bola runs on every clip for now; decide how to ask (once per
-  recording, or at setup) when the feature is complete.
+- **Sport**: decided automatically (test 43, part 3 above); confirm in the field that no basketball recording gets
+  "EM BREVE" (18 other-sport clips and two main gyms in the test).
 - **Attribution (CC BY 4.0)**: the detector's training data asks for credit, "basketball_detection (cvsense, Roboflow
   Universe), CC BY 4.0", in the app's credits/licences before release (lab README, test 33). Tracked in
   `docs/superpowers/backlog.md`.

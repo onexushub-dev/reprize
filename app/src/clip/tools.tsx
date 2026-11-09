@@ -16,9 +16,9 @@ export type FocusUi = 'on' | 'off' | 'preparing' | 'unavailable';
 
 /**
  * Seguir a Bola as the Foco panel shows it: on (ready), analysing (the switch is on, the progress is on the video), off,
- * or `hidden` on a phone that cannot run it.
+ * `soon` ("EM BREVE") on a recording that looks like another sport (test 43), or `hidden` on a phone that cannot run it.
  */
-export type BallUi = 'on' | 'analysing' | 'off' | 'hidden';
+export type BallUi = 'on' | 'analysing' | 'off' | 'soon' | 'hidden';
 
 /** Everything a tool panel reads and does; the clip screen builds it. */
 export type ToolContext = {
@@ -32,6 +32,8 @@ export type ToolContext = {
   toggleFocus(): void;
   ball: BallUi;
   toggleBall(): void;
+  /** "EM BREVE" was a mistake: the player says this recording is basketball. */
+  unlockBall(): void;
   resetZoom(): void;
   turn(): void;
 };

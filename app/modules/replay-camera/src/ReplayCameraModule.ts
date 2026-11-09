@@ -74,6 +74,7 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   analyzeBall?(opts: AnalyzeBallOptions): Promise<BallAnalysis>;
   cancelBall?(clipPath: string): void;
   probeBall?(): Promise<number>;
+  classifySport?(clipPath: string, startMs: number, endMs: number): Promise<Record<string, number>>;
   getWatchStatus(): WatchStatus;
   watchSync(recording: boolean, clipCount: number, startedAt: number | null): void;
   watchSignal(saved: boolean): void;

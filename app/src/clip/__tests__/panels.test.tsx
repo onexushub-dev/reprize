@@ -14,6 +14,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     toggleFocus: jest.fn(),
     ball: 'hidden',
     toggleBall: jest.fn(),
+    unlockBall: jest.fn(),
     resetZoom: jest.fn(),
     turn: jest.fn(),
     ...over,
@@ -112,6 +113,17 @@ test('Seguir a Bola: a second switch under Modo Foco, hidden on phones that cann
   expect(sw.props.accessibilityState).toMatchObject({ checked: false });
   await fireEvent.press(sw);
   expect(c.toggleBall).toHaveBeenCalledTimes(1);
+});
+
+test('Seguir a Bola on another sport: "EM BREVE", off, and "É basquete?" unlocks it for the recording', async () => {
+  const Panel = panel('focus');
+  const c = ctx({ ball: 'soon' });
+  await render(<Panel ctx={c} />);
+  expect(screen.getByText('EM BREVE')).toBeTruthy();
+  expect(screen.getByText('Por enquanto só no basquete.')).toBeTruthy();
+  expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ disabled: true });
+  await fireEvent.press(screen.getByRole('button', { name: 'É basquete? Liberar nesta gravação' }));
+  expect(c.unlockBall).toHaveBeenCalledTimes(1);
 });
 
 test('Seguir a Bola on: Modo Foco says why it is off, and how to go back while it analyses', async () => {

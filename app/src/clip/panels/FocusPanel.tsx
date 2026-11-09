@@ -29,7 +29,7 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
   const { t } = useT();
   // On a free recording the framing works here, but it does not leave the app: the hints say so.
   const free = ctx.plan === 'free';
-  const ballShown = ctx.ball !== 'hidden';
+  const ballShown = ctx.ball !== 'hidden' && ctx.ball !== 'soon';
   const ballOn = ctx.ball === 'on' || ctx.ball === 'analysing';
   const focusOn = ctx.focus === 'on';
   const preparing = ctx.focus === 'preparing';
@@ -62,7 +62,19 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
           )
         }
       />
-      {ballShown ? (
+      {ctx.ball === 'soon' ? (
+        <View style={{ gap: 6 }}>
+          <PanelHead
+            title={t('clip.ballMode')}
+            hint={t('clip.ballSoonHint')}
+            badge={t('clip.ballSoon')}
+            right={<Toggle label={t('clip.ballMode')} on={false} disabled onPress={ctx.toggleBall} />}
+          />
+          <Pressable accessibilityRole="button" onPress={ctx.unlockBall} hitSlop={8}>
+            <Text style={styles.link}>{t('clip.ballUnlock')}</Text>
+          </Pressable>
+        </View>
+      ) : ballShown ? (
         <PanelHead
           title={t('clip.ballMode')}
           hint={free ? t('clip.ballPro') : t('clip.ballHint')}
@@ -91,5 +103,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: colors.surface,
   },
+  link: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
   noteText: { flexShrink: 1, fontFamily: fonts.body, fontSize: 12, color: colors.soft },
 });

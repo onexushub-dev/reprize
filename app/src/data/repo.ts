@@ -140,6 +140,14 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       return next;
     },
 
+    /** Seguir a Bola's sport check of this recording (test 43), or the player's "É basquete" unlock. */
+    setBallSport(id: string, ballSport: Session['ballSport']): void {
+      const session = getSession(id);
+      if (!session) return;
+      write(key.session(id), { ...session, ballSport });
+      changed();
+    },
+
     /** Records that this free recording already showed the full export panel: later exports get the short notice. */
     markFreeNoticeShown(id: string): void {
       const session = getSession(id);

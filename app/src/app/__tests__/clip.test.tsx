@@ -55,6 +55,7 @@ jest.mock('../../focus/appBallQueue', () => ({
   ballQueue: { request: jest.fn(), cancel: jest.fn(), progress: jest.fn(() => undefined), subscribe: jest.fn(() => () => {}) },
   ballAvailable: jest.fn(() => false),
   probeBallOnce: jest.fn(),
+  checkSportOnce: jest.fn(),
 }));
 jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
 jest.mock('../../data/focusFile', () => ({ ...jest.requireActual('../../data/focusFile'), readFocusFile: jest.fn(() => undefined) }));
@@ -73,6 +74,8 @@ jest.mock('../../data/mmkv', () => {
   let first = false;
   let paid = true;
   let noticeShown = false;
+  let sport: string | undefined;
+  let ballSport: any;
   let version = 0;
   const listeners = new Set<() => void>();
   let prefs: any = jest.requireActual('../../data/schema').DEFAULT_PREFS;
@@ -82,6 +85,7 @@ jest.mock('../../data/mmkv', () => {
     __setFirst: (f: boolean) => (first = f),
     __setPaid: (p: boolean) => (paid = p),
     __setNoticeShown: (n: boolean) => (noticeShown = n),
+    __setSport: (s: string | undefined, b?: any) => ((sport = s), (ballSport = b)),
     removeFile: jest.fn(),
     repo: {
       getClip: () => clip,
@@ -92,8 +96,9 @@ jest.mock('../../data/mmkv', () => {
       },
       getPrefs: () => prefs,
       setPrefs: jest.fn((p: object) => (prefs = { ...prefs, ...p })),
-      getSession: () => ({ id: 's1', sport: clip?.durationMs > 60000 ? 'musculacao' : 'beachTennis', startedAt: 0, paid, freeNoticeShown: noticeShown }),
+      getSession: () => ({ id: 's1', sport: sport || (clip?.durationMs > 60000 ? 'musculacao' : 'beachTennis'), startedAt: 0, paid, freeNoticeShown: noticeShown, ballSport }),
       markFreeNoticeShown: jest.fn(() => (noticeShown = true)),
+      setBallSport: jest.fn((_id: string, b: any) => (ballSport = b)),
       updateClip: jest.fn((id: string, patch: object) => {
         clip = { ...clip, ...patch };
         version += 1;
@@ -1064,12 +1069,35 @@ describe('Seguir a Bola', () => {
   const ballSwitch = () => screen.getByRole('switch', { name: 'Seguir a Bola' });
 
   beforeEach(() => {
+    jest.requireMock('../../data/mmkv').__setSport('quadra', undefined);
     balls.ballAvailable.mockReturnValue(true);
     readFocusFile.mockImplementation((path: string) =>
       path === '/c1.focus.json' ? focusTrack : path === '/c1.ball.json' ? ballTrack : undefined,
     );
   });
-  afterAll(() => balls.ballAvailable.mockReturnValue(false));
+  afterAll(() => {
+    balls.ballAvailable.mockReturnValue(false);
+    jest.requireMock('../../data/mmkv').__setSport(undefined, undefined);
+  });
+
+  test('the recording is checked once for the sport when the editor opens', async () => {
+    await openEdit('Foco');
+    expect(balls.checkSportOnce).toHaveBeenCalledWith('s1', expect.objectContaining({ path: '/c1.mp4' }));
+  });
+
+  test('another sport: "EM BREVE"; "É basquete?" unlocks it for the recording', async () => {
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'other', labels: { volleyball: 0.7 } });
+    await openEdit('Foco');
+    expect(screen.getByText('EM BREVE')).toBeTruthy();
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'É basquete? Liberar nesta gravação' })));
+    expect(repo.setBallSport).toHaveBeenCalledWith('s1', { v: 1, verdict: 'allow', unlocked: true });
+  });
+
+  test('a recording made in a beach tennis mode needs no look: "EM BREVE"', async () => {
+    jest.requireMock('../../data/mmkv').__setSport('beachTennis', undefined);
+    await openEdit('Foco');
+    expect(screen.getByText('EM BREVE')).toBeTruthy();
+  });
 
   test('the first tap shows what it does; "Seguir o clipe todo" turns it on and remembers the answer', async () => {
     __setClip({ ...base, focus: focusReady });

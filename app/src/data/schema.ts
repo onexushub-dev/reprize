@@ -43,7 +43,14 @@ export type ModeSettings = {
 /** What was saved for a mode: before zoom existed it held `lens` (read, never written). */
 export type StoredModeSettings = Partial<ModeSettings> & { lens?: 'ultraWide' | 'wide' };
 
-export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean };
+export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean; /** Seguir a Bola: whether the recording looks like basketball (test 43). */ ballSport?: BallSport };
+
+/**
+ * Whether a recording looks like basketball to Apple's scene classifier (test 43): `other` = another sport for sure, so
+ * Seguir a Bola shows "EM BREVE"; `allow` otherwise. `unlocked`: the player said it is basketball after all. `labels`:
+ * what the classifier saw (the field test reads them).
+ */
+export type BallSport = { v: 1; verdict: 'other' | 'allow'; labels?: Record<string, number>; unlocked?: boolean };
 
 export const MAX_GAME_NAME = 40;
 /** A clip's label (its name): short, to tell at a glance who or what it is (2026-11-07 spec §6). */

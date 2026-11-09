@@ -146,6 +146,8 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 6 | Hybrid framing: the ball while SAM 2 is sure of it, today's Modo Foco when not (`hybrid.py`, videos in `lab/tests/framing/`) | **first round done** (below) |
 | 10 | iPhone step 1: EdgeTAM as 4 fixed-shape Core ML models + the tracking loop (`loop.py`, `coreml_export.py`, `coreml-mac.sh`) | **done: same quality as EdgeTAM, 45 ms/frame on the Mac's Neural Engine** (below) |
 | 11 | iPhone step 2: time and check the Core ML models on the phones (16 Pro Max, XR) with FocusBench, a throwaway test app (`ios-bench/`, `ios_bench.py`) | **done: 16 Pro Max 122 ms/frame, all on the Neural Engine, same track as the Mac; XR 0.55–0.72 s/frame with GPU, same track, heats up** (below) |
+| 44 | Beach tennis baseline for Seguir a Bola: the basketball detector (`ball_tiny_gym`, all tiles, 5 fps) and today's path, zero-shot, on the 8 labelled beach tennis clips (`det_report.py --det bgymall-n5 --track det-t44-bgymall`) | **far from basketball's bar: detector ceiling 0–60%, path cover 0–36% (basketball: ceiling ~90%, cover 82%); a beach tennis detector is needed (public data + "not a ball" crops + Victor's recordings), and more labels (two clips have 1 point)** (below) |
+| 43 | Can the app tell a basketball clip from the other sports by itself (no question to the player)? 43a Apple's built-in scene classifier (Vision `VNClassifyImageRequest`, 3 frames per clip, `sport_classify.swift`); 43b the app's detector and path (trusted-ball share, `sport_report.py`) | **43a works as a "not basketball" signal: another sport's label (volleyball, tennis…) >= 0.4 with "basketball" < 0.1 catches 14 of the 18 readable non-basketball clips and hides none of the 75 basketball clips (at 0.3: 16/18, 1 basketball hidden); the "basketball" label itself is precise but finds only 40%. 43b separates poorly (basketball 22–100%, others 11–62%). Proposed: classify a few frames per recording, show "EM BREVE" only on a confident other sport, otherwise allow** (below) |
 | 42 | Phone cost of "Seguir a Bola" (no tap, so no EdgeTAM) and all a frame's tiles in one Core ML call (FocusBench `det5`, `det5b`) | **one call per frame: ~11 s per 30 s clip (was 64 s with EdgeTAM, 34 s without), identical output (`batchMaxDiff` 0, same candidates); about 4 s for a 10 s cut. Adopted for the app** (below) |
 | 40 | Does the app's detector (`ball_tiny_gym`) hold on other courts? 11 clips Victor labelled (outdoor + 3 gyms, web videos, measure only) | **yes: 82% cover / 90% precision, the same as in our gym; `ball_tiny_hn` 82% / 89%; still filter 0.5 +10 again. Weakest: outdoor (57%), a far small ball (70%), one gym with many false candidates (51%)** (below) |
 | 39 | A motion model in the ball path (constant velocity, offline Kalman idea) and a straight line through gaps (`ball_track.py dp=2 acc_cost`, `fill`) | **no: the motion model raises precision but loses the bouncing / passed ball at 5 fps (cover −1 to −3, story camera up to −9 on one clip, test 37's torso case back); the line through gaps +3–4 cover but −4–6 precision, camera unchanged. Default stays test 38's path; options kept for the racket sports** (below) |
@@ -178,6 +180,66 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 12 | Foco na Bola in ONE EdgeTAM pass instead of two: crops guided by the players only (`roi.py --guide p`), or following the previous frame's ball as tracking goes (`single_pass.py`) | **done: no one-pass variant ties with the two passes on every clip; keep two passes** (below) |
 
 Run the Mac tests with `bash tools/lab/mac-tests.sh` (ball) or `bash tools/lab/mac-tests.sh person`.
+
+### Test 44 result (2026-11-09) — beach tennis baseline (zero-shot)
+
+First step of the new-sport path (skill `seguir-a-bola-novo-esporte`): what the basketball pipeline does on beach
+tennis as it is. Detector `ball_tiny_gym` (all tiles + whole frame, 5 fps, `<clip>.bgymall-n5.json` from test 43b),
+path `ball_track.py` with the default parameters (beach tennis has no `SPORT_P` yet), report
+`report.t44-bt-base.md`:
+
+| Clip | pts | detector ceiling | path: mode / prec / cover | EdgeTAM fused (test 15, with a tap) |
+|---|---|---|---|---|
+| bt-0AE39B33 | 30 | 60% | 4% / 80% / 13% | 14% / 94% / 50% |
+| bt-E5003B6B | 32 | 31% | 16% / 83% / 16% | 27% / 93% / 44% |
+| bt-rz-1105-a | 73 | 55% | 51% / 79% / 36% | 75% / 100% / 81% |
+| bt-rz-1105-b | 73 | 12% | 46% / 0% / 0% | 61% / 8% / 3% |
+| bt-rz-1105-v | 54 | 31% | 41% / 19% / 6% | 9% / 0% / 0% |
+| yt1105-bt | 41 | 0% | 32% / 0% / 0% | 72% / 30% / 7% |
+| bt-wa-1028, yt-bt-06 | 1 each | — | — | — |
+
+- The basketball detector sees the small yellow ball in 0–60% of the labelled points (basketball: ~90%); the path then
+  follows something else on most clips. Nothing to tune in the path before a beach tennis detector exists.
+- Labels are thin: 6 clips with 30–73 points, 2 with one. Before training: more of Victor's recordings (2–3 venues,
+  side and end views, day and night) and denser labels, split in two halves by venue.
+- Next: a one-class beach tennis detector (public tennis/beach tennis ball data with a commercial licence, checked one
+  by one; "not a ball" crops of rackets, heads, net tape, lights; Victor's clips by fold), then the path's racket options
+  (test 39 `dp=2`, `fill`; test 6 round 5 trust rules).
+
+### Test 43 result (2026-11-09) — telling basketball from the other sports automatically
+
+Victor (2026-11-09): rather than asking the player the sport before Seguir a Bola (basketball only for now), can the app
+tell by itself? Two free, on-device signals, on every clip of clips.txt (75 basketball: our gyms, other courts, web
+clips; 19 other sports: beach tennis, volleyball, beach volleyball, futevôlei, tennis, society; web clips used only to
+measure). Results: `lab/tests/sport/t43a.json`, `t43b.json`.
+
+**43a — Apple's scene classifier** (Vision `VNClassifyImageRequest`, built into iOS/macOS, no model to ship;
+`sport_classify.swift` on Victor's Mac, 3 frames per clip at 20/50/80% of its window, 94 clips in 7 s; the label's
+highest confidence over the 3 frames; ref-tennis-02 gave no frame, its codec):
+
+| Rule | basketball clips kept as basketball | other sports recognised |
+|---|---|---|
+| "basketball" >= 0.1 (is basketball) | 40% | — (0% of the others reach it) |
+| another sport's label (volleyball, tennis, ping_pong, badminton, soccer, football) >= 0.3 and "basketball" < 0.1 | 74 / 75 | 16 / 18 |
+| same at **>= 0.4** | **75 / 75** | **14 / 18** |
+| same at >= 0.5 | 75 / 75 | 11 / 18 |
+
+- The classifier rarely says "basketball" on our amateur gym footage (people, structure, fence, window come first), so
+  it cannot confirm basketball; but it often names the other sports (beach tennis comes out as "volleyball"), so it can
+  rule basketball out. Missed at 0.4: two beach tennis clips (bt-wa-1028 0.29, bt-rz-1105-v 0.14), futevôlei/volleyball
+  near the line. Basketball clips closest to the line: own side-low-normal-05 (volleyball 0.32), yt-basket-04 (tennis
+  0.50 but basketball 0.12), side-low ping_pong ~0.2–0.3.
+- Small sample on the other side (18 clips, mostly web videos), and the basketball side is mostly two gyms: to be
+  confirmed in the field before it hides anything for good.
+
+**43b — the app's own detector** (`ball_tiny_gym`, all tiles, 5 fps, path with still 0.5, trusted points; 19 new runs
+`<clip>.bgymall-n5.json`, basketball from tests 38–40): share of frames with a trusted ball, basketball 22–100%
+(median ~72%), other sports 11–62% (it does find volleyballs and tennis balls). Any threshold drops basketball clips or
+keeps most others (>= 0.35: 97% / 53%). Not a usable signal on its own.
+
+- **Proposed for the app**: classify 3 frames of the first clip(s) of a recording (milliseconds), and only when another
+  sport's label is >= 0.4 with "basketball" < 0.1 show Seguir a Bola as "EM BREVE" (B3) for that recording; in every
+  other case allow it. Wrongly hiding it from a basketball player is worse than letting another sport try it.
 
 ### Test 42 result (2026-11-09) — phone cost of "Seguir a Bola" without EdgeTAM, and all tiles in one Core ML call (FocusBench `det5`, `det5b`)
 
@@ -1780,6 +1842,8 @@ the labels in `docs/focus-refs/labels/`, which is allow-listed in `docs/focus-re
 | `tools/lab/ball_detect.py`, `ball_track.py`, `det_report.py`, `ball_train.py` | tests 17–18: per-frame ball detector (YOLOX ONNX), ball path, report, fine-tuning | yes |
 | `lab/tests/detect/`, `lab/train/` | test 17 detections and reports; test 18 crops (regenerable by `ball_train.py dataset`) | no |
 | `tools/lab/ball_train_pub.py`, `hard_neg.py`, `pseudo_label.py`, `path_diag.py`, `story.py`, `yolox_coreml.py`, `frame_sync.py`, `label_sync.py`, `report_mean.py` | tests 28–38: basketball detector training (public data, "not a ball" crops, automatic labels), where the path loses the ball, the 9:16 story export, Core ML for FocusBench, label/frame timing checks, report means | yes |
+| `tools/lab/sport_classify.swift`, `sport_report.py` | test 43: Apple's scene classifier on 3 frames per clip (run on a Mac) and the report with the detector's signal | yes |
+| `lab/tests/sport/` | test 43 results | no |
 | `tools/lab/ball_parity.py` | Seguir a Bola: parity fixtures for the Swift port (`ReplayCore` `BallParityTests`) | yes |
 | `tools/lab/handoff-test-39.md` | the state after test 38 and the plan for test 39, for a new session | yes |
 | `tools/lab/ball_gate.py` | test 15: per-clip signals and the proposed rule for offering the ball framing | yes |
