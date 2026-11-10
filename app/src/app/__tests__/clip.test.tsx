@@ -47,6 +47,7 @@ jest.mock('../../share/captureOverlay', () => ({ captureOverlay: jest.fn(async (
 jest.mock('../../../modules/replay-camera', () => ({
   exportClip: jest.fn(async () => ({ path: '/exports/e1.mp4', durationMs: 30000 })),
   createThumbnail: jest.fn(async () => '/c1.jpg'),
+  videoShape: jest.fn(() => undefined),
   findContentStart: jest.fn(async () => 0),
   isFocusSupported: jest.fn(() => true),
 }));
@@ -57,7 +58,7 @@ jest.mock('../../focus/appBallQueue', () => ({
   probeBallOnce: jest.fn(),
   checkSportOnce: jest.fn(),
 }));
-jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
+jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), setHold: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
 jest.mock('../../data/focusFile', () => ({ ...jest.requireActual('../../data/focusFile'), readFocusFile: jest.fn(() => undefined) }));
 jest.mock('../../components/useReduceMotion', () => ({ useReduceMotion: jest.fn(() => false) }));
 jest.mock('../../share/ZoomableVideo', () => {

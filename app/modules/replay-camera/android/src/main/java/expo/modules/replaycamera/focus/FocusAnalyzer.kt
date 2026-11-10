@@ -25,13 +25,19 @@ import java.util.Collections
  */
 object FocusAnalyzer {
   private const val TAG = "ReprizeFocus"
+  /** Below the UI and playback, but not THREAD_PRIORITY_BACKGROUND (10), which pins the work to the little cores (3x slower). */
+  private const val ANALYSIS_PRIORITY = 5
   private const val MODEL = "efficientdet_lite0_int8.tflite"
-  const val STEP_MS = 100.0
+  /**
+   * One frame every 200 ms (the iPhone: 100 ms). The framing is smoothed over 0.6-1.2 s, so analysing half the frames moves the
+   * framing by 1-4% of the width and 0.2 of zoom at most on the test clips, less than the two detectors differ, in half the time.
+   */
+  const val STEP_MS = 200.0
   private const val MIN_CONFIDENCE = 0.3f
   /** The longest side of the frame given to the detector; a half-frame tile of it is what the detector sees up close. */
   private const val FRAME_LONG_SIDE = 1280
   /** Tiles scanned per sample, round-robin over the nine (the iPhone scans all nine; on a phone CPU that is ~1 s a frame). */
-  private const val TILES_PER_SAMPLE = 3
+  private const val TILES_PER_SAMPLE = 1
   private val lock = Any()
   private val cancelled: MutableSet<String> = Collections.synchronizedSet(HashSet())
 
@@ -48,7 +54,7 @@ object FocusAnalyzer {
   fun analyze(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Boolean): Outcome =
     synchronized(lock) {
       try {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+        Process.setThreadPriority(ANALYSIS_PRIORITY)
         run(context, clipPath, startMs, endMs, outPath, debug)
       } finally {
         cancelled.remove(clipPath)
@@ -81,13 +87,27 @@ object FocusAnalyzer {
       val stopFetching = java.util.concurrent.atomic.AtomicBoolean(false)
       val fetchFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
       val fetcher = Thread({
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+        Process.setThreadPriority(ANALYSIS_PRIORITY)
+        var delivered = 0
+        fun put(item: Pair<Double, Bitmap?>): Boolean {
+          while (!queue.offer(item, 200, java.util.concurrent.TimeUnit.MILLISECONDS)) if (stopFetching.get()) return false
+          return true
+        }
         try {
-          var tick = startMs
-          while (tick < stop && !stopFetching.get()) {
-            val item = Pair(tick, frameAt(retriever, tick, rotation, storedW, storedH))
-            while (!queue.offer(item, 200, java.util.concurrent.TimeUnit.MILLISECONDS)) if (stopFetching.get()) return@Thread
-            tick += STEP_MS
+          try {
+            FrameDecoder(clipPath, startMs, stop, STEP_MS, rotation, FRAME_LONG_SIDE).run({ stopFetching.get() }) { pts, bitmap ->
+              delivered += 1
+              put(Pair(pts, bitmap))
+            }
+          } catch (e: Throwable) {
+            // A phone whose decoder does not give frames this way: ask for them one by one (slow, but it works).
+            if (delivered > 0) throw e
+            Log.w(TAG, "sequential decoding failed (${e.message}), using the frame by frame fallback")
+            var tick = startMs
+            while (tick < stop && !stopFetching.get()) {
+              if (!put(Pair(tick, frameAt(retriever, tick, rotation, storedW, storedH)))) break
+              tick += STEP_MS
+            }
           }
         } catch (e: Throwable) {
           fetchFailure.set(e)

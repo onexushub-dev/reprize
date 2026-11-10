@@ -42,6 +42,12 @@ const NUDGE_ECHO_MS = 2000;
  * when the camera restarted, 2026-10-31 log, which saved a clip nobody asked for).
  */
 export const MAX_PRESS_STEP = 0.13;
+/**
+ * Android moves 1/15 per step (0.067), so two steps are 0.133 and three 0.2: 2026-11-09 court log, 20+ presses on the
+ * POCO went to "salto do sistema" (0.73 -> 0.87, 0.80 -> 0.93) and saved nothing, so the player had to press again.
+ * Without the native volume read (Android) up to three steps count as a press; the earpiece's jump is far bigger.
+ */
+export const MAX_PRESS_STEP_ANDROID = 0.21;
 
 export type VolumeRemoteOptions = {
   /**
@@ -220,7 +226,7 @@ export function useVolumeRemote(enabled: boolean, onPress: () => void, options: 
     const listener = VolumeManager.addVolumeListener(({ volume }) => {
       if (!active) return;
       const level = volume.toFixed(2);
-      const jump = Math.abs(volume - last) > MAX_PRESS_STEP;
+      const jump = Math.abs(volume - last) > (native ? MAX_PRESS_STEP : MAX_PRESS_STEP_ANDROID);
       last = volume;
       const isAway = away();
       if (Date.now() < armedAt || isAway) {

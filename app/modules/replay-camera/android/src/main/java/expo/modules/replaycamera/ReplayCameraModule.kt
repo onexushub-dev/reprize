@@ -96,13 +96,14 @@ class ReplayCameraModule : Module() {
     Name("ReplayCamera")
 
     Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus", "onDiag",
-      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck")
+      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton")
 
     OnCreate {
       ReplayEngine.emit = { name, body -> sendEvent(name, body) }
       remote().emit = { name, body -> sendEvent(name, body) }
       host().emit = { name, body -> sendEvent(name, body) }
       RemoteVoice.emit = { name, body -> sendEvent(name, body) }
+      CaptureKeys.emit = { name, body -> sendEvent(name, body) }
     }
 
     // ---- This phone as the remote of a camera phone (an iPhone or an Android), over Bluetooth LE. The camera side
@@ -186,6 +187,8 @@ class ReplayCameraModule : Module() {
     Function("setGestureEnabled") { enabled: Boolean -> ReplayEngine.setGestureEnabled(enabled) }
 
     // Screen economy while recording: brightness down (the JS side covers the screen in black); false gives it back.
+    // Volume keys / Bluetooth remote as capture events (press and hold); true: this phone delivers them.
+    Function("setCaptureButtons") { on: Boolean -> CaptureKeys.set(appContext.currentActivity, on); true }
     Function("setScreenEconomy") { on: Boolean -> ScreenEconomy.set(appContext.currentActivity, on) }
 
     Function("signalSaved") { sound: Boolean, flash: Boolean -> ReplayEngine.signalSaved(sound, flash) }
@@ -226,20 +229,26 @@ class ReplayCameraModule : Module() {
     }
 
     // Modo Foco: people found with an on-device detector, the framing written next to the clip (see FocusAnalyzer).
-    AsyncFunction("analyzeFocus") { o: AnalyzeFocusOptions ->
-      try {
-        val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.debug)
-        mapOf("status" to if (r.ready) "ready" else "none", "frames" to r.frames, "framesWithPeople" to r.framesWithPeople,
-          "meanPeople" to r.meanPeople, "elapsedMs" to r.elapsedMs)
-      } catch (e: FocusAnalyzer.Cancelled) {
-        throw ReplayException("CANCELLED", "Focus analysis cancelled")
-      } catch (e: Throwable) {
-        android.util.Log.e("ReprizeFocus", "analysis failed", e)
-        throw ReplayException("FOCUS_FAILED", "${e.cause ?: e}")
-      }
+    // On its own thread: an analysis lasts as long as the clip, and on the module's shared queue it held up every other
+    // call (the thumbnail that tells the screen the clip's shape waited for it: 8 s, 2026-11-10 field log).
+    AsyncFunction("analyzeFocus") { o: AnalyzeFocusOptions, promise: Promise ->
+      Thread({
+        try {
+          val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.debug)
+          promise.resolve(mapOf("status" to if (r.ready) "ready" else "none", "frames" to r.frames, "framesWithPeople" to r.framesWithPeople,
+            "meanPeople" to r.meanPeople, "elapsedMs" to r.elapsedMs))
+        } catch (e: FocusAnalyzer.Cancelled) {
+          promise.reject("CANCELLED", "Focus analysis cancelled", null)
+        } catch (e: Throwable) {
+          android.util.Log.e("ReprizeFocus", "analysis failed", e)
+          promise.reject("FOCUS_FAILED", "${e.cause ?: e}", null)
+        }
+      }, "focus-analysis").start()
     }
 
     Function("cancelFocus") { clipPath: String -> FocusAnalyzer.cancel(clipPath) }
+
+    Function("videoShape") { clipPath: String -> ClipThumbnail.shape(clipPath) }
 
     AsyncFunction("createThumbnail") { clipPath: String, atMs: Double -> ClipThumbnail.make(clipPath, atMs) }
 
