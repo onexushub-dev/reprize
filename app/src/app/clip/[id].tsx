@@ -1,4 +1,6 @@
 import { File } from 'expo-file-system';
+import { diag } from '../../diag/diagLog'; // TEMP(diag-remote): export timings
+import { diagExport, diagFramingShown, diagShapeKnown } from '../../diag/clipTimings'; // TEMP(diag-remote)
 import { Asset } from 'expo-media-library';
 import { router, useLocalSearchParams } from 'expo-router';
 import { shareAsync } from 'expo-sharing';
@@ -19,7 +21,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { createThumbnail, exportClip, findContentStart, isFocusSupported } from '../../../modules/replay-camera';
+import { createThumbnail, exportClip, findContentStart, isFocusSupported, videoShape } from '../../../modules/replay-camera';
 import { ClipEdit } from '../../clip/ClipEdit';
 import { ClipWatch } from '../../clip/ClipWatch';
 import { beginEdit, type EditSnapshot, hasChanges, lastTool, rememberTool, restorePatch, type ToolId } from '../../clip/editSession';
@@ -50,6 +52,7 @@ import { removeFile, repo } from '../../data/mmkv';
 import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce } from '../../focus/appBallQueue';
 import { ballSportOf } from '../../focus/sportCheck';
 import { focusQueue } from '../../focus/appFocusQueue';
+import { focusHold } from '../../focus/focusQueue';
 import { useFocusFraming } from '../../focus/useFocusFraming';
 import type { MessageKey } from '../../i18n';
 import { useT } from '../../i18n/useT';
@@ -304,10 +307,21 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     if (track) focusChip = focusActive ? 'on' : 'off';
     else if (focusSupported && (!focusState || focusState.status === 'pending')) focusChip = 'preparing';
   }
+  // The analysis starts once the clip's shape is known: it takes the processor, and the thumbnail that measures the
+  // video must not wait behind it (the frame would stay in its default landscape shape meanwhile).
+  // TEMP(diag-remote): where the wait for the framing goes (screen open → shape known → framing on screen).
+  const openedAt = useRef(Date.now());
   useEffect(() => {
+    if (sizeKnown) diagShapeKnown(Date.now() - openedAt.current);
+  }, [sizeKnown]);
+  useEffect(() => {
+    if (track) diagFramingShown(Date.now() - openedAt.current);
+  }, [track]);
+  useEffect(() => {
+    if (!sizeKnown) return;
     const current = repo.getClip(id);
     if (current && focusSupported) focusQueue.ensure(current);
-  }, [id, focusSupported]);
+  }, [id, focusSupported, sizeKnown]);
   // The introduction, once ever: the framing grows out of the whole video with a caption.
   const reduceMotion = useReduceMotion();
   const [introDue] = useState(() => !repo.getPrefs().focusIntroSeen);
@@ -352,6 +366,14 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const startMs = clip?.trim.startMs ?? 0;
   useEffect(() => {
     if (!clipPath) return;
+    // Android reads the shape from the metadata at once: the thumbnail's decoder can wait behind a Modo Foco analysis.
+    const quick = videoShape(clipPath);
+    if (quick) {
+      rememberShape(clipPath, quick);
+      setVideoSize(quick);
+      setSizeKnown(true);
+      return;
+    }
     createThumbnail(clipPath, startMs)
       .then((path) => Image.getSize(`file://${path}`))
       .then(({ width, height }) => {
@@ -672,8 +694,12 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     const key = job ? job.key : '';
     const cached = cachedExport(key);
     if (cached) return cached;
+    const t0 = Date.now();
     const overlayPngPath = await captureOverlay(captureRefView);
+    const t1 = Date.now();
     const result = await exportClip({ clipPath: clip!.path, ...job!.options, overlayPngPath, background: colors.ground });
+    const o = job!.options;
+    diagExport({ frameMs: t1 - t0, renderMs: Date.now() - t1, lengthMs: o.endMs - o.startMs, width: o.width, height: o.height, side, focus: !!o.focus, speed: o.speed, muted: !!o.muted });
     removeQuietly(overlayPngPath);
     // Kept even when the screen closed meanwhile: the next Salvar/Enviar of this look (here or in a batch) uses it.
     rememberExport(key, result.path);
@@ -707,6 +733,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       await showSide(picked);
     }
     exporting.current = true;
+    // The render and the gallery write get the phone to themselves: Modo Foco analyses of other clips (they start again
+    // afterwards) made a 30 s save take over a minute and froze the playback (2026-11-10 field log).
+    focusQueue.setHold('all');
     saveName(); // a name typed without closing the keyboard still counts
     setBusy(true);
     setNotice(undefined);
@@ -723,6 +752,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       if (!(error instanceof Error && error.message === 'closed')) trackEvent('export_failed', { reason: 'prepare_failed' });
       setNotice('clip.prepareFailed');
     } finally {
+      focusQueue.setHold(focusHold(false));
       exporting.current = false;
       setBusy(false);
       setJob(undefined);
@@ -740,7 +770,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     run('save', async (path) => {
       const granted = await askPhotos();
       if (!granted) return setNotice('clip.noPhotos');
+      const g0 = Date.now();
       await Asset.create(`file://${path}`);
+      diag(`clipe galeria: gravado em ${Date.now() - g0} ms`);
       reportDelivered('photos');
       repo.updateClip(id, { savedAt: Date.now() });
       setSaved(true);

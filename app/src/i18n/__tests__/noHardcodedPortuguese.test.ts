@@ -15,6 +15,7 @@ const ALLOWLIST = new Set([
   // TEMP(diag-remote) (for the team only): the diagnostic log and its screen.
   'app/diag.tsx',
   'diag/diagLog.ts',
+  'diag/clipTimings.ts',
   'diag/useSessionDiag.ts',
   'diag/remoteLinkDiag.ts',
   'diag/useSetupDiag.ts',

@@ -42,13 +42,13 @@ export const focusQueue = createFocusQueue({
   supported: camera.isFocusSupported,
   repo,
   // TEMP(diag-remote): the Modo Foco v14 field test reads the analysis time on the Diagnóstico screen.
-  measured: (clip, r) => {
+  measured: (clip, r, waitedMs) => {
     if (!DIAGNOSTICS_ENABLED) return;
     const before = powerAtStart.get(clip.path);
     powerAtStart.delete(clip.path);
     diag(
       `Modo Foco: clipe de ${((clip.bounds ? clip.bounds.endMs - clip.bounds.startMs : clip.durationMs) / 1000).toFixed(0)} s ` +
-        `${analysisTime(r.elapsedMs, Date.now())} (${r.frames} quadros, ${r.meanPeople.toFixed(1)} pessoas/quadro, ${r.status})` +
+        `${analysisTime(r.elapsedMs, Date.now())} (${r.frames} quadros, ${r.meanPeople.toFixed(1)} pessoas/quadro, ${r.status}, esperou ${(waitedMs / 1000).toFixed(1)} s na fila)` +
         ` — antes: ${before !== undefined ? before : '?'} — depois: ${power()}`,
     );
   },

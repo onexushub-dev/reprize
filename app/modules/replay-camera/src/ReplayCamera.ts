@@ -205,6 +205,20 @@ export function createThumbnail(clipPath: string, atMs: number): Promise<string>
   return ReplayCameraModule.createThumbnail(clipPath, atMs);
 }
 
+/**
+ * The clip's shape (rotation applied) from its metadata, at once: no frame is decoded, so it never waits behind the Modo
+ * Foco analysis for the phone's video decoder (2026-11-10 field log: 20 s). Undefined where unsupported (iOS, older builds).
+ */
+export function videoShape(clipPath: string): { width: number; height: number } | undefined {
+  const read = ReplayCameraModule.videoShape;
+  if (typeof read !== 'function') return undefined;
+  try {
+    return read.call(ReplayCameraModule, clipPath) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Time in ms where the clip's picture begins after a black start; 0 when it starts with a picture (always 0 on Android for now). */
 export async function findContentStart(clipPath: string): Promise<number> {
   return (await ReplayCameraModule.findContentStart?.(clipPath)) ?? 0;

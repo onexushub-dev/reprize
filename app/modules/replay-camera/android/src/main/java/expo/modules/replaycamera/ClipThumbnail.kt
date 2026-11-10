@@ -10,6 +10,24 @@ import java.io.File
 object ClipThumbnail {
   fun path(clipPath: String): String = clipPath.substringBeforeLast('.') + ".jpg"
 
+  /** The clip's shape with its rotation applied, from the metadata alone (no decoding). Null when unreadable. */
+  fun shape(clipPath: String): Map<String, Int>? {
+    val retriever = MediaMetadataRetriever()
+    return try {
+      retriever.setDataSource(clipPath)
+      val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+      val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+      val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+      if (w <= 0 || h <= 0) null
+      else if (rotation == 90 || rotation == 270) mapOf("width" to h, "height" to w)
+      else mapOf("width" to w, "height" to h)
+    } catch (e: Exception) {
+      null
+    } finally {
+      retriever.release()
+    }
+  }
+
   fun make(clipPath: String, atMs: Double): String {
     val out = File(path(clipPath))
     if (out.exists()) return out.path
