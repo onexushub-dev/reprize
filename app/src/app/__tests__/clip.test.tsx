@@ -1069,7 +1069,8 @@ describe('Seguir a Bola', () => {
   const ballSwitch = () => screen.getByRole('switch', { name: 'Seguir a Bola' });
 
   beforeEach(() => {
-    jest.requireMock('../../data/mmkv').__setSport('quadra', undefined);
+    // a recording whose sport the player already gave (basketball): the switch is there (test 48)
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'allow', sport: 'basquete' });
     balls.ballAvailable.mockReturnValue(true);
     readFocusFile.mockImplementation((path: string) =>
       path === '/c1.focus.json' ? focusTrack : path === '/c1.ball.json' ? ballTrack : undefined,
@@ -1085,18 +1086,37 @@ describe('Seguir a Bola', () => {
     expect(balls.checkSportOnce).toHaveBeenCalledWith('s1', expect.objectContaining({ path: '/c1.mp4' }));
   });
 
-  test('another sport: "EM BREVE"; "É basquete?" unlocks it for the recording', async () => {
-    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'other', labels: { volleyball: 0.7 } });
+  test('another sport: the panel asks which one; the answer is kept for the recording (test 48)', async () => {
+    const labels = { volleyball: 0.7 };
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'other', labels });
     await openEdit('Foco');
-    expect(screen.getByText('EM BREVE')).toBeTruthy();
-    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'É basquete? Liberar nesta gravação' })));
-    expect(repo.setBallSport).toHaveBeenCalledWith('s1', { v: 1, verdict: 'allow', unlocked: true });
+    expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Beach tennis' })));
+    expect(repo.setBallSport).toHaveBeenCalledWith('s1', { v: 1, verdict: 'other', labels, sport: 'beachTennis' });
+    expect(screen.getByRole('button', { name: 'Esporte: Beach tennis · Trocar' })).toBeTruthy();
   });
 
-  test('a recording made in a beach tennis mode needs no look: "EM BREVE"', async () => {
+  test('a recording the classifier is unsure about: the panel asks once, the answer serves its clips', async () => {
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'allow', labels: { people: 0.8 } });
+    await openEdit('Foco');
+    expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
+    expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: true });
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Basquete' })));
+    expect(repo.setBallSport).toHaveBeenCalledWith('s1', {
+      v: 1,
+      verdict: 'allow',
+      labels: { people: 0.8 },
+      sport: 'basquete',
+    });
+    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
+    expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: false });
+  });
+
+  test('a recording made in the beach tennis mode is beach tennis: no question', async () => {
     jest.requireMock('../../data/mmkv').__setSport('beachTennis', undefined);
     await openEdit('Foco');
-    expect(screen.getByText('EM BREVE')).toBeTruthy();
+    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Esporte: Beach tennis · Trocar' })).toBeTruthy();
   });
 
   test('the first tap shows what it does; "Seguir o clipe todo" turns it on and remembers the answer', async () => {

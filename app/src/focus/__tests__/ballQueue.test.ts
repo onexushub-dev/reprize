@@ -10,12 +10,14 @@ function setup() {
   const repo = createRepo(kv, { exists: () => true, sizeBytes: () => 1 }, () => `id-${++n}`);
   const runs: { opts: AnalyzeBallOptions; resolve: (a: BallAnalysis) => void; reject: (e: unknown) => void }[] = [];
   let clock = 0;
+  const sport: { id: 'basquete' | 'beachTennis' | undefined } = { id: 'basquete' };
   const deps = {
     analyze: jest.fn((o: AnalyzeBallOptions) => new Promise<BallAnalysis>((resolve, reject) => void runs.push({ opts: o, resolve, reject }))),
     cancel: jest.fn(),
     supported: () => true,
     repo,
     now: () => clock,
+    sportOf: () => sport.id,
   };
   const queue = createBallQueue(deps);
   const addClip = (path: string) => repo.addClip({ sessionId: 's', createdAt: 1, source: 'screen', path, durationMs: 60000 }, 10000);
@@ -34,14 +36,14 @@ function setup() {
   const tick = (ms: number) => {
     clock += ms;
   };
-  return { repo, deps, queue, runs, addClip, done, flush, cancelled, tick };
+  return { repo, deps, queue, runs, addClip, done, flush, cancelled, tick, sport };
 }
 
 test('the switch asks for the current cut; the analysis gets the cut, the cache, the output and Modo Foco file', () => {
   const { repo, queue, runs, addClip } = setup();
   const clip = addClip('/c/1.mp4');
   queue.request(clip.id);
-  expect(repo.getClip(clip.id)!.ball).toEqual({ v: 1, status: 'pending', startMs: 50000, endMs: 60000 });
+  expect(repo.getClip(clip.id)!.ball).toEqual({ v: 1, status: 'pending', startMs: 50000, endMs: 60000, sport: 'basquete' });
   expect(runs[0].opts).toEqual({
     clipPath: '/c/1.mp4',
     startMs: 50000,
@@ -49,6 +51,7 @@ test('the switch asks for the current cut; the analysis gets the cut, the cache,
     detPath: '/c/1.balldet.json',
     outPath: '/c/1.ball.json',
     focusPath: '/c/1.focus.json',
+    sport: 'basquete',
   });
 });
 
@@ -59,7 +62,15 @@ test('ready for that cut; asking again for the same cut does nothing', async () 
   runs[0].resolve(done(0.3));
   await flush();
   const stored = repo.getClip(clip.id)!;
-  expect(stored.ball).toEqual({ v: 1, status: 'ready', startMs: 50000, endMs: 60000, file: '/c/1.ball.json', share: 0.3 });
+  expect(stored.ball).toEqual({
+    v: 1,
+    status: 'ready',
+    startMs: 50000,
+    endMs: 60000,
+    sport: 'basquete',
+    file: '/c/1.ball.json',
+    share: 0.3,
+  });
   expect(readyBallFile(stored)).toBe('/c/1.ball.json');
   expect(queue.progress(clip.id)).toBeUndefined();
   queue.request(clip.id);
@@ -160,7 +171,14 @@ test('failed, and failed for heat, are kept for the chip; asking again retries',
   queue.request(clip.id);
   runs[0].reject(Object.assign(new Error('hot'), { code: 'BALL_HOT' }));
   await flush();
-  expect(repo.getClip(clip.id)!.ball).toEqual({ v: 1, status: 'failed', startMs: 50000, endMs: 60000, hot: true });
+  expect(repo.getClip(clip.id)!.ball).toEqual({
+    v: 1,
+    status: 'failed',
+    startMs: 50000,
+    endMs: 60000,
+    sport: 'basquete',
+    hot: true,
+  });
   queue.request(clip.id);
   expect(runs).toHaveLength(2);
   warn.mockRestore();
@@ -196,4 +214,47 @@ test('a deleted clip file is dropped from the queue and its run stopped', () => 
   queue.request(clip.id);
   queue.forget('/c/1.mp4');
   expect(deps.cancel).toHaveBeenCalledWith('/c/1.mp4');
+});
+
+test('test 48: the sport picks the analysis; another sport analyses the cut again, none known runs nothing', async () => {
+  const { repo, queue, runs, addClip, done, flush, sport } = setup();
+  const clip = addClip('/c/1.mp4');
+  sport.id = undefined;
+  queue.request(clip.id);
+  expect(runs).toHaveLength(0);
+  expect(repo.getClip(clip.id)!.ball).toBeUndefined();
+  sport.id = 'beachTennis';
+  queue.request(clip.id);
+  expect(runs[0].opts.sport).toBe('beachTennis');
+  runs[0].resolve(done());
+  await flush();
+  expect(repo.getClip(clip.id)!.ball).toMatchObject({ status: 'ready', sport: 'beachTennis' });
+  queue.request(clip.id);
+  expect(runs).toHaveLength(1);
+  // the player says basketball after all: analysed again with basketball's model
+  sport.id = 'basquete';
+  queue.request(clip.id);
+  expect(runs).toHaveLength(2);
+  expect(runs[1].opts.sport).toBe('basquete');
+});
+
+test('test 47a: not worth it on this video: kept as unsuitable with the reason, not asked again for the cut', async () => {
+  const { repo, queue, runs, addClip, done, flush, sport } = setup();
+  sport.id = 'beachTennis';
+  const clip = addClip('/c/1.mp4');
+  queue.request(clip.id);
+  runs[0].resolve({ ...done(0.6), status: 'unsuitable', reason: 'tooSmall' });
+  await flush();
+  expect(repo.getClip(clip.id)!.ball).toEqual({
+    v: 1,
+    status: 'unsuitable',
+    startMs: 50000,
+    endMs: 60000,
+    sport: 'beachTennis',
+    share: 0.6,
+    reason: 'tooSmall',
+  });
+  expect(readyBallFile(repo.getClip(clip.id)!)).toBeUndefined();
+  queue.request(clip.id);
+  expect(runs).toHaveLength(1);
 });

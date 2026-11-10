@@ -2,8 +2,8 @@ import AVFoundation
 import CoreImage
 import CoreML
 
-/// Seguir a Bola analysis (spec 2026-11-09 §4.3–4.6): the lab's basketball detector (`ball_tiny_gym`, YOLOX-Tiny 416)
-/// on the cut at 5 fps — the whole frame and every 416 px tile, all of a frame's regions in ONE Core ML call (test 42) —
+/// Seguir a Bola analysis (spec 2026-11-09 §4.3–4.6): the sport's detector (`BallSport`: basketball `ball_tiny_gym`,
+/// beach tennis `ball_tiny_btpl`, YOLOX-Tiny 416) on the cut at 5 fps — the whole frame and every 416 px tile, all of a frame's regions in ONE Core ML call (test 42) —
 /// then `BallFraming` (path, trusted points, zoom, camera C) into `<clip>.ball.json`, the Modo Foco file's format with
 /// the 9:16 track under "portrait". The detections are kept in `<clip>.balldet.json`, so a changed cut, a cancel or a
 /// stop for heat continues from what was found. One analysis at a time; it is the user waiting, so `.userInitiated`.
@@ -22,6 +22,8 @@ enum BallAnalyzer {
     let ballShare: Double
     let zoom: Double
     let elapsedMs: Double
+    /// Test 47a: why the mode is not worth applying to this cut (`BallVerdictReason`), "" = apply.
+    let verdict: String
   }
 
   /// `interrupted`: Core ML or the reader kept failing (the app went to the background); `hot`: stopped at `critical`.
@@ -36,7 +38,7 @@ enum BallAnalyzer {
   private static let work = DispatchQueue(label: "reprize.ball", qos: .userInitiated)
   private static let lock = NSLock()
   nonisolated(unsafe) private static var cancelled = Set<String>() // guarded by `lock`
-  nonisolated(unsafe) private static var detector: Detector? // used on `work` only
+  nonisolated(unsafe) private static var detector: Detector? // used on `work` only; one sport's model at a time
 
   static func cancel(clipPath: String) {
     lock.lock(); cancelled.insert(clipPath); lock.unlock()
@@ -54,7 +56,7 @@ enum BallAnalyzer {
   /// `detPath`: the detections cache; `outPath`: the framing file; `focusPath`: today's Modo Foco file for the same cut
   /// (its framing is the camera's fallback and gives today's zoom; a centred crop if it is missing).
   static func analyze(clipPath: String, startMs: Double, endMs: Double, detPath: String, outPath: String,
-                      focusPath: String) async throws -> Outcome {
+                      focusPath: String, sport: BallSport = .basketball) async throws -> Outcome {
     let asset = AVURLAsset(url: URL(fileURLWithPath: clipPath))
     guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw Failure.noVideo }
     let transform = try await track.load(.preferredTransform)
@@ -67,7 +69,7 @@ enum BallAnalyzer {
           done.resume(returning: try run(asset: asset, track: track, transform: transform, natural: natural,
                                          clipPath: clipPath, startMs: startMs,
                                          endMs: endMs > startMs ? min(endMs, duration) : duration,
-                                         detPath: detPath, outPath: outPath, focusPath: focusPath))
+                                         detPath: detPath, outPath: outPath, focusPath: focusPath, sport: sport))
         } catch {
           done.resume(throwing: error)
         }
@@ -77,14 +79,24 @@ enum BallAnalyzer {
 
   private static func run(asset: AVAsset, track: AVAssetTrack, transform: CGAffineTransform, natural: CGSize,
                           clipPath: String, startMs: Double, endMs: Double, detPath: String, outPath: String,
-                          focusPath: String) throws -> Outcome {
+                          focusPath: String, sport: BallSport) throws -> Outcome {
     let started = Date()
     let orientation = FocusAnalyzer.orientation(of: transform)
     let turned = orientation == .left || orientation == .right
     let W = Int((turned ? natural.height : natural.width).rounded())
     let H = Int((turned ? natural.width : natural.height).rounded())
 
-    var dets = BallFraming.detections(fromJSON: readJSON(detPath), width: W, height: H)
+    // Test 47a, before any frame is analysed: players too small for the 9:16 output = recorded too far, nothing to run.
+    let players = playersHeight(focusPath: focusPath)
+    if let early = BallVerdicts.before(playersHeight: players, width: Double(W), height: Double(H), sport: sport) {
+      return Outcome(ready: true, analysed: 0, reused: 0, ballFrames: 0, trustedFrames: 0, ballShare: 0, zoom: 1,
+                     elapsedMs: Date().timeIntervalSince(started) * 1000, verdict: early.rawValue)
+    }
+
+    let cache = readJSON(detPath)
+    var dets = BallFraming.detections(fromJSON: cache, width: W, height: H, model: sport.modelId)
+    // Test 47b: video screens, from this run's thumbnails or kept from an earlier run of the same model
+    var screens = dets.isEmpty ? [] : BallFraming.screens(fromJSON: cache)
     let phase = BallFraming.phase(startMs: startMs, endMs: endMs, cached: dets)
     let missing = BallFraming.missingTicks(startMs: startMs, endMs: endMs, phase: phase, cached: dets)
     let total = (BallFraming.rows(startMs: startMs, endMs: endMs) - phase + BallFraming.step - 1) / BallFraming.step
@@ -92,12 +104,17 @@ enum BallAnalyzer {
 
     if !missing.isEmpty {
       try waitUntilCool(clipPath: clipPath, done: reused, total: total)
-      if detector == nil { detector = try Detector() }
+      if detector == nil || detector?.modelId != sport.modelId { detector = try Detector(modelId: sport.modelId) }
       guard let det = detector else { throw Failure.noModel }
       var found: [BallFraming.Detection] = []
+      var thumbs: [[UInt8]] = []
+      var thumbSize = (width: 0, height: 0)
       defer {
         // whatever happened, keep what was found
-        if !found.isEmpty { writeJSON(BallFraming.detectionsJSON(dets + found, width: W, height: H), to: detPath) }
+        if !found.isEmpty {
+          writeJSON(BallFraming.detectionsJSON(dets + found, width: W, height: H, model: sport.modelId,
+                                               screens: screens), to: detPath)
+        }
       }
       let reader = try AVAssetReader(asset: asset)
       let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
@@ -126,6 +143,11 @@ enum BallAnalyzer {
         let boxes: [BallDetect.Box]? = autoreleasepool {
           var image = CIImage(cvPixelBuffer: pixels).oriented(orientation)
           image = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
+          if sport.screens {
+            let t = det.thumbnail(image)
+            thumbs.append(t.pixels)
+            thumbSize = (t.width, t.height)
+          }
           return try? det.detect(image, regions: regions)
         }
         guard let b = boxes else {
@@ -135,24 +157,51 @@ enum BallAnalyzer {
         }
         found.append(BallFraming.Detection(tMs: t, candidates: BallDetect.frameCandidates(b, width: W, height: H)))
         if found.count % 5 == 0 { emit?(clipPath, reused + found.count, total, "running") }
-        if found.count % 25 == 0 { writeJSON(BallFraming.detectionsJSON(dets + found, width: W, height: H), to: detPath) }
+        if found.count % 25 == 0 {
+          writeJSON(BallFraming.detectionsJSON(dets + found, width: W, height: H, model: sport.modelId,
+                                               screens: screens), to: detPath)
+        }
       }
       if reader.status == .failed { throw Failure.unreadable }
+      // most of the cut seen in this run: its screens replace the kept ones (the defer above writes them)
+      if sport.screens && thumbs.count >= 10 && thumbs.count * 2 >= total {
+        screens = BallScreen.boxes(frames: thumbs, width: thumbSize.width, height: thumbSize.height)
+      }
       dets += found
     }
 
     emit?(clipPath, total, total, "framing")
     let grid = BallFraming.grid(startMs: startMs, endMs: endMs, phase: phase, detections: dets)
     let today = todayRows(focusPath: focusPath, startMs: startMs, count: grid.count, landscape: W >= H)
+    let people = sport.follow == nil ? [] : peopleRows(focusPath: focusPath, startMs: startMs, count: grid.count)
     let r = BallFraming.compute(grid: grid, width: Double(W), height: Double(H), today: today.portrait,
-                                native: today.native)
+                                native: today.native, sport: sport, screens: screens, players: players, people: people)
     if r.rects.isEmpty { throw Failure.unreadable }
-    var file = BallFraming.framingJSON(r, startMs: startMs, width: Double(W), height: Double(H))
+    var file = BallFraming.framingJSON(r, startMs: startMs, width: Double(W), height: Double(H), rules: sport.rules)
     file["endMs"] = endMs
     try JSONSerialization.data(withJSONObject: file).write(to: URL(fileURLWithPath: outPath), options: .atomic)
     return Outcome(ready: true, analysed: grid.filter { $0 != nil }.count, reused: reused, ballFrames: r.ballFrames,
                    trustedFrames: r.trustedFrames, ballShare: r.zoom.share, zoom: r.zoom.zoom,
-                   elapsedMs: Date().timeIntervalSince(started) * 1000)
+                   elapsedMs: Date().timeIntervalSince(started) * 1000,
+                   verdict: r.verdict?.reason?.rawValue ?? "")
+  }
+
+  /// The players' median height (share of the frame height) that today's Modo Foco analysis kept, if any.
+  private static func playersHeight(focusPath: String) -> Double? {
+    guard let f = readJSON(focusPath) as? [String: Any] else { return nil }
+    return (f["playersHeight"] as? NSNumber)?.doubleValue
+  }
+
+  /// Today's person boxes for the cut's rows (test 49), none when the Modo Foco file has none (made before it).
+  private static func peopleRows(focusPath: String, startMs: Double, count n: Int) -> [[[Double]]] {
+    guard let f = readJSON(focusPath) as? [String: Any], (f["v"] as? NSNumber)?.intValue == 1,
+          let fStart = (f["startMs"] as? NSNumber)?.doubleValue,
+          let rows = f["people"] as? [[[NSNumber]]] else { return [] }
+    let off = Int(((startMs - fStart) / BallFraming.stepMs).rounded())
+    guard off >= 0, off < rows.count else { return [] }
+    return rows[off..<min(rows.count, off + n)].map { row in
+      row.filter { $0.count == 4 }.map { $0.map { $0.doubleValue } }
+    }
   }
 
   /// Waits (cancellable) while the phone is `serious` or worse, with the chip showing "esfriando".
@@ -196,7 +245,7 @@ enum BallAnalyzer {
     try await withCheckedThrowingContinuation { (done: CheckedContinuation<Double, Error>) in
       work.async {
         do {
-          if detector == nil { detector = try Detector() }
+          if detector == nil { detector = try Detector(modelId: BallFraming.modelId) }
           guard let det = detector else { throw Failure.noModel }
           let image = CIImage(color: CIColor(red: 0.4, green: 0.45, blue: 0.5)).cropped(to: CGRect(x: 0, y: 0, width: 1920,
                                                                                                     height: 1080))
@@ -219,13 +268,15 @@ enum BallAnalyzer {
   /// The Core ML side, as FocusBench's `BallDetector` (tests 34, 42): regions rendered into 416 BGRA squares (grey 114
   /// where the picture does not reach), one batched prediction, every candidate decoded.
   final class Detector {
+    let modelId: String
     let model: MLModel
     let context = CIContext(options: [.cacheIntermediates: false])
     let anchors = BallDetect.anchors(side: BallAnalyzer.modelSide)
     private var pool: CVPixelBufferPool?
 
-    init() throws {
-      guard let url = try Detector.modelURL() else { throw Failure.noModel }
+    init(modelId: String) throws {
+      self.modelId = modelId
+      guard let url = try Detector.modelURL(modelId) else { throw Failure.noModel }
       let config = MLModelConfiguration()
       config.computeUnits = .cpuAndNeuralEngine
       model = try MLModel(contentsOf: url, configuration: config)
@@ -238,9 +289,8 @@ enum BallAnalyzer {
       CVPixelBufferPoolCreate(nil, nil, attrs as CFDictionary, &pool)
     }
 
-    /// The compiled model in the pod's resource bundle (`ios/Models/ball_tiny_gym.mlmodelc`).
-    static func modelURL() throws -> URL? {
-      let name = BallFraming.modelId
+    /// The compiled model in the pod's resource bundle (`ios/Models/<name>.mlmodelc`, e.g. ball_tiny_gym).
+    static func modelURL(_ name: String) throws -> URL? {
       var bundles = [Bundle.main, Bundle(for: Detector.self)]
       for b in bundles {
         if let u = b.url(forResource: "ReplayCameraModels", withExtension: "bundle"), let inner = Bundle(url: u) {
@@ -251,6 +301,23 @@ enum BallAnalyzer {
         if let u = b.url(forResource: name, withExtension: "mlmodelc") { return u }
       }
       return nil
+    }
+
+    /// Test 47b: a grey thumbnail `BallScreen.thumbWidth` px wide of an upright frame (origin 0, 0), top row first, the
+    /// mean of red, green and blue (as the lab's).
+    func thumbnail(_ image: CIImage) -> (pixels: [UInt8], width: Int, height: Int) {
+      let W = image.extent.width, H = image.extent.height
+      let tw = BallScreen.thumbWidth
+      let th = max(1, Int((CGFloat(tw) * H / max(1, W)).rounded(.down)))
+      let small = image.transformed(by: CGAffineTransform(scaleX: CGFloat(tw) / max(1, W), y: CGFloat(th) / max(1, H)))
+      var rgba = [UInt8](repeating: 0, count: tw * th * 4)
+      context.render(small, toBitmap: &rgba, rowBytes: tw * 4, bounds: CGRect(x: 0, y: 0, width: tw, height: th),
+                     format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+      var grey = [UInt8](repeating: 0, count: tw * th)
+      for i in 0..<(tw * th) {
+        grey[i] = UInt8((Int(rgba[4 * i]) + Int(rgba[4 * i + 1]) + Int(rgba[4 * i + 2])) / 3)
+      }
+      return (grey, tw, th)
     }
 
     /// One upright frame (origin 0, 0): all `regions` in one call; the candidates in frame px, before NMS.

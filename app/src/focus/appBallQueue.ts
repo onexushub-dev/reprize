@@ -4,7 +4,7 @@ import * as camera from '../../modules/replay-camera';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBallQueue } from './ballQueue';
-import { ballSportOf, labelSummary, sportVerdict } from './sportCheck';
+import { ballSportIdOf, ballSportOf, labelSummary, sportVerdict } from './sportCheck';
 
 /** Seguir a Bola's speed rule (spec 2026-11-09 §4.7, Victor: per typical cut): up to 400 ms per 19-region frame. */
 export const BALL_PROBE_MAX_MS = 400;
@@ -15,6 +15,7 @@ export const ballQueue = createBallQueue({
   cancel: camera.cancelBall,
   supported: camera.isBallSupported,
   repo,
+  sportOf: (clip) => ballSportIdOf(repo.getSession(clip.sessionId)),
   now: () => Date.now(),
   // TEMP(diag-remote): the field test reads the analysis time on the Diagnóstico screen.
   measured: (clip, r) => {
@@ -22,7 +23,8 @@ export const ballQueue = createBallQueue({
     diag(
       `Seguir a Bola: corte de ${((clip.trim.endMs - clip.trim.startMs) / 1000).toFixed(1)} s ` +
         `analisado em ${(r.elapsedMs / 1000).toFixed(1)} s (${r.analysed} quadros, ${r.reused} do cache, ` +
-        `bola em ${Math.round(r.ballShare * 100)}%, zoom ${r.zoom})`,
+        `bola em ${Math.round(r.ballShare * 100)}%, zoom ${r.zoom}` +
+        `${r.status === 'unsuitable' ? `, sem aplicar: ${r.reason}` : ''})`,
     );
   },
 });

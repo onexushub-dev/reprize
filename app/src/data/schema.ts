@@ -47,10 +47,23 @@ export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: n
 
 /**
  * Whether a recording looks like basketball to Apple's scene classifier (test 43): `other` = another sport for sure, so
- * Seguir a Bola shows "EM BREVE"; `allow` otherwise. `unlocked`: the player said it is basketball after all. `labels`:
- * what the classifier saw (the field test reads them).
+ * Seguir a Bola asks which sport it is; `allow` otherwise. `unlocked`: the player said it is basketball after all.
+ * `sport`: the sport the player chose for Seguir a Bola (test 48), which picks the analysis' model. `labels`: what the
+ * classifier saw (the field test reads them).
  */
-export type BallSport = { v: 1; verdict: 'other' | 'allow'; labels?: Record<string, number>; unlocked?: boolean };
+export type BallSport = {
+  v: 1;
+  verdict: 'other' | 'allow';
+  labels?: Record<string, number>;
+  unlocked?: boolean;
+  sport?: BallSportId;
+};
+
+/** The sports Seguir a Bola analyses, each with its own model and rules (the native `BallSport`). */
+export type BallSportId = 'basquete' | 'beachTennis';
+
+/** Test 47a: why Seguir a Bola is not applied to a cut (the native `BallVerdictReason`). */
+export type BallUnsuitable = 'tooFar' | 'rarelyFound' | 'tooSmall' | 'still';
 
 export const MAX_GAME_NAME = 40;
 /** A clip's label (its name): short, to tell at a glance who or what it is (2026-11-07 spec §6). */
@@ -60,18 +73,22 @@ export type ClipFocus = { v: 1; status: 'pending' | 'ready' | 'none' | 'failed';
 
 /**
  * Seguir a Bola for one cut (spec 2026-11-09 §4.6): `pending` while queued or running, `ready` with the 9:16 framing
- * `file`, `failed` when the analysis broke (`hot`: stopped because the phone got too hot). Valid only while the clip's
- * cut is `startMs`…`endMs`; another cut is analysed again (the detections already found are reused). `share`: the share
- * of the cut's frames with a trusted ball.
+ * `file`, `failed` when the analysis broke (`hot`: stopped because the phone got too hot), `unsuitable` when it would
+ * not look good on this video (test 47a, `reason`: recorded too far, the ball rarely found or too small, the camera
+ * would hardly move) — the clip stays on Modo Foco. Valid only while the clip's cut is `startMs`…`endMs` and the sport
+ * is `sport` (absent = basketball); another cut or sport is analysed again (the detections already found by the same
+ * model are reused). `share`: the share of the cut's frames with a trusted ball.
  */
 export type ClipBall = {
   v: 1;
-  status: 'pending' | 'ready' | 'failed';
+  status: 'pending' | 'ready' | 'failed' | 'unsuitable';
   startMs: number;
   endMs: number;
+  sport?: BallSportId;
   file?: string;
   share?: number;
   hot?: boolean;
+  reason?: BallUnsuitable;
 };
 
 export type Clip = {
