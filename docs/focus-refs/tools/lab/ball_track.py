@@ -42,11 +42,84 @@ P = dict(box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=
          # (constant velocity; on top of move_cost x distance); only the dp_topk strongest candidates per frame.
          # fill=1: the frames a path skips (behind the railing, behind a player; at most dp_gap) get the straight line
          # between the two points around them (a smoother through the gap) instead of no ball.
-         acc_cost=0.0, dp_topk=8, fill=0.0)
+         acc_cost=0.0, dp_topk=8, fill=0.0,
+         # test 47b: screen=1 leaves out the candidates inside a video screen (screen_boxes); 0 = off
+         screen=0.0,
+         # test 47c: near > 0 weighs the candidates by where today's Modo Foco frames the play (its crop in the video's
+         # own orientation, lab/tests/framing/<clip>.current.focus.json): a candidate more than `near` frame widths left
+         # or right of that crop has its score x near_w (0 = dropped). Up and down are free (lobs). near_916=1: its 9:16
+         # crop (the players' centre) instead. 0 = off: on the 19 own clips the native crop changes nothing (it spans
+         # 70-90% of the width) and the 9:16 one costs cover (+0.1 x0.5: 90.6 -> 86.9%, b-01 98 -> 53%: today's framing
+         # frames people off the rally in a class) for 6 fewer of 192 ball points shown far from a rally.
+         near=0.0, near_w=0.5, near_916=0.0)
 # test 35 (2026-11-08): per sport. Basketball with its own detector (tests 28/32): the still-object filter at 0.2 threw
 # away the real ball while it was held or dribbled in place (13% of the labelled points); at 0.5 a spare ball, the rim
 # or a painted ball (there on nearly every frame) are still left out. The other sports keep test 17's values for now.
-SPORT_P = {"basquete": dict(still_share=0.5)}
+# Test 46 (2026-11-09): beach tennis with its own detector (btpl): the still radius at 0.6% of the long side (~12 px at
+# 1080p) instead of 2%: a ball lying on the sand is found within a few px of the same spot, while 2% (38 px) also caught
+# the ball in play passing near one (16% of arena A's labelled points); share 0.3 (middle of the 0.004-0.01 / 0.2-0.4
+# plateau). Path cover 69 -> 78% on arena A, 81 -> 85% on arena B before the trust change of hybrid.py (r_det).
+SPORT_P = {"basquete": dict(still_share=0.5), "beachTennis": dict(still_r=0.006, still_share=0.3, screen=1.0)}
+# Test 47b (2026-11-10, a tournament stream: the path followed round things inside the video on the venue's LED
+# screen): a screen is a region whose content changes all the time and ALL AT ONCE (cuts, moving pictures), unlike the
+# sand (never) or a player (part of a region at a time). On the clip's frames, 160 px wide, every 2nd 100 ms frame: a
+# pixel is active when it changes by > 12 grey levels from the previous frame; a connected active region (>= 0.2% of
+# the frame, active share > 0.12) is a screen when its bounding box is >= SCREEN_FILL active and >= half of the box
+# changes at once on >= SCREEN_SYNC of the frame steps. Calibration (9 clips): the LED screen fill 0.85 / sync 0.19;
+# players' regions fill <= 0.81 with sync <= 0.08 and sync <= 0.08 with fill <= 0.67. A screen's box is also >= SCREEN_AREA
+# of the frame (the LED screen 3.4%; a strip at bt-own-b-08's right edge, 0.5%, passed fill and sync).
+SCREEN_FILL, SCREEN_SYNC, SCREEN_AREA = 0.75, 0.12, 0.015
+_SCREENS = {}
+
+
+def play_span(clip, n, step, narrow=False):
+    """Per 100 ms frame of the detections: (x0, x1) of today's Modo Foco crop in the video's own orientation (narrow:
+    its 9:16 crop), or None."""
+    p = os.path.join(ev.ROOT, "lab", "tests", "framing", f"{clip}.current.focus.json")
+    if not os.path.exists(p):
+        return None
+    fc = json.load(open(p))
+    if "stub" in fc:
+        return None
+    W, H = fc["size"]
+    rows = fc["portrait"] if narrow else (fc["landscape"] if W >= H else fc["portrait"])
+    meta = ev.clip_meta(clip)
+    off = int(round((meta["startMs"] - fc["startMs"]) / fc["stepMs"]))
+    out = []
+    for k in range(n):
+        j = off + k
+        out.append((rows[j][0], rows[j][0] + rows[j][2]) if 0 <= j < len(rows) else None)
+    return out
+
+
+def screen_boxes(clip):
+    """Video screens in the clip as [(x0, y0, x1, y1)] in 0..1 (lab/frames/<clip>/), cached; [] without frames."""
+    if clip in _SCREENS:
+        return _SCREENS[clip]
+    import glob
+    import cv2
+    files = sorted(glob.glob(os.path.join(ev.ROOT, "lab", "frames", clip, "*.jpg")))[::2]
+    boxes = []
+    if len(files) >= 3:
+        g = []
+        for f in files:
+            im = cv2.imread(f)
+            h = int(im.shape[0] * 160 / im.shape[1])
+            g.append(cv2.resize(im, (160, h), interpolation=cv2.INTER_AREA).astype(np.float32).mean(2))
+        d = np.abs(np.diff(np.stack(g), axis=0)) > 12
+        act = d.mean(0)
+        H, W = act.shape
+        n, _, st, _ = cv2.connectedComponentsWithStats((act > 0.12).astype(np.uint8), 8)
+        for i in range(1, n):
+            x, y, w, h, area = st[i]
+            if area < 0.002 * W * H:
+                continue
+            fill = float((act[y:y + h, x:x + w] > 0.12).mean())
+            sync = float((d[:, y:y + h, x:x + w].reshape(d.shape[0], -1).mean(1) > 0.5).mean())
+            if fill >= SCREEN_FILL and sync >= SCREEN_SYNC and w * h >= SCREEN_AREA * W * H:
+                boxes.append((float(x / W), float(y / H), float((x + w) / W), float((y + h) / H)))
+    _SCREENS[clip] = boxes
+    return boxes
 
 
 def track(det, P):
@@ -56,6 +129,8 @@ def track(det, P):
     n = len(frames)
     step = det.get("step", 1)
     an = [k for k in range(n) if frames[k] is not None]
+    screens = screen_boxes(det["clip"]) if P.get("screen") and det.get("clip") else []
+    play = play_span(det["clip"], n, step, bool(P["near_916"])) if P.get("near") and det.get("clip") else None
     # 1. shape and score
     cand = {}
     for k in an:
@@ -64,6 +139,12 @@ def track(det, P):
             wp, hp = w * W, h * H
             if s < P["conf"] or max(wp, hp) > P["box_max"] * L or max(wp, hp) / max(1e-6, min(wp, hp)) > P["aspect_max"]:
                 continue
+            if any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, y0, x1, y1 in screens):
+                continue
+            if play is not None and play[k] is not None and not (play[k][0] - P["near"] <= cx <= play[k][1] + P["near"]):
+                if P["near_w"] <= 0:
+                    continue
+                s = s * P["near_w"]
             cs.append((cx, cy, w, h, s))
         cand[k] = cs
     # 2. still things

@@ -24,6 +24,7 @@ import json
 import math
 import os
 import random
+import re
 import sys
 import time
 import zipfile
@@ -42,6 +43,9 @@ EVAL = ["basket-rp-1105-v-a", "basket-rp-1105-v-b", "basket-rp-1105-h", "basket-
 FOLDS = {"A": ["basket-rp-1105-v-a", "basket-rp-1105-h", "yt1105-basket-a"],
          "B": ["basket-rp-1105-v-b", "basket-v-01", "yt-basket-04", "yt1105-basket-b"]}
 ALWAYS = ["basket-app-1031-a", "basket-app-1031-b"]
+# test 45: beach tennis, Victor's app recordings by arena (fold A = scored on arena A, trained with arena B, and back)
+BT_FOLDS = {"A": [f"bt-own-a-{i:02d}" for i in range(1, 11)], "B": [f"bt-own-b-{i:02d}" for i in range(1, 10)]}
+FOLD_SETS = {"basket": (FOLDS, ALWAYS), "bt": (BT_FOLDS, [])}
 ARCH = {"tiny": (0.33, 0.375, 416), "s": (0.33, 0.50, 640)}  # depth, width, ONNX input
 BALL_PX = (8.0, 32.0)
 
@@ -70,6 +74,12 @@ def cmd_dataset(a):
     rng = random.Random(0)
     d = os.path.join(TRAIN, f"pub-{a.name}")
     os.makedirs(d, exist_ok=True)
+    if a.merge:
+        return merge_parts(a, d)
+    # test 45: --part K/N builds one slice (a call on the Mac VM must stay under 3 minutes); --merge joins them
+    part, nparts = (int(x) for x in a.part.split("/")) if a.part else (0, 1)
+    prefix = f"p{part}-" if a.part else ""
+    skip = re.compile(a.skip) if a.skip else None
     items, stats = [], {"images": 0, "with_ball": 0, "balls": 0, "ball_px": []}
     for split, ann, read in coco_sets(a.src):
         if split not in a.splits:
@@ -82,9 +92,9 @@ def cmd_dataset(a):
         for an in ann["annotations"]:
             if an["category_id"] in want:
                 by_img.setdefault(an["image_id"], []).append(an["bbox"])  # x, y, w, h (px)
-        imgs = ann["images"]
+        imgs = [im for im in ann["images"] if not (skip and skip.search(im["file_name"]))]
         rng.shuffle(imgs)
-        for im in imgs[: a.limit or None]:
+        for im in imgs[: a.limit or None][part::nparts]:
             boxes = by_img.get(im["id"], [])
             img = cv2.imdecode(np.frombuffer(read(im["file_name"]), np.uint8), cv2.IMREAD_COLOR)
             if img is None:
@@ -118,7 +128,7 @@ def cmd_dataset(a):
                             bb.append([ox, oy, max(ow, 3.0), max(oh, 3.0)])
                     if not bb:
                         continue
-                    fn = f"{len(items):06d}-p.jpg"
+                    fn = f"{prefix}{len(items):06d}-p.jpg"
                     cv2.imwrite(os.path.join(d, fn), crop, [cv2.IMWRITE_JPEG_QUALITY, 92])
                     items.append({"file": fn, "boxes": bb})
             if rng.random() < a.neg:  # a crop without any ball (scale 0.6-1.2: room for a crop away from the balls)
@@ -129,16 +139,33 @@ def cmd_dataset(a):
                     x0, y0 = rng.randint(0, big.shape[1] - CROP), rng.randint(0, big.shape[0] - CROP)
                     if all(not (x0 - 4 <= (b[0] + b[2] / 2) * sx <= x0 + CROP + 4 and
                                 y0 - 4 <= (b[1] + b[3] / 2) * sy <= y0 + CROP + 4) for b in boxes):
-                        fn = f"{len(items):06d}-n.jpg"
+                        fn = f"{prefix}{len(items):06d}-n.jpg"
                         cv2.imwrite(os.path.join(d, fn), big[y0:y0 + CROP, x0:x0 + CROP], [cv2.IMWRITE_JPEG_QUALITY, 92])
                         items.append({"file": fn, "boxes": []})
                         break
     bp = stats.pop("ball_px")
     stats["ball_px_median"] = float(np.median(bp)) if bp else None
+    out = f"items.{part}.json" if a.part else "items.json"
     json.dump({"clip": f"pub-{a.name}", "src": a.src, "classes": a.classes, "stats": stats, "items": items},
-              open(os.path.join(d, "items.json"), "w"))
+              open(os.path.join(d, out), "w"))
     npos = sum(1 for it in items if it["boxes"])
     print(f"pub-{a.name}: {len(items)} crops ({npos} with the ball); {stats}", flush=True)
+
+
+def merge_parts(a, d):
+    """Joins the items.<K>.json of the --part runs into items.json."""
+    parts = sorted(glob.glob(os.path.join(d, "items.*.json")), key=lambda p: int(p.split(".")[-2]))
+    items, stats = [], {}
+    for p in parts:
+        j = json.load(open(p))
+        items += j["items"]
+        for k, v in j["stats"].items():
+            if k != "ball_px_median" and v is not None:
+                stats[k] = stats.get(k, 0) + v
+    json.dump({"clip": f"pub-{a.name}", "src": a.src, "classes": a.classes, "stats": stats, "items": items},
+              open(os.path.join(d, "items.json"), "w"))
+    print(f"pub-{a.name}: {len(parts)} parts, {len(items)} crops ({sum(1 for it in items if it['boxes'])} with the "
+          f"ball); {stats}", flush=True)
 
 
 def load_items(sets):
@@ -164,7 +191,8 @@ def cmd_train(a):
     rng = random.Random(0)
     own = []
     if a.fold:
-        own = [c for f, cs in FOLDS.items() if f != a.fold for c in cs] + ALWAYS
+        folds, always = FOLD_SETS[a.folds]
+        own = [c for f, cs in folds.items() if f != a.fold for c in cs] + always
     if a.no_yt:  # test 33: only our own recordings (the YouTube clips are not ours to train on)
         own = [c for c in own if not c.startswith("yt")]
     pub = load_items(a.sets)
@@ -306,11 +334,15 @@ def main():
     p.add_argument("--per-ball", type=int, default=1)
     p.add_argument("--neg", type=float, default=0.5, help="share of images that also give a crop without the ball")
     p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--part", default=None, help="test 45: K/N, build only every N-th image from the K-th")
+    p.add_argument("--merge", action="store_true", help="test 45: join the --part runs into items.json")
+    p.add_argument("--skip", default=None, help="test 45: regex of image file names to leave out (duplicates)")
     for name in ("train", "export"):
         p = sub.add_parser(name)
         p.add_argument("--model", choices=list(ARCH), required=True)
         p.add_argument("--out", required=True, help="name of the run (model file ball_<model>_<out><fold>)")
         p.add_argument("--fold", choices=list(FOLDS), default=None, help="add the lab's crops of the other folds")
+        p.add_argument("--folds", choices=list(FOLD_SETS), default="basket", help="test 45: which sport's folds")
         if name == "train":
             p.add_argument("--sets", type=lambda s: [x for x in s.split(",") if x], default=[],
                            help="lab/train sets, e.g. pub-lbacg (test 33: may be empty)")

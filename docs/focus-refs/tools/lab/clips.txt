@@ -107,3 +107,32 @@ basket-ext-1109-h|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.54.06.
 basket-ext-1109-i|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.54.22.mov|2000|5200|basquete
 basket-ext-1109-j|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.54.36.mov|2000|12000|basquete
 basket-ext-1109-k|refs/2026-11-09/Gravação de Tela 2026-11-09 às 08.55.03.mov|2000|12000|basquete
+# beach tennis, Victor's app recordings (2026-11-09): arena A and arena B, own data (train + measure, by arena)
+bt-own-a-01|refs/bt-own/arena-a/018351DB-4316-4474-9234-794A2C088D59.mp4|0|10700|beachTennis
+bt-own-a-02|refs/bt-own/arena-a/06D0B5AD-36CC-435E-BFA2-DF77F7F9BB7A.mp4|0|12500|beachTennis
+bt-own-a-03|refs/bt-own/arena-a/085AB43F-AF88-4E62-B09E-437E5B1013A2.mp4|0|12000|beachTennis
+bt-own-a-04|refs/bt-own/arena-a/0DD87349-BACF-47F2-822C-04F69C826FEF.mp4|0|13200|beachTennis
+bt-own-a-05|refs/bt-own/arena-a/2D67578D-FA1E-498E-A584-A266CF3E8587.mp4|0|12700|beachTennis
+bt-own-a-06|refs/bt-own/arena-a/30A0C9A0-855C-4DE4-B3E7-9C92DE7E5DC6.mp4|0|7300|beachTennis
+bt-own-a-07|refs/bt-own/arena-a/3F996A0A-BD3A-4253-B093-7E6D8C57DA0A.mp4|0|8800|beachTennis
+bt-own-a-08|refs/bt-own/arena-a/9448190B-B5E9-44F8-8DB9-43E0D14A781D.mp4|0|10300|beachTennis
+bt-own-a-09|refs/bt-own/arena-a/A62492D6-8969-41F2-BFDA-F1B149037A85.mp4|0|8200|beachTennis
+bt-own-a-10|refs/bt-own/arena-a/D70D76FE-3616-43C5-8287-F46D91A72552.mp4|0|9500|beachTennis
+bt-own-b-01|refs/bt-own/arena-b/2106B858-C3AD-4538-BBFF-C676060DF5AF.mp4|0|11900|beachTennis
+bt-own-b-02|refs/bt-own/arena-b/2358F869-56DA-47A1-98F2-5B998217CE75.mp4|0|12500|beachTennis
+bt-own-b-03|refs/bt-own/arena-b/2F47D09C-578C-4099-BDB6-BE1F86F943F0.mp4|0|18900|beachTennis
+bt-own-b-04|refs/bt-own/arena-b/4F9EDA6D-3789-408B-A151-ABA68DD643FE.mp4|0|7100|beachTennis
+bt-own-b-05|refs/bt-own/arena-b/603850E6-7191-4B32-9AEA-9D5DAA18667C.mp4|0|11500|beachTennis
+bt-own-b-06|refs/bt-own/arena-b/65B1072C-A003-454A-B1E0-9CF6081322E4.mp4|0|14500|beachTennis
+bt-own-b-07|refs/bt-own/arena-b/6B1991B7-E203-461F-A3AE-7A7F50966B28.mp4|0|10700|beachTennis
+bt-own-b-08|refs/bt-own/arena-b/E87EAC6D-199B-405C-97B5-9EB98DC66C3D.mp4|0|14100|beachTennis
+bt-own-b-09|refs/bt-own/arena-b/ED367FEC-AA23-45E2-ADAE-E1E01BCA8E11.mp4|0|10300|beachTennis
+bt-own-f-01|refs/bt-own/field-1109/18E10837-57EE-4B1A-B0A2-F93B92B5A2B0.mp4|0|23800|beachTennis
+bt-v-1029|refs/bt-own/field-1029/bt-v-1029.mp4|0|20200|beachTennis
+yt-bt-stream-1110|refs/web/yt-bt-stream-1110.mov|0|27100|beachTennis
+bt-app-1110-a|refs/bt-own/field-1110/bt-app-1110-a.mp4|0|12850|beachTennis
+bt-app-1110-b|refs/bt-own/field-1110/bt-app-1110-b.mp4|0|10080|beachTennis
+bt-app-1110-c|refs/bt-own/field-1110/bt-app-1110-c.mp4|0|8270|beachTennis
+bt-app-1110-d|refs/bt-own/field-1110/bt-app-1110-d.mp4|0|7270|beachTennis
+bt-app-1110-e|refs/bt-own/field-1110/bt-app-1110-e.mp4|0|15000|beachTennis
+bt-app-1110-f|refs/bt-own/field-1110/bt-app-1110-f.mp4|0|10260|beachTennis

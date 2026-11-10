@@ -146,6 +146,11 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 6 | Hybrid framing: the ball while SAM 2 is sure of it, today's Modo Foco when not (`hybrid.py`, videos in `lab/tests/framing/`) | **first round done** (below) |
 | 10 | iPhone step 1: EdgeTAM as 4 fixed-shape Core ML models + the tracking loop (`loop.py`, `coreml_export.py`, `coreml-mac.sh`) | **done: same quality as EdgeTAM, 45 ms/frame on the Mac's Neural Engine** (below) |
 | 11 | iPhone step 2: time and check the Core ML models on the phones (16 Pro Max, XR) with FocusBench, a throwaway test app (`ios-bench/`, `ios_bench.py`) | **done: 16 Pro Max 122 ms/frame, all on the Neural Engine, same track as the Mac; XR 0.55–0.72 s/frame with GPU, same track, heats up** (below) |
+| 49 | The beach tennis camera: (a) aim between the ball and the player who hits it, (b) its speed, (c) lock the camera to the court of the main players, (d) Victor's reference reels (`cam_bt.py`, 19 labelled own clips + 6 app clips) | **blend 0.4 toward the hitter + faster smoothing (a 1, b 100) + court lock (ball points outside 5–95% of the main players' x ± 0.20 dropped): ball in crop 98.0 -> 97.9%, hitter whole 88.1 -> 93.6%, at the hits 82.1 -> 91.2% (arena B 78 -> 88%), a-10 no longer goes to the next court. The reels: same player size and pan, but they keep both near players in the frame (84–95% vs our 14–17%); keeping our pair together costs the ball or the hitter -> off. T49 into the app (beach tennis only)** (below) |
+| 48 | The beach tennis model for the app (public sets + BOTH arenas, every ball marked) and Seguir a Bola per sport in the app (`mac-train-bt.sh` on Victor's Mac, `mac-coreml-bt.sh`; ReplayCore `BallSport`) | **the 45b recipe, re-run (the .pth were lost with the cloud workspace): a run varies ~4 pts (public base on arena A 81.8 -> 78.0%; btplA2 93.8 -> 88.7% ceiling, cover 90 -> 85%), the fine-tune gain is the same (+12 / +11). On 5 labelled clips no beach tennis model saw (249 points): `btpl` = `btplB` (ceiling 85.1 vs 85.5%, cover 82 vs 82%, precision 94 vs 95%) -> `btpl` ships (more of the real arenas). App: the sport per recording (asked when the classifier says another sport), the beach tennis profile (tests 46-47), the verdict; basketball unchanged (parity fixtures identical, 285 Swift + 1,328 jest tests pass)** (below) |
+| 47 | Beach tennis: (a) when is Seguir a Bola worth applying to a clip (`ball_verdict.py`, signals the phone has, no labels; 30 bt clips + 16 basketball clips measured only), (b) a video screen at the venue (`ball_track.py` `screen`), (c) the ball near the players (`near`) | **(a) before: players < 10% of the 9:16 output height = too far, not offered; after: ball share >= 25%, ball >= 16 px in the output, camera pan >= 0.6 crop widths / 10 s, else today's Modo Foco. Off: bt-v-1029 (0.5x), bt-rz-1105-v, bt-wa-1028, yt1105-bt, bt-0AE39B33, bt-own-a-06; on: the other 24. Basketball: no verdict (today's behaviour). (b) a region that changes all at once: the LED screen found on the stream only (51 path frames on it -> 0), the 19 own clips unchanged. (c) no gain: the native crop changes nothing, the 9:16 one costs cover (90.6 -> 86.9%); off** (below) |
+| 46 | The beach tennis path: where does `ball_track.py` + `hybrid.trusted` lose the ball the detector sees (`path_diag.py`), and which parameters bring cover to the ceiling? (`path_sweep.py`, new: every parameter set scored on the 19 own clips in one pass, each arena with the model that never saw it) | **cover 75 → 90.6% (A 69 → 90%, B 81 → 91%; ceiling 94%) at precision 96 → 98%, every clip through the gate (b-02 50 → 96%, a-09 54 → 96%): (1) still filter radius 2% → 0.6% of the long side (`SPORT_P["beachTennis"]`); (2) the racket rules of `hybrid.trusted` (made for EdgeTAM masks) off for detector paths (`r_det`), as in the app's BallTrust. `dp=2` and `fill` add nothing worth their cost. Story camera C, ball in the 9:16 crop: 98.6% at 1.0x, 96.3% at 1.2x; 46b: the camera follows only ball runs >= 1 s (no pan before the rally or onto the next court: pan while no ball is in play -36%, ball in crop 97.9%)** (below) |
+| 45 | A beach tennis detector: YOLOX-Tiny 416 one class trained on the two public beach tennis sets (CC BY 4.0) + "not a ball" crops (heads, torsos, rackets), then fine-tuned with one arena of Victor's clips, scored on the other (`ball_train_pub.py --folds bt`, `own_relabel.py`) | **public data alone: ceiling 53 → 88%, path cover 28 → 72%; + own arena crops with EVERY real ball marked (45b): ceiling 94% on both arenas, cover A 58 → 69%, B 87 → 81% (all 75%), precision mostly 90–100%. Detector at basketball's level; the path is now what limits (next: beach tennis path, test 46)** (below) |
 | 44 | Beach tennis baseline for Seguir a Bola: the basketball detector (`ball_tiny_gym`, all tiles, 5 fps) and today's path, zero-shot, on the 8 labelled beach tennis clips (`det_report.py --det bgymall-n5 --track det-t44-bgymall`) | **far from basketball's bar: detector ceiling 0–60%, path cover 0–36% (basketball: ceiling ~90%, cover 82%); a beach tennis detector is needed (public data + "not a ball" crops + Victor's recordings), and more labels (two clips have 1 point)** (below) |
 | 43 | Can the app tell a basketball clip from the other sports by itself (no question to the player)? 43a Apple's built-in scene classifier (Vision `VNClassifyImageRequest`, 3 frames per clip, `sport_classify.swift`); 43b the app's detector and path (trusted-ball share, `sport_report.py`) | **43a works as a "not basketball" signal: another sport's label (volleyball, tennis…) >= 0.4 with "basketball" < 0.1 catches 14 of the 18 readable non-basketball clips and hides none of the 75 basketball clips (at 0.3: 16/18, 1 basketball hidden); the "basketball" label itself is precise but finds only 40%. 43b separates poorly (basketball 22–100%, others 11–62%). Proposed: classify a few frames per recording, show "EM BREVE" only on a confident other sport, otherwise allow** (below) |
 | 42 | Phone cost of "Seguir a Bola" (no tap, so no EdgeTAM) and all a frame's tiles in one Core ML call (FocusBench `det5`, `det5b`) | **one call per frame: ~11 s per 30 s clip (was 64 s with EdgeTAM, 34 s without), identical output (`batchMaxDiff` 0, same candidates); about 4 s for a 10 s cut. Adopted for the app** (below) |
@@ -181,6 +186,428 @@ static-camera clips and against the same ground truth, the ways to make the fram
 
 Run the Mac tests with `bash tools/lab/mac-tests.sh` (ball) or `bash tools/lab/mac-tests.sh person`.
 
+### Test 49 result (2026-11-10) — the beach tennis camera: aim between the ball and the player who hits it, court lock, reference reels
+
+Victor: with the sport right the field clip was good; the player attacking the ball gets cut when the camera is on the
+court's DIAGONAL (behind the court it is fine). New tool `cam_bt.py`: camera C variants (dead zone, smoothing, `lead` =
+aim ahead, `blend` = aim between the ball and the main player nearest to it, Vision boxes >= 0.6 of the clip's
+80th-percentile height) scored by the ball in the crop (labels), the HITTER fully inside the crop (the main player within
+0.25 long sides of the ball; at the hits = the frames where the ball turns), and the pan. 19 own clips (T47 tracks):
+
+| Camera | ball in crop | hitter whole: all / at hits | pan (crop widths / 10 s) |
+|---|---|---|---|
+| C (today: dz 0.10, a 3, b 300) | 98.0% | 88.1% / 82.1% | 1.6 |
+| calmer (dz 0.2 and/or a 10, b 1000) | 97.2–97.6% | 83.0–86.2% / 76.7–80.0% | 1.1–1.3 |
+| lead 0.3 / 0.5 s | 96.8 / 95.6% | 84.1 / 81.6% / 75.0 / 72.9% | 1.6 |
+| faster (a 1, b 100) | 98.3% | 89.0% / 84.5% | 1.9 |
+| blend 0.4 | 97.3% | 91.9% / 88.3% | 1.6 |
+| **blend 0.4 + faster (a 1, b 100)** | **97.9%** | **93.6% / 91.2%** | **1.9** |
+| blend 0.5–0.6 | 97.0–97.3% | 92.1–92.8% / 88.1–89.0% | 1.6–1.7 |
+
+By arena (blend 0.4 + faster vs C): A (behind, slightly diagonal) hitter at hits 87.6 -> 94.9%, B (side diagonal, the
+class) 78.1 -> 88.4% (b-09 69 -> 96%, b-04 69 -> 81%), ball in crop unchanged. Victor's five clips of today
+(`bt-app-1110-a..e`, behind the court; no labels): hitter whole 97.7 -> 98.0%, at hits 96.2 -> 97.1% (already fine
+there, as he saw). A calmer camera cuts the hitter MORE (the ball crosses the court fast); aiming ahead loses the ball.
+Videos `lab/tests/story/bt-own-{b-09,b-04,a-10}.story-compare-t49b.mp4` and `bt-app-1110-e.story-compare-t49b.mp4`
+(today | C | T49b). Not in the app yet: waiting for Victor's eye and his reference reels.
+
+**49a — the court lock** (Victor on T49b: all good but `bt-own-a-10`, where the camera still went right to the next
+court). There the rally ends at 5.4 s and the path takes the next court's ball at x 0.94–0.97 (6.0–6.6 s), joined to
+the rally's run (no gap over 4 frames: one run 0.4–8.8 s with 10% of its points on the next court), so neither the
+1 s runs nor a lock by the ball's own x range (5–95% of the longest run, `court`) can drop it. The court is where the
+MAIN players are (`courtp`: 5–95% of the main Vision boxes' x over the clip, + a margin): a ball point outside is
+another court's. Margin 0.10–0.20: ball in crop 97.9% (unchanged), hitter 93.4–93.6%; a-10's camera centre max
+0.84 -> 0.62 (0 frames past 0.75, was 20). Dropped points, all 27 clips: a-10 10 (the next court), bt-own-f-01 12 at
+21.6–23.4 s (the ball after the point Victor saw going right), b-09 9 at margin 0.15 (2 of them labelled: a ball wide of
+the court) and 0 at 0.20. **Margin 0.20.** Videos `bt-own-{a-10,f-01}.story-compare-t49.mp4` (today | T49b | T49 =
+T49b + court lock).
+
+**49c — the reference reels** (Victor approved T49 and sent 4 beach tennis reels he likes, iPhone screen recordings in
+`refs/2026-11-10/beach-tennis/`; measured only). People by YOLOX-Tiny COCO (person class), pan by phase correlation:
+
+| | near player height (of the frame) | near pair both whole | near players' feet (from top) | pan (frame widths / 10 s) |
+|---|---|---|---|---|
+| the 4 reels | 22–31% | 17 / 95 / 84 / 91% | 53–69% | 0.6 / 1.2 / 4.4 / 1.9 |
+| C (25 own + app clips) | 28% | 17% | 70% | 1.6 |
+| T49 | 28% | 14% | 70% | 1.7 |
+
+Same player size and pan; what differs is that 3 of the 4 reels keep BOTH near players in the frame. Our near pair
+spans a median 0.88 crop widths (fits 65% of the frames, 13–94% by clip), so two `cam_bt.py` options were tried
+(`pair`): (1) move the target, when the ball stays inside, so both near players fit; (2) aim at the near pair's centre
+with the ball as a limit. (1): pair both in 14 -> 24–26%, ball 97.9 -> 97.3%, hitter at hits 91.4 -> 87–90%; (2): pair
+31%, ball 83–92%, hitter at hits 64–70%. The pair can only be kept together by losing the ball or the hitter: the reels
+are filmed so the pair is narrower in the frame (the camera further back or wider), and the feet position (70% from the
+top) is the source's, since a 1.0x 9:16 crop of a landscape clip takes its full height. **Off; T49 ships as approved.**
+
+**49d — the ball leaves the frame and the next court's ball is followed** (Victor, all three cameras: `bt-own-b-04`
+at ~4.5 s goes to the VOLLEYBALL on the court to the left). The rally's ball goes out of the picture after 4.0 s
+(labels: none / out from 4.2 s) and the path picks the volleyball at x 0.08–0.24 (4.6–6.4 s, one run >= 1 s). The
+players' lock cannot drop it: the left court's players are as tall as ours, so the "main players" span x 0.02–0.81. A
+second lock by the rally's own ball (`court`, test 49a's ball range: 5–95% of the longest run's x ± margin; a run or
+point outside is dropped) on top of the players' one, 25 clips:
+
+| court (ball) margin | ball in crop | hitter whole / at hits | labelled balls dropped | b-04 camera at 4.5–7 s |
+|---|---|---|---|---|
+| off (T49) | 97.9% | 94.1 / 91.3% | 0 | goes to x 0.17 |
+| 0.10 / 0.15 | 96.9 / 97.0% | 94.4–94.5 / 91.4–91.5% | 8 / 7 | stays at 0.49 |
+| 0.20 | 97.7% | 94.5 / 91.6% | 1 | 0.49 |
+| **0.25** | **97.7%** | **94.5 / 91.6%** | **0** | **0.49** |
+| 0.30 | 97.7% | 94.5 / 91.6% | 0 | 0.23 |
+
+0.25 changes two clips only: b-04 (10 points of the volleyball dropped; hitter at hits 33 -> 100%) and a-04 (5 points
+at 10.6–11.0 s, the ball flying out at the left after the point; one labelled point at 10.4 s falls just outside the
+crop, 100 -> 97.7%). Videos `bt-own-b-04.story-compare-t49d.mp4` (T49 | T49 + ball lock 0.25) and, for the 2 vs 3
+choice on long rallies, `bt-own-{f-01,b-03,a-02,b-01,b-07,b-06}.story-compare-t49d.mp4` (T49 | T49 + reels, both with
+the ball lock). **Victor: 3** (T49 + the ball lock + the near pair kept whole where the ball allows) -> the app
+(`BallFollowParams.beachTennis`: `ballCourtMargin` 0.25, `keepPair`, `pairPad` 0; `BallRuns.courtLock`,
+`BallPlayers.keepPair`; rules `ball-bt-t49d`; `cam_bt.T49` and `ball_parity.py --out-bt` with b-04 added, the locks
+dropping 10 / 12 / 10 points on a-10 / f-01 / b-04). 25 clips: ball in crop 97.2%, hitter whole 92.7%, at the hits
+90.6%, near pair whole 26%.
+Last check on `yt-bt-06` (the vertical web clip, 1.5x; Vision boxes made for it, `mac-people.sh yt-bt-06`): the ball's
+own points in the crop 100% in all three; hitter whole 96.6 / 98.1 / 97.0% (at the hits 94.8 / 96.5 / 96.5%), near
+pair whole 31 / 38 / 51%, pan 0.8 / 0.8 / 0.6 (before 49 / T49 / shipped). Video `yt-bt-06.story-compare-t49d.mp4`.
+Its parity case now has people (aim off the ball on 266 frames; `playersHeight` 0.216 for the verdict, still applied).
+
+**49e — the ball gone out at the top** (Victor, field clip `bt-app-1110-f` with the build of 49d, arena B's side
+diagonal at night: the camera went left to the next court's ball at 2.4–5 s, in the app and in the lab alike). A lob
+leaves the picture at the top (2.0 s, y 0.12 rising 0.06 per frame; the detector still sees it at 2.2 s at y 0.03 and
+again from 3.2 s), and the path takes the next court's ball, a smooth arc mid-frame at x 0.02–0.29, until ours comes
+down at 5.1 s. Both court locks keep it: that ball stays inside our players' x range (main players 0.26–0.46 ± 0.20)
+and inside the rally's run. Rule (`cam_bt.keep_exits`, `exit`): a point still rising that, at its speed, is within
+0.05 of the top edge 2 frames later is going out; the points after it are not followed until one is back within 0.20
+of the top and 0.25 frame widths of where it went out. Tried and dropped: resuming at a point near a main player (the
+next court's ball passes "behind" our near players in the picture); re-entry at 0.10 / 0.12 or "above 0.15 and rising"
+as the exit (they cut real high balls that turn inside the picture: 47–76 labelled balls lost); the same at the side
+edges (changes nothing). 26 clips: ball in crop 97.2%, hitter 92.7 / 90.6% (unchanged), 0 labelled balls dropped;
+bt-app-1110-f: 23 points of the other ball dropped, the camera stays at 0.42 and goes to 0.33 for our ball's hit at
+5.4 s (was 0.16); a-05: 5 points at 10.4–11.4 s the labels mark "out" dropped; yt-bt-06 / the stream / bt-v-1029
+unchanged (lab tracks). Videos `bt-app-1110-f.story-compare-t49e.mp4`, `bt-own-a-05.story-compare-t49e.mp4` (app
+today | + top exit). In the app: `BallFollowParams.exitTop/exitBack/exitDx` (0.05 / 0.20 / 0.25), `BallRuns.keepExits`
+after the court locks, rules `ball-bt-t49e`; `ball_parity.py --out-bt` adds `bt-app-1110-f` (`playersCourt` before the
+exit rule in the fixture).
+
+**49f — a more dynamic camera** (Victor on 49e's `bt-app-1110-f`: no longer goes to the next court, but when the
+right player attacks at ~3 s the defence on the other side is not shown: the camera stays still). Three changes, all
+in `cam_bt.py`: (1) `own`: while the path is dropped after a ball went out at the top, our ball is looked for among the
+detector's moving candidates (score >= 0.5, not in a screen, not still: nothing within 0.01 at the analysed frame
+before or after), first back at the top (within 0.20, 0.25 frame widths of where it went out), then candidate to
+candidate (nearest within 0.08 long sides per frame, 2 frames' worth at most), out at the top again or 4 frames lost =
+at the top again. f: our ball found at 2.2, 3.2–3.6 and 4.4–5.0 s (8 points; 26 clips: 1 more, on b-04, labelled
+right). (2) `glide`: where the ball is lost in flight, the target goes on the way it was going (x speed of its last
+two points) for up to 6 frames, inside the main players' court. (3) `pairnear`: the near pair is kept whole only while
+the ball is near one of them (0.25 long sides), not when it is on its way to the other side.
+
+| 26 clips | ball in crop | hitter whole / at hits | near pair whole | pan |
+|---|---|---|---|---|
+| 49e (top exit) | 97.2% | 92.7 / 90.6% | 26% | 1.5 |
+| + own | 97.2% | 92.7 / 90.6% | 26% | 1.5 |
+| + own + glide 6 | 98.2% | 93.4 / 90.8% | 25% | 1.6 |
+| **+ own + glide 6 + pairnear** | **98.3%** | **93.8 / 91.3%** | **22%** | **1.6** |
+
+f: the camera goes 0.46 -> 0.48 toward the far players at 3.4–4.0 s (was held at 0.43). Tried: the far players as
+hitters too (`hitall`; the camera pulled to them, hitter whole 89.6%): off. Videos
+`bt-{app-1110-f,own-b-01,own-f-01}.story-compare-t49f.mp4` (49e | 49f). Not in the app yet: waiting for Victor's eye.
+
+**49g — zoom below 1x** (Victor: 49f is the default; on a camera position that is not favourable, the diagonal, try
+0.5–0.8x so the ball and the framing stay right). Below 1x the 9:16 crop is wider than the picture is tall: the picture
+sits in the middle and the rest is filled with a blurred, darker copy of it (`story.crop_at`; content = zoom of the
+output height: 80% at 0.8x, 65% at 0.65x, 50% at 0.5x). 49f, by arena:
+
+| zoom | A (behind, slight diagonal): ball / hitter at hits / pair | B (side diagonal) | app a-e (behind): hitter at hits / pair | 1110-f (diagonal, night) | f-01 | pan |
+|---|---|---|---|---|---|---|
+| 1.0x | 98.1 / 93.3 / 26% | 98.5 / 86.4 / 8% | 96.2 / 40% | 88.9 / 11% | 94.2 / 28% | 1.2–2.2 |
+| 0.8x | 98.4 / 96.6 / 43% | 97.9 / 91.7 / 26% | 98.1 / 62% | 94.4 / 30% | 98.1 / 72% | 0.9–1.5 |
+| 0.65x | 98.7 / 98.3 / 59% | 98.8 / 98.3 / 46% | 98.1 / 75% | 100 / 92% | 99.0 / 89% | 0.8–1.2 |
+| 0.5x | 99.5 / 99.4 / 83% | 100 / 100 / 71% | 100 / 92% | 100 / 100% | 100 / 94% | 0.5–0.7 |
+
+Everything kept in improves as the crop widens (the crop is 1.25 / 1.54 / 2 times wider); the cost is the players'
+size (x0.8 / x0.65 / x0.5: the near players 28% of the output height at 1x -> 22 / 18 / 14%) and the blurred bands.
+Videos `bt-{app-1110-f,own-b-01,own-a-02}.story-compare-t49g.mp4` (1.0 | 0.8 | 0.65 | 0.5x). Waiting for Victor's eye
+(which zoom, and whether only on the diagonal: then a rule to tell the diagonal from what the phone has).
+Victor: 0.8x was the one he liked, but not with the bands (a 9:16 crop wider than 1x has no picture above and below:
+there is no way around it but bands, 4:5 or generated picture) -> **stays 1x with 49f**.
+
+**49f in the app**: `BallFollowParams.beachTennis` + `ownMinScore` 0.5, `ownStep` 0.08, `ownLost` 4, `pairNear` 0.25,
+`glide` 6; `BallRuns.movingCandidates`, `BallRuns.keepExits(..., cands:)`, `BallPlayers.keepPair(..., nearOnly:)`,
+`BallPlayers.glide`; rules `ball-bt-t49f`. `cam_bt.T49` and `ball_parity.py --out-bt` follow (`camera_rects` == 
+`cam_bt.camera` with T49 on bt-app-1110-f, b-04, a-05: max diff 0).
+Fix (Victor's `swift test`, `testTopExit`): 49f's rewrite of `keep_exits` skipped the "going out again?" check on the
+point where the ball comes back (49e did it); lab and Swift fixed alike. 26 clips: ball in crop 98.3 -> 98.6%, hitter
+93.8 / 91.3 -> 93.8 / 91.2%, 0 labelled balls dropped; the fixture's drop / found counts unchanged.
+
+**In the app** (beach tennis only; `BallSport.beachTennis`, rules `ball-bt-t49`): `BallCameraParams.beachTennis`
+(a 1, b 100), `BallFollowParams.beachTennis` (main 0.6, court margin 0.20, blend 0.4, near 0.25), `BallPlayers`
+(`main`, `courtLock`, `aim`, `hitter`); FocusAnalyzer writes the person boxes per row (`people`) and BallAnalyzer
+passes them to `BallFraming.compute`. Basketball: camera C, no follow, its fixtures unchanged. `ball_parity.py --out-bt`
+now uses `cam_bt.people_rows` / `main_players` / `keep_players_court` / `aim_x` and adds a-10 and f-01 (the lock drops
+10 and 12 points there, as above); `camera_rects(..., smooth, aim)` == `cam_bt.camera` T49 on a-02 and b-04 (max diff 0).
+
+### Field check after test 48 (2026-11-10) — `bt-app-1110-a`: the app analysed a beach tennis clip as basketball
+
+Victor's first app clip with the beach tennis build (arena A's court, 12.9 s, `refs/bt-own/field-1110/`): the 9:16
+camera went right to the next court at 2–3 s and stayed on it at 6.5–8.8 s, and cut the player hitting the ball. The
+app's camera, measured on the export by template matching against the original (every 0.25 s, match 0.90–0.99):
+centre 0.50 -> 0.78 at 2.75 s, 0.84 (the right edge) at 6.5–8.75 s. The lab with **basketball's** model and rules
+(`ball_tiny_gym`, still 0.5, every point followed) gives the same camera from 5 s on (0.669 / 0.768 / 0.842, mean
+|diff| 0.054 over the clip; the ball path at x 0.91–0.97 at 7–9 s = the next court); with beach tennis' (`btpl`, T47)
+the camera stays at 0.44–0.59 (mean |diff| from the app 0.159) and never leaves the court. The classifier was unsure
+about the clip, so the sport defaulted to basketball. Victor: ask the sport once per recording (its first clip) until
+it can be told reliably (`ballSportIdOf` no longer defaults to basketball). Video
+`lab/tests/story/bt-app-1110-a.story-compare-t49.mp4` (today | beach tennis C 1.0x). The framing of the hitter
+(Victor: the player attacking the ball gets cut) is test 49's other part.
+
+### Test 48 result (2026-11-10) — the beach tennis model for the app, Seguir a Bola per sport
+
+**Model.** The cloud workspace that trained test 45 is gone with its `.pth` files (the Mac kept only the `.onnx`), and
+this workspace has no PyTorch, so the recipe ran on Victor's Mac (`tools/lab/mac-train-bt.sh`, `lab/.venv`, CPU, ~1.0 s
+per iteration of 16 crops; 5,000 iterations in 1 h 25):
+1. `btpub`: YOLOX-Tiny 416 from COCO, `pub-bt01`, `pub-bt02`, `neg-bt01`, 3,000 it.
+2. `btplA2`: `btpub` + arena B's crops with every ball marked (`own_relabel.py` with test 45's `btpub.onnx`: 756
+   "not a ball" crops of arena B and 158 of arena A had a ball, test 45: 716 / 154), 1,000 it. — the recipe check.
+3. `btpl`: `btpub` + both arenas' marked crops, 1,000 it. — the app's model.
+
+| Arena A (not trained on) | detector ceiling | path cover (T47) |
+|---|---|---|
+| `btpub` (test 45) / today's re-run | 81.8% / 78.0% | 73% / 74% |
+| `btplA` (test 45) / `btplA2` (today) | **93.8%** / 88.7% | **90%** / 85% |
+
+A run of the same recipe varies by ~4 points (the public base already differs; the arenas add the same, +12 / +11).
+The fair test of the app's model is on clips no beach tennis model trained on — 5 labelled older clips (249 points;
+`btplB` and `btpl` both trained on arena A, `btpl` on B too):
+
+| Model | ceiling | path: precision / cover (T47) |
+|---|---|---|
+| `btplB` (test 45) | 85.5% | 95% / 82% |
+| **`btpl`** | **85.1%** | **94% / 82%** |
+
+(bt-rz-1105-a/b, bt-0AE39B33, bt-E5003B6B 91–100% cover each; yt1105-bt 15–24% for both, the clip the verdict turns
+down.) Equal where neither has been: `btpl` ships, as it has seen both of the real arenas. Into the app:
+`tools/lab/mac-coreml-bt.sh` (`yolox_coreml.py --ball ball_tiny_btpl`, `xcrun coremlcompiler`) ->
+`app/modules/replay-camera/ios/Models/ball_tiny_btpl.mlmodelc`. Same architecture and size as `ball_tiny_gym`, so the
+phone's speed is the same (test 42).
+
+**App** (spec 2026-11-09, part 4): `Core/BallSport.swift` — a profile per sport (model, path, runs, zoom, screens,
+verdict); `.basketball` is exactly the previous values. `BallAnalyzer` takes the sport, loads its model, keeps the
+detections per model, renders 160 px grey thumbnails for `BallScreen`, skips a clip recorded too far before analysing
+(`playersHeight`, now written by `FocusAnalyzer`), and returns `unsuitable` with a reason. JS: the Foco panel asks "Que
+esporte é esta gravação?" where the classifier says another sport (`Session.ballSport.sport`), shows "Esporte: … ·
+Trocar", and an unsuitable cut goes back to Modo Foco with the reason. Parity: `ball_parity.py --out-bt` ->
+`Fixtures/ball-parity-bt.json` (5 clips: arenas A/B, yt-bt-06, the LED stream, bt-v-1029 turned down);
+`BallParityBeachTennisTests`; basketball's `ball-parity.json` regenerated with today's lab: identical.
+
+### Test 47 result (2026-11-10) — beach tennis: when to apply Seguir a Bola, video screens, the ball near the players
+
+Victor after the night rally recorded at 0.5x (`bt-v-1029`: the camera hardly moved, the ball is far: "unnecessary
+processing") and the tournament stream (the path on the LED screen): (a) a rule for when the mode is worth it, for every
+sport with its own limits ("we do not know how people will record"); test (b) leaving out a video screen and (c)
+preferring the ball near the players.
+
+**47a — `ball_verdict.py`** (new; limits per sport in `VERDICT`, beach tennis only so far; other sports: no verdict,
+today's behaviour). Today the app always runs the ball analysis when the mode is on and only shows "Bola pouco
+visível" under 35% ball (`BALL_SPARSE_SHARE`, `[id].tsx`); nothing decides "not for this clip".
+Signals (no labels), measured on the 30 beach tennis clips with `btpl` tracks (T46b) and 16 basketball clips
+(`ball_tiny_gym` folds, measure only):
+
+| Signal | beach tennis own arenas (19) | far / bad bt clips | basketball |
+|---|---|---|---|
+| players' median height in the 9:16 output (Vision, before the ball analysis) | 12–21% | bt-wa-1028 9%, bt-rz-1105-v 10%, bt-v-1029 11% | 9–31% (basket-rp-1105-v-b 9%) |
+| ball's median size in the 9:16 output (px of 1080) | 19–24 | bt-rz-1105-v 13, bt-v-1029 15 | 20–85 |
+| ball share (trusted after the run filter) | 38–91% | yt1105-bt 15% (precision 46%) | 15–97% |
+| camera pan on screen (crop widths / 10 s) | 0.4 (a-06) – 3.6 | bt-wa-1028 0.0, bt-rz-1105-v 0.3, bt-0AE39B33 0.5 | 0.1 (basket-v-01) – 4.1 |
+
+Ball share alone is no quality signal (b-05: 38% ball, 100% in the crop: short rallies). Rule for beach tennis:
+**before** the ball analysis (free: today's Modo Foco already ran Vision), players < 10% of the output height at the
+largest zoom the sport allows = recorded too far, not offered (no processing); **after**: ball share >= 25%, ball >= 16
+px in the output, pan >= 0.6, else the clip stays on today's Modo Foco. Verdicts: off bt-v-1029 (ball 15 px),
+bt-rz-1105-v (ball 13 px, pan 0.3), bt-wa-1028 (players 9%), yt1105-bt (ball 15%), bt-0AE39B33 (pan 0.5),
+bt-own-a-06 (pan 0.4: the ball stays mid-court, the 9:16 crop hardly needs to move; today's framing keeps it 100%);
+on: the other 18 own clips, bt-own-f-01, yt-bt-06, yt-bt-stream-1110, bt-rz-1105-a/b, bt-E5003B6B. Thin calibration
+(30 clips, limits close to some clips): to revisit with more recordings. The app also knows the lens at recording
+time (0.5x), a direct signal the lab clips do not carry.
+
+**47b — video screens** (`ball_track.screen_boxes`, `SPORT_P["beachTennis"]["screen"] = 1`). On the clip's frames
+(160 px wide, every 2nd 100 ms frame), a pixel is active when it changes > 12 grey levels; a connected active region
+is a screen when its box is >= 75% active, >= half of it changes at once on >= 12% of the frame steps, and the box is
+>= 1.5% of the frame. 32 beach tennis clips: only the stream's LED screen (fill 0.85, sync 0.19; players' regions
+fill <= 0.81 with sync 0.00, sync <= 0.08; a 0.5% strip at b-08's edge excluded by the size). Stream: 51 path frames
+on the screen -> 0; at 21.4–24.8 s the path is now mid-court (the serve). 19 own clips unchanged (90.6%). Video
+`yt-bt-stream-1110.story-compare-t47.mp4` (today | T46b | T47).
+
+**47c — the ball near the players** (`near`, `near_w`, `near_916`, off). Vision finds everyone (next court, crowd),
+so "near a person" says little; tried today's Modo Foco crop instead. Native crop (70–90% of the width): nothing
+changes. 9:16 crop + 0.1 width, score x0.5: cover 90.6 -> 86.9% (b-01 98 -> 53%: in a class today's framing is on
+people off the rally), 6 fewer of 192 ball points far from a rally; +0.2: 90.4%, 2 fewer; +0.3: nothing. Not taken;
+a-02's point on the next court (11.6 s) is inside today's crop.
+
+Basketball unchanged (path 465 / 465, story camera 22 / 22 identical to git HEAD; `screen` / `near` default off).
+
+### Test 46 result (2026-11-09) — the beach tennis path
+
+Detections of test 45 (fold-honest: arena A with `btplA`, trained on B; arena B with `btplB`), 709 labelled points.
+New tool `path_sweep.py`: tracks every clip in memory with a parameter set (`k=v` for `ball_track.P`, `t.k=v` for
+`hybrid.T`) and scores it as `ball_gate.signals` does, pooled per arena; it reproduces test 45 exactly (74.8%).
+
+**1. Where the path lost the ball** (`path_diag.py`, test 45's path; share of the labelled points):
+
+| Arena | blind (detector) | still filter | wrong / none | trusted | hit (cover) |
+|---|---|---|---|---|---|
+| A | 6% | **16%** | 1% | 6% | 69% |
+| B | 5% | 4% | 3% | 7% (b-02: 38%) | 81% |
+
+**2. Still filter.** A ball lying on the sand is found within a few px of the same spot; the old radius (2% of the
+long side, 38 px at 1080p) also caught the ball in play whenever it passed near one, or near a fence knot (arena A).
+Radius 0.4–1% with share 0.2–0.4 is a plateau (cover 81.0–81.9%); chosen `still_r=0.006, still_share=0.3`
+(`SPORT_P["beachTennis"]`). Share alone (0.3–0.7 at 2%) gives at most 78.6%; the filter off falls to 50%.
+
+**3. Trust rules.** With the still filter fixed, `hybrid.trusted` became the main loss (A 13%, B 7%): the round-5
+racket rules. Ablation (cover A / B, precision unchanged at 97 / 99%): base 78 / 85%; without the area-jump rule
+82 / 91%; without the slow-path rule 87 / 85%; both off (`racket=0`) **90 / 91%**; aspect 3.0 no change. A detector
+box's size varies frame to frame (area jumps of 2.5x happen on the real ball), and a ball that moves little for a
+second (a lob going away, a soft drop) is often in play. Those rules were made for SAM 2 / EdgeTAM masks sliding onto a
+racket, which a detector does not do; the app's `BallTrust.swift` has no racket rules either. So `hybrid.trusted` skips
+them for a pure detector path (`detector_path`: every point carries the detector's score) unless `r_det=1` (test 45's
+numbers: `t.r_det=1,still_r=0.02,still_share=0.2`). EdgeTAM and fused tracks keep them; basketball is not a racket
+sport, unchanged. Cost: on frames labelled "out" more than 1 s from any labelled ball, the camera shows a ball on
+A 23 / 62 (was 14), B 63 / 130 (was 49; arena B is a class where other balls fly between points). With the slow-path
+rule kept at 0.05 instead, B would be 54 / 130 at the same cover; not taken (the app has no such rule).
+
+**4. Other parameters** (on top of 2 + 3, all cover): `dp_gap` 6 / 16, `vmax` 0.08 / 0.2, `box_max` 0.02 / 0.03,
+`s0` 0.03 / 0.1, `move_cost` 0.5 / 2, `conf` 0.1: 89.6–91.1%, within noise of 90.6%; nothing changed.
+**Test 39's motion options**: `dp=2` (acc_cost 0.5–2) 90.7–91.0% at precision 98.5–98.6% (a-10 100 → 71% at acc_cost 0.5–1); `fill` 91.5% at
+precision 93%; both 92.4% at 94%. Small gains, a lower precision, and `dp=2` is not in the app: not taken.
+
+**Result** (`report.t46-btplA.md`, `report.t46-btplB.md`; tracks `det-t46-btplA/B`):
+
+| Path | arena A: prec / cover | arena B: prec / cover | all 709 points |
+|---|---|---|---|
+| test 45 | 97% / 69% | 96% / 81% | 96.4% / 74.8% |
+| still filter 0.6% | 97% / 78% | 99% / 85% | 97.8% / 81.4% |
+| **+ no racket rules on detector paths (test 46)** | **97% / 90%** | **99% / 91%** | **97.7% / 90.6%** |
+| detector ceiling | 94% | 95% | 94% |
+
+- Every clip through the gate (b-02 was "não"); worst clips now b-04 75%, b-09 77% (both: the detector is blind on
+  10% of their points), a-07 80%. What is left between cover and the ceiling: the detector blind 5–6%, the rest ~1%
+  each. Path diagnosis after: A blind 6%, still 1%, trusted 1%, hit 90%; B blind 5%, hit 91%.
+- **Story camera C** (`story.py`; these clips have no Vision "today" framing, so a centre 9:16 crop stub stands in, as
+  in test 40: `lab/tests/framing/bt-own-*.current.focus.json`). Ball inside the crop, labelled points:
+
+  | Path | C 1.0x | C 1.2x |
+  |---|---|---|
+  | test 45 | 97.6% | 95.6% (b-02 73%) |
+  | **test 46** | **98.6%** (worst b-08 92%) | **96.3%** (worst b-09 87%) |
+
+  Pan 1.9 / 2.3 crop widths per 10 s. Test 31's per-clip zoom rule stays at 1.0x on every clip here because the stub
+  has no "today" zoom to scale; it needs the app's real framing. Videos for Victor
+  (`lab/tests/story/bt-own-{b-02,a-09,b-03,a-02}.story-compare-t46.mp4`: centre crop | C 1.0x | C 1.2x).
+- **46b (Victor's review of the videos, same day)**: liked C 1.0x best; asked for (a) no camera movement before the
+  rally starts (b-02: the camera went right and back at 2.0–2.4 s, a 0.5 s "ball" high on the right while no ball was in
+  play), (b) no slide to the neighbouring court after the point (a-02, 11.6 / 12.2 s: points at x 0.86 / 0.94), (c) on
+  b-03 the left player cut at the end. (a) and (b) are short runs of trusted points: of the 19 clips' runs under 1 s,
+  almost none hold a labelled ball. `story.camera` now follows only runs of at least 10 frames (a run ends after 4
+  frames without a ball); elsewhere it stays on the base framing. **Beach tennis only** (`RUN_SPORT`); basketball and
+  the other sports keep test 46's camera. Sweep (C 1.0x, 19 clips):
+
+  | min run | ball in crop | pan while the label says "out" (crop widths / 10 s) | worst clip |
+  |---|---|---|---|
+  | off (46) | 98.6% | 2.2 | 92% |
+  | 0.5 s | 98.4% | 1.8 | 90% |
+  | **1.0 s** | **97.9%** | **1.4** | **90%** |
+  | 1.0 s, gap 2 | 95.6% | 0.8 | 65% |
+
+  (c) is the lab's stand-in: these clips have no Vision players framing, so when the ball leaves the camera goes back
+  to a fixed centre crop; in the app the fallback is today's Modo Foco framing of the players. Videos
+  `bt-own-{b-02,a-02}.story-compare-t46b.mp4` (centre | T46 | T46b, C 1.0x).
+- **46c: the real Modo Foco framing as the fallback** (Victor: "how will it look in the app?"). `mac-people.sh` (new,
+  on the Mac: the app's Vision person detector, `renders/bt-own-*.people.json`) + `focus_variant.py --preset acao
+  --boxes tiled` replace the centre-crop stubs for all 20 bt-own clips (Vision's whole-frame boxes find arena A's
+  players on 1–16% of the frames, the tiles on 100%). Ball inside the 9:16 crop, 19 labelled clips:
+
+  | Camera | arena A | arena B | all | pan / pan while "out" (crop widths / 10 s) |
+  |---|---|---|---|---|
+  | today's Modo Foco 9:16 (players only) | 80.4% | 53.3% | 67.6% (b-01 7%, b-04 15%) | 0.8 / 1.0 |
+  | C 1.0x, T46 | 98.9% | 98.2% | 98.6% | 1.9 / 2.3 |
+  | **C 1.0x, T46b** | **98.1%** | **97.9%** | **98.0%** | **1.6 / 1.4** |
+  | C 1.2x, T46b | 96.8% | 94.0% | 95.5% | 2.0 / 1.8 |
+
+  The ball camera's numbers barely move with the real fallback. Today's framing alone loses the ball on arena B (a
+  class: it frames people off the rally, e.g. b-01). Videos `bt-own-{f-01,b-03,b-02,b-01}.story-compare-t46c.mp4`
+  (today | C 1.0x T46b).
+- **`yt-bt-06`** (web, measure only; Victor: the arena cameras sit in a corner at the end of the court, this one is
+  behind the court, centred; indoor, white sand, vertical 1080x1920 30 fps, first 30 s; 1 labelled point, so judged by
+  eye). Trusted ball after the run filter: `btplB` 271 / 300 frames, `btplA` 252, the basketball model `bgymall` 79;
+  `btplA` and `btplB` agree (< 40 px) on 230 of the 243 frames both have. Test 31's rule picks 1.8x (today's zoom
+  1.51x x 1.2 for vertical). Video `yt-bt-06.story-compare-t46c.mp4` (today | C 1.5x | C 1.8x, T46b `btplB`).
+- **46d: the story zoom by orientation, beach tennis only** (Victor, after `yt-bt-06` at 1.0 / 1.2x: a horizontal
+  recording needs little zoom, a vertical one needs some to give the camera movement). On `yt-bt-06` (vertical
+  1080x1920), pan on screen (crop widths / 10 s) and upscale to 1080 wide by zoom: 1.0x 0 / x1.0 (the whole frame),
+  1.2x 0.3 / x1.2, 1.35x 0.6, 1.5x 0.8 / x1.5, 1.65x 1.0, 1.8x 1.2 / x1.8; the ball never leaves the crop up to
+  1.8x. Horizontal 1.0x already pans 1.6 on the arena clips without losing resolution. Victor chose quality: cap x1.5.
+  `story.ZOOM_SPORT["beachTennis"]` / `story.sport_zoom`: horizontal 1.0x fixed; vertical test 31's rule (today's zoom
+  x 1.2, kept while the detector's own ball stays in the crop, safe zoom under 35% ball) with `max_upscale` 1.5:
+  `yt-bt-06` 1.5x (content 1.81, quality 1.5), `bt-rz-1105-v` 1.05x (ball guard). `auto_zoom` / `ball_share` /
+  `self_miss` take an optional `engine` (default: as before). Other sports: `sport_zoom` returns None, test 31
+  unchanged (`basket-v-01` still 1.6x). Videos `yt-bt-06.story-compare-t46c.mp4` (the 1.5x panel is the new default)
+  and `-t46d` (1.0 / 1.2x).
+- **Two more clips, no labels (judged by eye), `btplB` + T46b + 46d zoom** (Victor, 2026-11-10):
+  - `bt-v-1029`: vertical 1080x1920 30 fps, 20 s, night open court, camera behind the baseline, a new arena
+    (`refs/bt-own/field-1029/`). Ball shown on 135 / 202 frames (`btplA` 125); `btplA` / `btplB` agree on 113 of 116.
+    Zoom rule: 1.5x (content 1.71, quality cap 1.5). Follows the rally well. Video `bt-v-1029.story-compare-t46d.mp4`
+    (today | C 1.2x | C 1.5x).
+  - `yt-bt-stream-1110`: screen recording of a tournament stream (web: measure only; 1414x760 with borders, variable
+    frame rate; high camera behind the court; `refs/web/`). Ball shown on 160 / 271 frames; the models agree on only
+    99 of 127. At 21.4–24.8 s the path follows round things **inside the video on the venue's LED screen** (top left)
+    while the real ball is in the serve (`lab/tests/story/chk-led.jpg`). The slow-ball rule (`r_slow_path` 0.05, free on
+    the 19 own clips: cover 90.6% unchanged) drops only 14 of those 35 frames; not taken. A screen showing video is a
+    new kind of false ball (also possible at real tournaments); candidates: leave out a bright rectangle whose content
+    changes (a screen), or prefer candidates near the players. The 9:16 crop here is 427 px wide (x2.5 upscale): the
+    source is low resolution. Video `yt-bt-stream-1110.story-compare-t46d.mp4` (today | C 1.0x).
+- **Basketball unchanged (checked, Victor: each sport keeps its own models and tuning).** Every change of tests 46 /
+  46b is keyed by sport (`SPORT_P["beachTennis"]`, `RUN_SPORT["beachTennis"]`) or limited to racket sports
+  (`hybrid.trusted`'s `r_det`; basketball is not one). The lab code before (git HEAD) and after, on every basketball
+  clip: path + trust on all 465 basketball detection files (every tag) identical; story camera C 1.0x / 1.2x on the
+  11 basketball clips that have it identical (checked again after 46d); `story.frames`' header read (`-show_streams`) gives the same size, fps
+  and rotation as before (ffprobe 6.1, also on a rotated file). No app file and no basketball model was touched.
+- **Field rally `bt-own-f-01`** (Victor, 2026-11-09, a third arena never trained on: night, low side camera, another
+  court behind; 23.8 s 1080p60, `refs/bt-own/field-1109/`, no labels yet): `btplA` and `btplB` (each trained without
+  this arena) put the path on the same point (< 30 px) on 206 of the 208 frames both have, ball in 88–92% of the
+  frames after the run filter. Video `bt-own-f-01.story-compare-t46b.mp4` (centre | T46 | T46b, `btplB`). Labelling it
+  would make it the first scored clip from an unseen arena.
+- `story.frames` now reads the stream with `ffprobe -show_streams` (the `stream_side_data` section of
+  `-show_entries` is not in the Mac VM's ffprobe 4.4); same values.
+- Next (step 6 of the handoff): the app model trained on both arenas + public (`btpl` all), FocusBench `det5b` on the
+  phone, `BallPathParams.beachTennis` (still_r 0.006, still_share 0.3) in `ReplayCore` with `ball_parity.py`
+  fixtures, then "EM BREVE" off for beach tennis (`focus/sportCheck.ts`).
+
+### Test 45 result (2026-11-09) — a beach tennis detector (public data + Victor's two arenas)
+
+Data (`lab/train/`): `pub-bt01` (Beach_Tennis_01 without its 834 `cam0b` frames, 799 of which are in Beach_Tennis_02:
+3,557 crops, 1,903 with the ball), `pub-bt02` (4,861 / 2,694), `neg-bt01` (3,000 "not a ball" crops from Beach_Tennis_01's
+player and racket boxes: heads, torsos, racket heads, scaled by the BALL, `hard_neg.py public --person player --racket
+racket --ball-px 13`, since a beach tennis ball is ~half a head), and Victor's clips `bt-own-*` (`ball_train.py dataset
+--det bgymall-n5`, ~4,500 crops). Public balls: 7–13 px at 720/1080p, like ours (10–15 px at 1080p). New tool options:
+`ball_train_pub.py dataset --part/--merge/--skip`, `train --folds bt` (fold A = arena A scored, arena B trained, and back),
+`hard_neg.py public --person/--racket/--ball-px`. Training on the cloud CPU (1.6 s per iteration of 16 crops).
+
+| Model | arena A: ceiling / cover | arena B: ceiling / cover | all 19 clips |
+|---|---|---|---|
+| `ball_tiny_gym` (basketball, test 44) | 62% / 32% | 43% / 22% | 53% / 28% |
+| `btpub`: public sets + negatives, 3,000 it. from COCO | 82% / 58% | 95% / 87% | 88% / 72% |
+| `btownA`: + arena B crops and `--fp` as labelled (1,000 it.) | 54% / ~40% | (stopped) | — |
+| **`btplA` / `btplB`: + the other arena's crops with every ball marked (45b)** | **94% / 69%** | **95% / 81%** | **94% / 75%** |
+
+- **45 → 45b**: fine-tuning with arena B's crops as labelled made the detector timid on arena A (ceiling 82 → 54%,
+  precision 100%). Arena B is a class at night with dozens of balls on the sand and only the ball in play labelled:
+  its "not a ball" crops (random and around the old detector's false candidates) were full of real balls.
+  `own_relabel.py` runs `btpub` on every own crop and marks its confident balls (score >= 0.4) as positives: 716 of
+  arena B's "not a ball" crops and 154 of arena A's had one. Balls on the floor are the path's job (still filter), not
+  the detector's.
+- **Detector**: 94–95% ceiling on both arenas, never trained on the arena it is scored on: basketball's level.
+- **Path**: cover is now well below the ceiling (69–81%), and on arena B lower than with `btpub` alone (b-02 88 → 50%:
+  many balls on the sand, the path follows one). Precision is 90–100% on most clips. Next, test 46: the beach tennis
+  path (still filter, ball box size, `dp=2` / `fill` of test 39 for the ball in flight, racket trust rules of test 6),
+  then story camera C on these clips.
+- The app's model will be trained on both arenas (+ public) once the path is settled.
+
 ### Test 44 result (2026-11-09) — beach tennis baseline (zero-shot)
 
 First step of the new-sport path (skill `seguir-a-bola-novo-esporte`): what the basketball pipeline does on beach
@@ -200,8 +627,47 @@ path `ball_track.py` with the default parameters (beach tennis has no `SPORT_P` 
 
 - The basketball detector sees the small yellow ball in 0–60% of the labelled points (basketball: ~90%); the path then
   follows something else on most clips. Nothing to tune in the path before a beach tennis detector exists.
-- Labels are thin: 6 clips with 30–73 points, 2 with one. Before training: more of Victor's recordings (2–3 venues,
+- **Victor's own beach tennis recordings (2026-11-09)**: 19 app clips (1080p60, 7–19 s), arena A (`bt-own-a-01..10`,
+  373 labelled ball points) and arena B (`bt-own-b-01..09`, 336 points), labelled by Victor the same day
+  (`refs/bt-own/<arena>/`, own data: train and measure, by arena). Same zero-shot baseline (`report.t44-btown-base.md`):
+
+  | Set | pts | detector ceiling | path cover |
+  |---|---|---|---|
+  | arena A | 373 | 62% | 32% |
+  | arena B | 336 | 43% | 22% |
+  | all 19 | 709 | 53% | 28% |
+
+  Path precision varies a lot by clip (0–100%): when the detector misses the ball, the path follows a head, a shoe or
+  a light. The beach tennis detector (test 45) is trained on one arena and scored on the other.
+- **Beach tennis datasets found by Victor (2026-11-09)**, both Roboflow Universe, CC BY 4.0 (README.roboflow.txt in the
+  export), COCO, in `lab/datasets/Beach_Tennis_01_4164_images/` and `Beach_Tennis_02_4444_images/`:
+
+  | Dataset | Images | Classes | Ball size (long side) | Source of the frames |
+  |---|---|---|---|---|
+  | `beach-tennis-analysis/beach-tennis` v9 | 4,164 (1080p, 720p, 360p) | ball 2,156, player, racket, net | median 0.7% | 2,779 from a live stream of an ITF BT 200 tournament (Toledo PR, scoreboard and #SELIGANOPLAY on screen), 834 from a fixed "Filma Eu" arena camera (cam0b), a few others |
+  | `beach-tennis-ball/beach-tennis-mg42r` v5 | 4,444 (720p) | ball 3,599 | median 0.5% | all from the same "Filma Eu" arena camera (7 segments, cam0b); overlaps the first set's cam0b frames |
+
+  Much closer to the app than tennis/padel sets (beach courts, end view, ball as small as ours). The licence is the
+  uploaders'; the frames are a tournament stream and a commercial arena-camera service, the same kind of risk as the
+  basketball set of test 28 (Victor kept it for internal training). Duplicate cam0b frames between the two sets to be
+  removed before training.
+- Labels of the older clips are thin: 6 clips with 30–73 points, 2 with one. Before training: more of Victor's recordings (2–3 venues,
   side and end views, day and night) and denser labels, split in two halves by venue.
+- **Public data for the racket-sport detector (licence check, 2026-11-09, Roboflow Universe pages)** — kept only CC BY
+  4.0 (credit in the app), image source to be checked on the samples after download (scraped broadcast frames are a
+  licence risk, as in test 28):
+
+  | Dataset | Licence | Images | Classes | Note |
+  |---|---|---|---|---|
+  | `padel-rbqpp/padel-detection-5` | CC BY 4.0 | 5,267 | ball | video frames; padel ball ≈ beach tennis ball, rackets around |
+  | `viren-dhanwani/tennis-ball-detection` | CC BY 4.0 | 578 | tennis ball | video frames (some synthetic?) |
+  | `technische-universitt-mnchen/tennisball_annotation` | CC BY 4.0 | ? | 1 | |
+  | `gani-moli-s-yym2m/tennis_ball_detection-t5wnx` | CC BY 4.0 | ? | ball, court, players | only `ball` used |
+  | `ahmad-workspace/tennis-ball-detection-hpv6q` | CC BY 4.0 | ? | ? | |
+  | `padelytixs-workspace/padel-tracking` | CC BY 4.0 | 508 | ball + 4 players | only `ball` used |
+
+  Left out: `tennis-rally-detection/tennis-ball-detection-e5vmz` and `joel-emmenegger/tennis-ball-detection-lvsp5` (no
+  licence stated); the TrackNet tennis dataset (broadcast TV frames, no commercial licence found).
 - Next: a one-class beach tennis detector (public tennis/beach tennis ball data with a commercial licence, checked one
   by one; "not a ball" crops of rackets, heads, net tape, lights; Victor's clips by fold), then the path's racket options
   (test 39 `dp=2`, `fill`; test 6 round 5 trust rules).
