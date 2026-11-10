@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useAppActive } from './useAppActive';
+
 /**
  * On the setup screen, how long without a touch or a remote press before the preview pauses and the screen dims
  * (2026-11-08 spec §3.2): enough to place the phone and check the framing; after it, the screen costs battery and heat
@@ -22,12 +24,12 @@ export type IdlePause = {
 };
 
 /**
- * Pauses after `idleMs` with no `activity()` while `active`, warning `warnMs` before with a countdown; anything that
+ * Pauses after `idleMs` with no `activity()` while `active` and the app is on screen, warning `warnMs` before with a countdown; anything that
  * ends `active` (a recording starting, a sheet opening, the screen leaving) also ends the pause and the warning, so
  * whatever comes next finds the camera on.
  */
 export function useIdlePause(
-  active: boolean,
+  wanted: boolean,
   o: {
     idleMs?: number;
     warnMs?: number;
@@ -35,6 +37,9 @@ export function useIdlePause(
     onResume?: (cause: ResumeCause | 'fim') => void;
   } = {},
 ): IdlePause {
+  // Minimised or behind another app, the wait stops (and a pause ends): coming back starts it again from zero.
+  const appActive = useAppActive();
+  const active = wanted && appActive;
   const idleMs = o.idleMs === undefined ? SETUP_IDLE_MS : o.idleMs;
   const warnMs = o.warnMs === undefined ? SETUP_WARN_MS : Math.min(o.warnMs, idleMs);
   const [paused, setPaused] = useState(false);
