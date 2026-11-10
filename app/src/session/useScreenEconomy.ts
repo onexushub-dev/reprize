@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { sessionSummary } from '../analytics';
+import { useAppActive } from './useAppActive';
 import type { ThermalLevel } from '../../modules/replay-camera/src/ReplayCamera.types';
 
 /** Without a touch for this long while recording, the screen goes dark (thermal spec, item 2). */
@@ -22,11 +23,14 @@ export type ScreenEconomy = {
  * `idleMs` replaces both waits (the remote phone, which does not heat up like the camera, waits longer).
  */
 export function useScreenEconomy(
-  active: boolean,
+  wanted: boolean,
   thermal: ThermalLevel,
   setNative: (on: boolean) => void,
   idleMs?: number,
 ): ScreenEconomy {
+  // Minimised or behind another app, no wait runs and the screen is given back; coming back starts awake.
+  const appActive = useAppActive();
+  const active = wanted && appActive;
   const [asleep, setAsleep] = useState(false);
   const [touches, setTouches] = useState(0);
   const warm = thermal !== 'nominal';
