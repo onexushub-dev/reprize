@@ -36,6 +36,12 @@
  *   REPRIZE_DIAGNOSTICS=1                  shows the Diagnóstico link and keeps the log; off when unset
  *
  * EAS production builds never carry it, whatever the env says: the App Store build has no debug screen.
+ *
+ * Field-test unlock (TEMP(field-test), src/payments/fieldTest.ts), for local test builds:
+ *
+ *   REPRIZE_FIELD_TEST_UNLOCK=1            every paid feature works on the free plan; off when unset
+ *
+ * EAS production builds never carry it either: the store build always locks and shows the paywall.
  */
 module.exports = ({ config }) => {
   const bundleId = process.env.REPRIZE_BUNDLE_ID || process.env.REPPLAY_BUNDLE_ID || process.env.LANCE_BUNDLE_ID;
@@ -65,6 +71,7 @@ module.exports = ({ config }) => {
       host: process.env.REPRIZE_POSTHOG_HOST || 'https://us.i.posthog.com',
     },
     diagnostics: !production && process.env.REPRIZE_DIAGNOSTICS === '1',
+    fieldTestUnlockAll: !production && process.env.REPRIZE_FIELD_TEST_UNLOCK === '1',
   });
 
   return Object.assign({}, config, { ios: ios, android: android, extra: extra });

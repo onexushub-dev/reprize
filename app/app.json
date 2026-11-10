@@ -2,7 +2,7 @@
   "expo": {
     "name": "Reprize",
     "slug": "reprize",
-    "version": "1.0.0",
+    "version": "1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "reprize",
@@ -28,7 +28,7 @@
           "bluetooth-central"
         ]
       },
-      "appleTeamId": "2J67Z98LDX",
+      "appleTeamId": "R885ZD42ZG",
       "config": {
         "usesNonExemptEncryption": false
       },
@@ -139,7 +139,11 @@
       "reactCompiler": true
     },
     "extra": {
-      "metaAppId": ""
-    }
+      "metaAppId": "",
+      "eas": {
+        "projectId": "3cb43dfa-8107-494a-bc38-cf57a960a97b"
+      }
+    },
+    "owner": "nexushubltda"
   }
 }

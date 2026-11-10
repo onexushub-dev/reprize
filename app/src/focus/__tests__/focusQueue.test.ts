@@ -332,3 +332,16 @@ describe('only the recording that is open (2026-11-07 spec §4.1)', () => {
     expect(runs).toHaveLength(1);
   });
 });
+
+test('a clip opened in the editor stops the analysis of another and runs first; the other goes back in line', async () => {
+  const { queue, deps, runs, addClip, repo, flush } = setup();
+  const a = addClip('/c/a.mp4');
+  const b = addClip('/c/b.mp4');
+  queue.enqueue(a.id);
+  queue.enqueue(b.id);
+  queue.ensure(repo.getClip(b.id)!);
+  expect(deps.cancel).toHaveBeenCalledWith('/c/a.mp4');
+  runs[0].reject({ code: 'CANCELLED' });
+  await flush();
+  expect(runs[1].opts.clipPath).toBe('/c/b.mp4');
+});

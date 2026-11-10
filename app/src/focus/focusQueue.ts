@@ -11,7 +11,7 @@ export type FocusQueueDeps = {
   repo: Pick<Repo, 'getClip' | 'updateClip'>;
   deleteFile(path: string): void;
   /** Every finished analysis with its numbers (field test: how long the Modo Foco takes on each phone). */
-  measured?(clip: Clip, result: FocusAnalysis): void;
+  measured?(clip: Clip, result: FocusAnalysis, waitedMs: number): void;
 };
 
 export type FocusQueue = {
@@ -65,6 +65,11 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
   let stopping: string | undefined;
   /** Clips opened in the editor: they go first, and may start during an `openedOnly` hold. */
   const opened = new Set<string>();
+  /** When each clip was queued or opened (the first of the two), for how long it waited before its analysis began. */
+  const queuedAt = new Map<string, number>();
+  const markQueued = (id: string) => {
+    if (!queuedAt.has(id)) queuedAt.set(id, Date.now());
+  };
   /** Recordings whose screen is open, with how many times (a screen pushed twice). */
   const openRecordings = new Map<string, number>();
 
@@ -77,6 +82,9 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
 
   function pump() {
     if (running || hold === 'all' || !foreground) return;
+    // A clip opened in the editor goes first, even ahead of one that was put back by `ensure` stopping it.
+    const openedAt = waiting.findIndex((id) => opened.has(id));
+    if (openedAt > 0) waiting.unshift(...waiting.splice(openedAt, 1));
     let i = 0;
     while (i < waiting.length) {
       const id = waiting[i];
@@ -102,11 +110,13 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
     const outPath = focusPath(clip.path);
     const range = clip.bounds ? clip.bounds : { startMs: 0, endMs: clip.durationMs };
     running = { id: clip.id, path: clip.path };
+    const waited = Date.now() - (queuedAt.get(clip.id) ?? Date.now());
+    queuedAt.delete(clip.id);
     deps
       .analyze({ clipPath: clip.path, startMs: range.startMs, endMs: range.endMs, outPath })
       .then((result) => {
         try {
-          if (deps.measured) deps.measured(clip, result);
+          if (deps.measured) deps.measured(clip, result, waited);
         } catch {
           // a measurement never breaks an analysis
         }
@@ -142,6 +152,7 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
     if (!deps.supported()) return;
     if (waiting.includes(clipId) || (running && running.id === clipId)) return;
     if (!deps.repo.updateClip(clipId, { focus: { v: 1, status: 'pending' } })) return;
+    markQueued(clipId);
     waiting.push(clipId);
     pump();
   }
@@ -154,7 +165,13 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
       if (running && running.id === clip.id) return;
       // Opened in the editor: it goes first, and may run during an `openedOnly` hold. The app is in front.
       opened.add(clip.id);
+      markQueued(clip.id);
       foreground = true;
+      // The clip being looked at does not wait for another one's analysis: that one is stopped and goes back in line.
+      if (running && stopping === undefined && !opened.has(running.id)) {
+        stopping = running.id;
+        deps.cancel(running.path);
+      }
       const at = waiting.indexOf(clip.id);
       if (at >= 0) {
         waiting.splice(at, 1);

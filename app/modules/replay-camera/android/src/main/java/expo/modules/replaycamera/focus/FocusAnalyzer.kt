@@ -25,6 +25,8 @@ import java.util.Collections
  */
 object FocusAnalyzer {
   private const val TAG = "ReprizeFocus"
+  /** Below the UI and playback, but not THREAD_PRIORITY_BACKGROUND (10), which pins the work to the little cores (3x slower). */
+  private const val ANALYSIS_PRIORITY = 5
   private const val MODEL = "efficientdet_lite0_int8.tflite"
   /**
    * One frame every 200 ms (the iPhone: 100 ms). The framing is smoothed over 0.6-1.2 s, so analysing half the frames moves the
@@ -35,7 +37,7 @@ object FocusAnalyzer {
   /** The longest side of the frame given to the detector; a half-frame tile of it is what the detector sees up close. */
   private const val FRAME_LONG_SIDE = 1280
   /** Tiles scanned per sample, round-robin over the nine (the iPhone scans all nine; on a phone CPU that is ~1 s a frame). */
-  private const val TILES_PER_SAMPLE = 3
+  private const val TILES_PER_SAMPLE = 1
   private val lock = Any()
   private val cancelled: MutableSet<String> = Collections.synchronizedSet(HashSet())
 
@@ -52,7 +54,7 @@ object FocusAnalyzer {
   fun analyze(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Boolean): Outcome =
     synchronized(lock) {
       try {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+        Process.setThreadPriority(ANALYSIS_PRIORITY)
         run(context, clipPath, startMs, endMs, outPath, debug)
       } finally {
         cancelled.remove(clipPath)
@@ -85,7 +87,7 @@ object FocusAnalyzer {
       val stopFetching = java.util.concurrent.atomic.AtomicBoolean(false)
       val fetchFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
       val fetcher = Thread({
-        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+        Process.setThreadPriority(ANALYSIS_PRIORITY)
         var delivered = 0
         fun put(item: Pair<Double, Bitmap?>): Boolean {
           while (!queue.offer(item, 200, java.util.concurrent.TimeUnit.MILLISECONDS)) if (stopFetching.get()) return false

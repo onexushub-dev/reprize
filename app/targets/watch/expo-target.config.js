@@ -5,7 +5,7 @@ const group = `group.${bundleId}.watch`;
 /** @type {import('@bacons/apple-targets/app.plugin').Config} */
 module.exports = {
   type: 'watch',
-  name: 'Reprize Watch',
+  name: 'ReprizeWatch',
   displayName: 'Reprize',
   icon: '../../assets/images/icon.png',
   bundleIdentifier: '.watch',

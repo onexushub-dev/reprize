@@ -66,6 +66,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   getSpeechPermission(): 'granted' | 'denied' | 'undetermined';
   createThumbnail(clipPath: string, atMs: number): Promise<string>;
   findContentStart?(clipPath: string): Promise<number>;
+  /** Android: the clip's shape (rotation applied) read from its metadata, with no decoding; missing on iOS and in older builds. */
+  videoShape?(clipPath: string): { width: number; height: number } | null;
   exportClip(opts: ExportClipOptions): Promise<ExportedClip>;
   // Modo Foco (missing in older builds).
   analyzeFocus?(opts: AnalyzeFocusOptions): Promise<FocusAnalysis>;
