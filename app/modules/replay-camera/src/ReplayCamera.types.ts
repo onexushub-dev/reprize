@@ -271,11 +271,18 @@ export type AnalyzeBallOptions = {
   detPath: string;
   outPath: string;
   focusPath: string;
+  /** The sport whose model and rules are used ('basquete' | 'beachTennis'); basketball when absent. */
+  sport?: string;
 };
 
-/** `ballShare`: share of the cut's frames with a trusted ball (under 0.35: show "Bola pouco visível"). */
+/**
+ * `ballShare`: share of the cut's frames with a trusted ball (under 0.35: show "Bola pouco visível"). `unsuitable`
+ * (test 47a): the mode would not look good on this video, `reason` says why ('tooFar' | 'rarelyFound' | 'tooSmall' |
+ * 'still'); `ready` has no reason.
+ */
 export type BallAnalysis = {
-  status: 'ready';
+  status: 'ready' | 'unsuitable';
+  reason?: string;
   analysed: number;
   reused: number;
   ballFrames: number;

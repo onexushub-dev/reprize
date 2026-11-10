@@ -82,6 +82,36 @@ def load(name):
     return meta, truth, today[:n], n, W, H, orient
 
 
+# Test 46b (2026-11-09, Victor on bt-own-b-02 / a-02): the camera follows only runs of trusted ball points at least
+# min_run frames long (a run ends where gap frames or more pass without a ball). Short runs are a ball
+# lying, thrown back between points or on the next court: following them made the camera pan for nothing before the
+# rally (b-02) and slide to the neighbouring court after it (a-02). 1.0 s: ball in the crop 98.6 -> 97.9% on the 19
+# own clips, pan while no ball is in play -36%. Per sport: beach tennis only; every other sport (basketball) is off, as
+# in test 46. RUN_OFF / RUN_SPORT can be changed for a test.
+RUN_OFF = dict(min_run=0, gap=4)
+RUN_SPORT = {"beachTennis": dict(min_run=10, gap=4)}
+
+
+def keep_runs(tr, min_run, gap):
+    """Trusted points with the runs shorter than min_run frames removed."""
+    if min_run <= 0:
+        return tr
+    out = list(tr)
+    idx = [k for k, p in enumerate(tr) if p is not None]
+    runs, start = [], None
+    for j, k in enumerate(idx):
+        if start is None:
+            start = k
+        if j + 1 == len(idx) or idx[j + 1] - k > gap:
+            runs.append((start, k))
+            start = None
+    for a, b in runs:
+        if b - a + 1 < min_run:
+            for k in range(a, b + 1):
+                out[k] = None
+    return out
+
+
 def camera(name, cam, zoom, engine=None):
     """cam 'today' or 'A'/'C'; zoom relative to the largest 9:16 crop; engine: another ball track (test 32) instead of
     engine_for(meta). -> rects (n, 4) normalized, meta..."""
@@ -94,7 +124,8 @@ def camera(name, cam, zoom, engine=None):
     dz, a, b = CAMS[cam]
     with open(os.path.join(sg.TESTS, "oneclick", f"{name}.ball.{engine or engine_for(meta)}.json")) as f:
         oc = json.load(f)
-    tr = hybrid.trusted(oc["pred_one"], n, truth["size"], meta["sport"])
+    run = RUN_SPORT.get(meta["sport"], RUN_OFF)
+    tr = keep_runs(hybrid.trusted(oc["pred_one"], n, truth["size"], meta["sport"]), run["min_run"], run["gap"])
     isball = np.array([p is not None for p in tr])
     cx0 = today[:, 0] + today[:, 2] / 2  # where today's 9:16 crop is centred: the fallback when there is no ball
     cy0 = today[:, 1] + today[:, 3] / 2
@@ -207,13 +238,13 @@ def today_zoom(name, orient):
     return float(np.median(1 / np.maximum(nat[:, 2], nat[:, 3])))
 
 
-def self_miss(name, rects):
+def self_miss(name, rects, engine=None):
     """Share of the trusted ball points (the detector's own, no labels) that fall outside the crop: what a zoom would
     lose by the camera's own account."""
     meta = ev.clip_meta(name)
     truth = ev.load_truth(name)
     n = len(rects)
-    with open(os.path.join(sg.TESTS, "oneclick", f"{name}.ball.{engine_for(meta)}.json")) as f:
+    with open(os.path.join(sg.TESTS, "oneclick", f"{name}.ball.{engine or engine_for(meta)}.json")) as f:
         oc = json.load(f)
     tr = hybrid.trusted(oc["pred_one"], n, truth["size"], meta["sport"])
     pts = [(i, p) for i, p in enumerate(tr) if p is not None]
@@ -224,16 +255,16 @@ def self_miss(name, rects):
     return out / len(pts)
 
 
-def ball_share(name, n):
+def ball_share(name, n, engine=None):
     meta = ev.clip_meta(name)
     truth = ev.load_truth(name)
-    with open(os.path.join(sg.TESTS, "oneclick", f"{name}.ball.{engine_for(meta)}.json")) as f:
+    with open(os.path.join(sg.TESTS, "oneclick", f"{name}.ball.{engine or engine_for(meta)}.json")) as f:
         oc = json.load(f)
     tr = hybrid.trusted(oc["pred_one"], n, truth["size"], meta["sport"])
     return float(np.mean([p is not None for p in tr]))
 
 
-def auto_zoom(name, max_upscale=2.2, factor=1.0, miss=0.03, src_scale=1.0, cam="C", min_share=0.35):
+def auto_zoom(name, max_upscale=2.2, factor=1.0, miss=0.03, src_scale=1.0, cam="C", min_share=0.35, engine=None):
     """Test 31 rule: zoom = min(content, quality, ball safety), one value per clip.
     content  today's Modo Foco zoom x factor (factor 1 = the players as big as in today's Modo Foco, now in 9:16)
     quality  the zoom at which the crop is scaled up max_upscale to 1080 wide (src_scale 2 = the same clip in 4K)
@@ -246,20 +277,39 @@ def auto_zoom(name, max_upscale=2.2, factor=1.0, miss=0.03, src_scale=1.0, cam="
     z_quality = max(1.0, wmax_px * max_upscale / 1080.0)
     z_content = max(1.0, today_zoom(name, orient) * factor)
     top = min(z_quality, z_content)
-    share = ball_share(name, n)
+    share = ball_share(name, n, engine)
     if share < min_share:
         safe = 1.0 if orient == "landscape" else max(1.0, today_zoom(name, orient))
         top = min(top, safe)
     z_ball = 1.0
     for z in np.arange(1.0, top + 1e-6, 0.05):
-        r = camera(name, cam, float(z))[3]
-        if self_miss(name, r) <= miss:
+        r = camera(name, cam, float(z), engine)[3]
+        if self_miss(name, r, engine) <= miss:
             z_ball = float(z)
         else:
             break
     z = min(top, z_ball) if z_ball < top else top
     return round(z, 2), {"content": round(z_content, 2), "quality": round(z_quality, 2), "ball": round(z_ball, 2),
                          "share": round(share, 2)}
+
+
+# Test 46d (2026-11-10, Victor on yt-bt-06, beach tennis only): the zoom by the recording's orientation. Horizontal:
+# 1.0x fixed (the 9:16 crop is already a third of the width, so the camera moves without losing resolution). Vertical:
+# test 31's rule (today's Modo Foco zoom x 1.2, kept while the ball stays in the crop) capped at x1.5 upscale to 1080
+# wide (Victor chose quality over movement: on yt-bt-06 1.5x pans 0.8 crop widths / 10 s, 1.8x 1.2). Other sports:
+# None (unchanged: test 31's auto zoom).
+ZOOM_SPORT = {"beachTennis": dict(landscape=1.0, factor_v=1.2, max_upscale_v=1.5)}
+
+
+def sport_zoom(name, engine=None):
+    """The story zoom for a clip of a sport in ZOOM_SPORT, else None. -> (zoom, parts)."""
+    meta, truth, today, n, W, H, orient = load(name)
+    zs = ZOOM_SPORT.get(meta["sport"])
+    if zs is None:
+        return None
+    if orient == "landscape":
+        return zs["landscape"], {"rule": "landscape fixed"}
+    return auto_zoom(name, zs["max_upscale_v"], zs["factor_v"], engine=engine)
 
 
 def cmd_auto(a):
@@ -323,9 +373,8 @@ def frames(meta, n):
     import subprocess as sp
     import numpy as np
     video = os.path.join(ev.ROOT, meta["video"])
-    st = json.loads(sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                            "stream=width,height,avg_frame_rate:stream_side_data=rotation:stream_tags=rotate", "-of", "json",
-                            video],
+    # -show_streams (as source_size): the stream_side_data section of -show_entries is not in ffprobe 4.4 (the Mac VM)
+    st = json.loads(sp.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_streams", "-of", "json", video],
                            capture_output=True, text=True, check=True).stdout)["streams"][0]
     W, H = st["width"], st["height"]
     num, _, den = st.get("avg_frame_rate", "30/1").partition("/")
@@ -354,7 +403,21 @@ def crop_at(fr, r, t, grid, size, interp):
     x, y, w, h = (float(np.interp(t, grid, r[:, j])) for j in range(4))
     x0, y0 = int(round(x * W)), int(round(y * H))
     cw, ch = max(2, int(round(w * W))), max(2, int(round(h * H)))
-    return cv2.resize(fr[y0:y0 + ch, x0:x0 + cw], size, interpolation=interp)
+    if x0 >= 0 and y0 >= 0 and x0 + cw <= W and y0 + ch <= H:
+        return cv2.resize(fr[y0:y0 + ch, x0:x0 + cw], size, interpolation=interp)
+    # Test 49g: a crop wider than the picture (zoom < 1): the picture inside, the rest filled with a blurred, darker
+    # copy of it stretched to the crop (as the stories of a horizontal video)
+    ix0, iy0, ix1, iy1 = max(0, x0), max(0, y0), min(W, x0 + cw), min(H, y0 + ch)
+    inner = fr[iy0:iy1, ix0:ix1]
+    bg = cv2.resize(inner, (max(2, size[0] // 8), max(2, size[1] // 8)), interpolation=cv2.INTER_AREA)
+    bg = cv2.resize(cv2.GaussianBlur(bg, (0, 0), 3), size, interpolation=cv2.INTER_LINEAR)
+    bg = (bg * 0.55).astype(np.uint8)
+    sx, sy = size[0] / cw, size[1] / ch
+    px0, py0 = int(round((ix0 - x0) * sx)), int(round((iy0 - y0) * sy))
+    pw, ph = int(round((ix1 - ix0) * sx)), int(round((iy1 - iy0) * sy))
+    pw, ph = min(pw, size[0] - px0), min(ph, size[1] - py0)
+    bg[py0:py0 + ph, px0:px0 + pw] = cv2.resize(inner, (pw, ph), interpolation=interp)
+    return bg
 
 
 def mark_overlay(Wf=1080, Hf=1920):

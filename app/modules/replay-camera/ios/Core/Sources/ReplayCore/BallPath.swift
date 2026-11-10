@@ -47,15 +47,25 @@ public struct BallPathParams: Equatable {
     p.stillShare = 0.5
     return p
   }
+
+  /// Beach tennis (test 46): a ball lying on the sand is found within a few px of the same spot, so the still radius
+  /// is 0.6% of the long side (2% also caught the ball in play passing near one), share 0.3.
+  public static var beachTennis: BallPathParams {
+    var p = BallPathParams()
+    p.stillR = 0.006
+    p.stillShare = 0.3
+    return p
+  }
 }
 
 /// The ball per 100 ms frame from the detector's candidates: the lab's `ball_track.track` with `dp=1` (shape filter,
 /// still filter, dynamic programming over the whole clip, then the 100 ms upsampling of `low_fps.upsample`).
 public enum BallPath {
   /// `frames`: one entry per 100 ms frame of the clip, nil on the frames not analysed (every `step`-th is). `width`,
-  /// `height`: the upright video in pixels (only their ratio matters). Returns one entry per frame.
+  /// `height`: the upright video in pixels (only their ratio matters). `screens`: video screens at the venue (x0, y0,
+  /// x1, y1, 0..1; `BallScreen`), whose candidates are left out (test 47b). Returns one entry per frame.
   public static func track(frames: [[BallCandidate]?], width: Double, height: Double, step: Int,
-                           params P: BallPathParams = .basketball) -> [BallPoint?] {
+                           params P: BallPathParams = .basketball, screens: [[Double]] = []) -> [BallPoint?] {
     let n = frames.count
     let W = width, H = height, L = max(width, height)
     let an = (0..<n).filter { frames[$0] != nil }
@@ -65,7 +75,8 @@ public enum BallPath {
       cand[k] = (frames[k] ?? []).filter { c in
         let wp = c.width * W, hp = c.height * H
         if c.score < P.conf || max(wp, hp) > P.boxMax * L { return false }
-        return max(wp, hp) / max(1e-6, min(wp, hp)) <= P.aspectMax
+        if max(wp, hp) / max(1e-6, min(wp, hp)) > P.aspectMax { return false }
+        return !screens.contains { $0[0] <= c.cx && c.cx <= $0[2] && $0[1] <= c.cy && c.cy <= $0[3] }
       }
     }
     func dist(_ a: BallCandidate, _ b: BallCandidate) -> Double {

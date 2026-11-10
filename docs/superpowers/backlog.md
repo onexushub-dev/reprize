@@ -138,4 +138,5 @@ Adiado:
 
 ## Seguir a Bola (spec 2026-11-09)
 - **Antes da loja — créditos CC BY 4.0**: o detector de bola (`ball_tiny_gym`) foi treinado com dados públicos que exigem atribuição. Colocar na tela de créditos/licenças do app: "basketball_detection (cvsense, Roboflow Universe), CC BY 4.0" (detalhes no README do lab, testes 28 e 33).
+  - Beach tennis (`ball_tiny_btpl`, testes 45–48), também CC BY 4.0: "Beach Tennis (beach-tennis-analysis, Roboflow Universe, universe.roboflow.com/beach-tennis-analysis/beach-tennis)" e "Beach Tennis (beach-tennis-ball, Roboflow Universe, universe.roboflow.com/beach-tennis-ball/beach-tennis-mg42r)".
 - Esporte da gravação: detectado sozinho (teste 43, classificador de cenas da Apple). Conferir no teste de campo, pela tela Diagnóstico, que nenhuma gravação de basquete ficou com "EM BREVE"; se ficar, ajustar o limite (0,4) em `focus/sportCheck.ts`.

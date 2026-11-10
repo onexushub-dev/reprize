@@ -54,7 +54,7 @@ def main():
                     outputs=[ct.TensorType(name="output")], compute_precision=ct.precision.FLOAT16,
                     minimum_deployment_target=ct.target.iOS16, convert_to="mlprogram")
     if a.ball:
-        ml.short_description = (f"{stem}: YOLOX-Tiny (Megvii, Apache-2.0) one class 'basketball', fine-tuned in the "
+        ml.short_description = (f"{stem}: YOLOX-Tiny (Megvii, Apache-2.0) one class 'ball', fine-tuned in the "
                                 f"Modo Foco lab, {side}x{side} BGR, raw output [1, N, 6]")
     else:
         ml.short_description = f"YOLOX-{a.name} COCO (Megvii, Apache-2.0), {side}x{side} BGR, raw output [1, N, 85]"

@@ -88,15 +88,22 @@ struct AnalyzeBallOptions: Record {
   @Field var detPath: String = ""
   @Field var outPath: String = ""
   @Field var focusPath: String = ""
+  /// The sport whose profile (`BallSport`: model, path, camera, zoom, verdict) is used; basketball by default.
+  @Field var sport: String = "basquete"
 }
 
 /// Seguir a Bola, kept out of `definition()` like the other do/catch helpers.
 private func analyzeBallResult(_ o: AnalyzeBallOptions) async throws -> [String: Any] {
+  guard let sport = BallSport.of(o.sport) else {
+    throw ReplayException("BALL_FAILED", "No Seguir a Bola for the sport \(o.sport)")
+  }
   do {
     let r = try await BallAnalyzer.analyze(clipPath: o.clipPath, startMs: o.startMs, endMs: o.endMs, detPath: o.detPath,
-                                           outPath: o.outPath, focusPath: o.focusPath)
-    return ["status": "ready", "analysed": r.analysed, "reused": r.reused, "ballFrames": r.ballFrames,
-            "trustedFrames": r.trustedFrames, "ballShare": r.ballShare, "zoom": r.zoom, "elapsedMs": r.elapsedMs]
+                                           outPath: o.outPath, focusPath: o.focusPath, sport: sport)
+    // Test 47a: "unsuitable" = analysed (or judged before), but the mode would not look good: reason says why
+    return ["status": r.verdict.isEmpty ? "ready" : "unsuitable", "reason": r.verdict, "analysed": r.analysed,
+            "reused": r.reused, "ballFrames": r.ballFrames, "trustedFrames": r.trustedFrames,
+            "ballShare": r.ballShare, "zoom": r.zoom, "elapsedMs": r.elapsedMs]
   } catch BallAnalyzer.Failure.cancelled {
     throw ReplayException("CANCELLED", "Ball analysis cancelled")
   } catch BallAnalyzer.Failure.interrupted {

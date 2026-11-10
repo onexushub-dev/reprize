@@ -239,6 +239,61 @@ The port must reproduce the lab, because the quality decisions were measured the
   praia mode are "EM BREVE" without a look. Unsure = allowed. The verdict and labels go to the Diagnóstico log for the
   field test. Analytics event not added yet.
 
+### Part 4: beach tennis (2026-11-10, lab tests 45–49)
+
+Each sport has its own profile (`Core/BallSport.swift`); basketball keeps exactly the values above (`.basketball`:
+`ball_tiny_gym`, still filter 0.5, every trusted point followed, test 31's zoom, no verdict), checked against the lab
+and its unchanged parity fixtures.
+
+- **Which sport** (Victor): the classifier cannot tell beach tennis from beach volleyball or footvolley (all come out
+  as "volleyball"), and where it is unsure it said nothing useful either (2026-11-10: a beach tennis clip it was unsure
+  about went to basketball's model and followed the next court). So the Foco panel asks "Que esporte é esta gravação?"
+  (Basquete / Beach tennis; "Outros esportes: em breve.") once per recording, on the first clip Seguir a Bola is used
+  on, until the sport can be told reliably by itself; kept in `Session.ballSport.sport` for every clip of the recording; under the switch, "Esporte: … ·
+  Trocar" changes it at any time. Recordings made in the beach tennis mode are beach tennis. The sport goes to
+  `analyzeBall` (`sport`) and picks the model and rules; `ClipBall.sport` keeps which sport a result is for (another
+  sport analyses the cut again; the detections cache is per model).
+- **Beach tennis profile** (`.beachTennis`): model `ball_tiny_btpl` (YOLOX-Tiny 416, public beach tennis sets CC BY 4.0
+  + "not a ball" crops + both of Victor's arenas with every ball marked; `tools/lab/mac-train-bt.sh`,
+  `mac-coreml-bt.sh`); still filter radius 0.6% of the long side, share 0.3 (test 46); the camera follows only runs of
+  trusted points of 1 s or more (test 46b: no pan before the rally or onto the next court); zoom 1.0x on horizontal
+  videos, test 31's rule up to x1.5 upscale on vertical ones (test 46d); candidates inside a video screen at the venue
+  left out (test 47b, `BallScreen` on 160 px grey thumbnails of the analysed frames, kept in the detections cache).
+- **Verdict** (test 47a, Victor: "only where it gives the expected quality"): before any frame is analysed, players
+  smaller than 10% of the 9:16 output height (median person height that today's Modo Foco analysis now writes,
+  `playersHeight` in the focus file) = recorded too far, nothing runs; after the analysis, the mode is applied only with
+  ball share >= 25%, the ball >= 16 px in the output and the camera moving >= 0.6 crop widths per 10 s. Otherwise the
+  result is `unsuitable` with a reason: the clip goes back to Modo Foco, the chip says "Seguir a Bola não disponível
+  neste vídeo" for a few seconds and the panel gives the reason (recorded too far, ball rarely seen, ball too small,
+  the camera would hardly move). Basketball has no verdict yet (always applied, as before).
+- **Camera with the players** (test 49, `cam_bt.py`; Victor: the player attacking the ball got cut on the diagonal
+  courts, and the camera went to the next court on one clip): today's Modo Foco file now also keeps the person boxes
+  per 100 ms row (`people`; its framing unchanged). The main players are the boxes >= 0.6 of the clip's 80th-percentile
+  height. (a) Court lock: a ball point more than 0.20 frame widths outside the main players' x (their centres' 5–95%)
+  is another court's and is not followed. (b) The camera aims 40% of the way from the ball to the hitter (the main
+  player nearest to the ball, within 0.25 long sides). (c) A faster camera (smoothing a 1, b 100 instead of 3 / 300).
+  (d) Court lock by the ball (test 49d: the rally's ball left the picture and the next court's volleyball was
+  followed): the longest run's x range (5–95%) ± 0.25 frame widths; another run with its median outside, or a point
+  outside, is not followed. (e) The near pair (the two tallest main boxes) kept whole where the ball can stay in the
+  crop too (test 49c, Victor's choice after comparing long rallies; the reference reels keep the pair together).
+  (f) A ball gone out at the top comes back only at the top (test 49e: a lob left the picture and the next court's
+  ball, mid-frame and inside both locks, was followed): a point still rising that is within 0.05 of the top edge 2
+  frames later is going out; nothing is followed until a point is back within 0.20 of the top and 0.25 frame widths of
+  where it went out.
+  (g) Meanwhile our ball is looked for among the detector's moving candidates (score >= 0.5, not still, not in a
+  screen): back at the top first, then candidate to candidate. Where the ball is lost in flight, the camera's target
+  goes on the ball's way for up to 0.6 s inside the players' court, and the near pair is kept whole only while the ball
+  is near them, so the camera turns to the defence (test 49f, Victor). Zoom stays 1x (0.8x needs bands above and
+  below the picture).
+  25 clips: ball in the crop 98.0 -> 97.2%, hitter whole 90 -> 93%, at the hits 84 -> 91%, near pair whole 17 -> 26%.
+  A Modo Foco file made before this has no `people`: the camera then follows the ball alone (with (c) and (d)).
+  `BallSport.camera` / `.follow`; basketball: camera C, no follow.
+- Parity: `BallParityBeachTennisTests` replays `Fixtures/ball-parity-bt.json` (`ball_parity.py --out-bt`: seven beach
+  tennis clips, incl. a stream with an LED screen, a clip the verdict turns down and three where the court locks
+  drop the next court's ball); basketball's
+  `BallParityTests` / `ball-parity.json` unchanged.
+- Credit: the beach tennis training data (Roboflow "Beach_Tennis_01/02", CC BY 4.0) joins the credits list.
+
 ## 7. Open points
 
 - **Sport**: decided automatically (test 43, part 3 above); confirm in the field that no basketball recording gets

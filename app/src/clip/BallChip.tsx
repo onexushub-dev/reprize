@@ -7,11 +7,15 @@ import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import { SCRIM } from './IconButton';
 
-/** What the chip says: ready, waiting, analysing (with its progress), cooling the phone, or failed. */
+/**
+ * What the chip says: ready, waiting, analysing (with its progress), cooling the phone, failed, or not available on
+ * this video (test 47a: the clip went back to Modo Foco; the Foco panel says why).
+ */
 export type BallChipState =
   | { kind: 'ready'; sparse: boolean }
   | { kind: 'working'; progress: BallProgress | undefined }
-  | { kind: 'failed'; hot: boolean };
+  | { kind: 'failed'; hot: boolean }
+  | { kind: 'unsuitable' };
 
 type Props = {
   state: BallChipState;
@@ -46,6 +50,15 @@ export function BallChip({ state, onCancel, onRetry }: Props) {
           <Text style={styles.text}>{t('clip.ballTag')}</Text>
         </View>
         {state.sparse ? <Text style={styles.sparse}>{t('clip.ballSparse')}</Text> : null}
+      </View>
+    );
+  }
+  if (state.kind === 'unsuitable') {
+    return (
+      <View pointerEvents="none" style={styles.wrap}>
+        <View style={styles.chip}>
+          <Text style={styles.text}>{t('clip.ballUnsuitable')}</Text>
+        </View>
       </View>
     );
   }

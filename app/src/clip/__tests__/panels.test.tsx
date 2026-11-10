@@ -14,7 +14,9 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     toggleFocus: jest.fn(),
     ball: 'hidden',
     toggleBall: jest.fn(),
-    unlockBall: jest.fn(),
+    ballSport: 'basquete',
+    ballReason: undefined,
+    chooseBallSport: jest.fn(),
     resetZoom: jest.fn(),
     turn: jest.fn(),
     ...over,
@@ -115,15 +117,36 @@ test('Seguir a Bola: a second switch under Modo Foco, hidden on phones that cann
   expect(c.toggleBall).toHaveBeenCalledTimes(1);
 });
 
-test('Seguir a Bola on another sport: "EM BREVE", off, and "É basquete?" unlocks it for the recording', async () => {
+test('Seguir a Bola on another sport: off until the player says which sport it is (test 48)', async () => {
   const Panel = panel('focus');
-  const c = ctx({ ball: 'soon' });
+  const c = ctx({ ball: 'soon', ballSport: undefined });
   await render(<Panel ctx={c} />);
-  expect(screen.getByText('EM BREVE')).toBeTruthy();
-  expect(screen.getByText('Por enquanto só no basquete.')).toBeTruthy();
+  expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
+  expect(screen.getByText('Outros esportes: em breve.')).toBeTruthy();
   expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ disabled: true });
-  await fireEvent.press(screen.getByRole('button', { name: 'É basquete? Liberar nesta gravação' }));
-  expect(c.unlockBall).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByRole('button', { name: 'Beach tennis' }));
+  expect(c.chooseBallSport).toHaveBeenCalledWith('beachTennis');
+});
+
+test('Seguir a Bola shows the sport it uses, and "Trocar" asks again', async () => {
+  const Panel = panel('focus');
+  const c = ctx({ ball: 'off', ballSport: 'beachTennis' });
+  await render(<Panel ctx={c} />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Esporte: Beach tennis · Trocar' }));
+  expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Basquete' }));
+  expect(c.chooseBallSport).toHaveBeenCalledWith('basquete');
+});
+
+test('Seguir a Bola not worth it on this video: off, with the reason (test 47a)', async () => {
+  const Panel = panel('focus');
+  await render(<Panel ctx={ctx({ ball: 'unsuitable', ballSport: 'beachTennis', ballReason: 'tooFar' })} />);
+  expect(
+    screen.getByText(
+      'Seguir a Bola não disponível neste vídeo. Gravado de muito longe: os jogadores e a bola ficam pequenos demais.',
+    ),
+  ).toBeTruthy();
+  expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ disabled: true });
 });
 
 test('Seguir a Bola on: Modo Foco says why it is off, and how to go back while it analyses', async () => {
