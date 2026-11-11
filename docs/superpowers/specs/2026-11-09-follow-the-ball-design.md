@@ -342,6 +342,20 @@ sport, with "É basquete ou beach tennis? Escolher" to correct it. A build witho
 Next: a racket detector (YOLOX-Tiny COCO, test on 2026-11-11) and a sport classifier trained on Victor's own clips
 of the other beach sports, to tell beach tennis from beach volleyball / futevôlei.
 
+### Part 7: beach tennis on the diagonal (2026-11-11, lab test 52)
+
+Victor's field clip `bt-app-1111-a` (diagonal view): the near player attacking was hardly shown. Two causes: the clip's
+Modo Foco file had no `people` (made before part 4's build; fixed by part 5's re-analysis), and the path sat on the
+partner's head while she volleyed. Changes in `BallSport.beachTennis` (rules `ball-bt-t52`):
+- **Head rule in the path** (`BallPathParams.beachTennis` `headTop` 0.15, `headW` 0): a candidate inside a person's box
+  within 15% of its height from its top is left out (Vision boxes of today's Modo Foco file).
+- **Faster camera** (`BallCameraParams.beachTennis`: a 0.3, b 30, was 1 / 100).
+- **The player about to hit kept whole** (`BallFollowParams.beachTennis` `hitBox` 2, `hitHorizon` 10, `hitPad` 0.02;
+  `BallPlayers.hitBoxes` / `keepBox`): at the ball's next turn within 1 s, the main player nearest to it is kept inside
+  the crop, even if the ball leaves it for a moment.
+31 clips (labelled hits): hitter whole 79 -> 88%, near player 76 -> 89%, ball in crop 98.4% (unchanged), pan 1.7 ->
+2.1 crop widths per 10 s. A clip analysed with the older rules is analysed again (`BALL_RULES`).
+
 ## 7. Open points
 
 - **Sport**: decided automatically (test 43, part 3 above); confirm in the field that no basketball recording gets

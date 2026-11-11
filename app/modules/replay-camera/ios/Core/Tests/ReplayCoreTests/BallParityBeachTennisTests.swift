@@ -61,7 +61,7 @@ final class BallParityBeachTennisTests: XCTestCase {
     }
     let s = try sport(c)
     return BallPath.track(frames: frames, width: c.detSize[0], height: c.detSize[1], step: c.step, params: s.path,
-                          screens: s.screens ? c.screens : [])
+                          screens: s.screens ? c.screens : [], people: c.people)
   }
 
   private func xy(_ v: [[Double]?]) -> [BallXY?] { v.map { $0.map { BallXY(x: $0[0], y: $0[1]) } } }
@@ -94,12 +94,16 @@ final class BallParityBeachTennisTests: XCTestCase {
     XCTAssertEqual(BallSport.basketball.path.personRatio, 0.3)
     XCTAssertEqual(BallSport.beachTennis.path.personRatio, 0)
     XCTAssertNil(BallSport.basketball.follow)
-    XCTAssertEqual(BallSport.beachTennis.camera.smoothA, 1)
-    XCTAssertEqual(BallSport.beachTennis.camera.smoothB, 100)
+    XCTAssertEqual(BallSport.beachTennis.camera.smoothA, 0.3)
+    XCTAssertEqual(BallSport.beachTennis.camera.smoothB, 30)
+    XCTAssertEqual(BallSport.beachTennis.rules, "ball-bt-t52")
+    XCTAssertEqual(BallSport.beachTennis.path.headTop, 0.15)
+    XCTAssertEqual(BallSport.basketball.path.headTop, 0)
     XCTAssertEqual(BallSport.beachTennis.follow,
                    BallFollowParams(mainShare: 0.6, courtMargin: 0.2, blend: 0.4, near: 0.25, ballCourtMargin: 0.25,
                                     keepPair: true, pairPad: 0, exitTop: 0.05, exitBack: 0.2, exitDx: 0.25,
-                                    ownMinScore: 0.5, ownStep: 0.08, ownLost: 4, pairNear: 0.25, glide: 6))
+                                    ownMinScore: 0.5, ownStep: 0.08, ownLost: 4, pairNear: 0.25, glide: 6,
+                                    hitBox: 2, hitHorizon: 10, hitPad: 0.02))
   }
 
   func testPathMatchesLab() throws {
@@ -144,6 +148,12 @@ final class BallParityBeachTennisTests: XCTestCase {
                                  cropWidth: min(1.0, (9.0 / 16.0) * H / W) / c.expect.zoom, pad: f.pairPad,
                                  nearOnly: f.pairNear, width: W, height: H)
       aim = BallPlayers.glide(aim, tr: xy(c.expect.followed), main: main, frames: f.glide, margin: f.courtMargin)
+      // test 52: the player about to hit kept whole
+      let boxes = BallPlayers.hitBoxes(xy(c.expect.followed), main: main, width: W, height: H, near: f.near,
+                                       horizon: f.hitHorizon)
+      aim = BallPlayers.keepBox(aim, tr: xy(c.expect.followed), boxes: boxes,
+                                cropWidth: min(1.0, (9.0 / 16.0) * H / W) / c.expect.zoom, pad: f.hitPad,
+                                ballFirst: f.hitBox < 2)
       XCTAssertEqual(aim.count, c.expect.aim.count, c.clip)
       for (i, (g, e)) in zip(aim, c.expect.aim).enumerated() {
         XCTAssertEqual(g == nil, e == nil, "\(c.clip) aim frame \(i)")
@@ -289,6 +299,34 @@ final class BallParityBeachTennisTests: XCTestCase {
 
   /// A region whose picture changes all at once (a screen) is found; a blob that moves across the frame (a player) and
   /// a static picture are not.
+  /// Test 52: on the diagonal clip the path no longer sits on the near player's head while the partner volleys.
+  func testHeadRule() throws {
+    let c = try XCTUnwrap(try load().first { $0.clip == "bt-app-1111-a" })
+    let got = try path(c)
+    // 10.2–10.8 s: the head candidates (x ≈ 0.51) are left out
+    for k in [102, 104, 108] { XCTAssertNil(got[k], "frame \(k)") }
+    var P = BallPathParams.beachTennis
+    let head = BallCandidate(cx: 0.5, cy: 0.32, width: 0.006, height: 0.01, score: 0.6)
+    XCTAssertTrue(BallPath.isHead(head, boxes: [[0.47, 0.30, 0.06, 0.27]], P: P))
+    XCTAssertFalse(BallPath.isHead(head, boxes: [[0.47, 0.25, 0.06, 0.27]], P: P)) // 0.07 below the top of a 0.27 box
+    P.headTop = 0
+    XCTAssertEqual(BallPath.track(frames: [[head]], width: 1920, height: 1080, step: 1, params: P,
+                                  people: [[[0.47, 0.30, 0.06, 0.27]]]).count, 1)
+  }
+
+  func testHitBoxKeepsThePlayerAboutToHit() {
+    // the ball turns at frame 3 next to a player at x 0.20–0.25; the target (0.6) moves so the player is whole
+    let tr: [BallXY?] = [BallXY(x: 0.40, y: 0.5), BallXY(x: 0.32, y: 0.5), BallXY(x: 0.26, y: 0.5),
+                         BallXY(x: 0.24, y: 0.5), BallXY(x: 0.30, y: 0.5)]
+    let player = [0.20, 0.40, 0.05, 0.25]
+    let main = [[[Double]]](repeating: [player], count: 5)
+    let boxes = BallPlayers.hitBoxes(tr, main: main, width: 1920, height: 1080, near: 0.25, horizon: 10)
+    XCTAssertEqual(boxes[0], player)
+    let xs = BallPlayers.keepBox([0.6, 0.6, 0.6, 0.6, 0.6], tr: tr, boxes: boxes, cropWidth: 0.316, pad: 0.02,
+                                 ballFirst: false)
+    for x in xs { XCTAssertLessThanOrEqual(x!, 0.20 - 0.02 * 0.316 + 0.158 + 1e-9) }
+  }
+
   func testScreenBoxes() {
     let W = 160, H = 90
     var frames: [[UInt8]] = []

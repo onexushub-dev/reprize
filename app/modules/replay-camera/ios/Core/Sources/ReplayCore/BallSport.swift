@@ -47,7 +47,7 @@ public struct BallSport: Equatable {
   /// hitter, the near pair kept whole where the ball allows, a ball gone out at the top taken back only at the top (our ball looked for meanwhile), and the target going
   /// on the ball's way where it is lost in flight.
   public static let beachTennis = BallSport(
-    id: "beachTennis", modelId: "ball_tiny_btpl", rules: "ball-bt-t49f", path: .beachTennis, minRun: 10, runGap: 4,
+    id: "beachTennis", modelId: "ball_tiny_btpl", rules: "ball-bt-t52", path: .beachTennis, minRun: 10, runGap: 4,
     zoom: .beachTennis, screens: true, verdict: .beachTennis, camera: .beachTennis, follow: .beachTennis)
 
   /// The profile for a sport id; nil = no Seguir a Bola for it yet.
@@ -95,22 +95,30 @@ public struct BallFollowParams: Equatable {
   public var pairNear: Double
   /// Where the ball is lost in flight, the camera's target goes on the ball's way for up to `glide` frames (0 = off).
   public var glide: Int
+  /// Test 52: the player about to hit (at the ball's next turn within `hitHorizon` frames, the main player nearest to
+  /// it) kept whole with `hitPad` crop widths of room: 1 = where the ball can stay in the crop too, 2 = even if not; 0 =
+  /// off.
+  public var hitBox: Int
+  public var hitHorizon: Int
+  public var hitPad: Double
 
   public init(mainShare: Double, courtMargin: Double, blend: Double, near: Double, ballCourtMargin: Double = 0,
               keepPair: Bool = false, pairPad: Double = 0, exitTop: Double = 0, exitBack: Double = 0.2,
               exitDx: Double = 0.25, ownMinScore: Double = 0, ownStep: Double = 0.08, ownLost: Int = 4,
-              pairNear: Double = 0, glide: Int = 0) {
+              pairNear: Double = 0, glide: Int = 0, hitBox: Int = 0, hitHorizon: Int = 10, hitPad: Double = 0.02) {
     self.mainShare = mainShare; self.courtMargin = courtMargin; self.blend = blend; self.near = near
     self.ballCourtMargin = ballCourtMargin; self.keepPair = keepPair; self.pairPad = pairPad
     self.exitTop = exitTop; self.exitBack = exitBack; self.exitDx = exitDx
     self.ownMinScore = ownMinScore; self.ownStep = ownStep; self.ownLost = ownLost
     self.pairNear = pairNear; self.glide = glide
+    self.hitBox = hitBox; self.hitHorizon = hitHorizon; self.hitPad = hitPad
   }
 
   public static let beachTennis = BallFollowParams(mainShare: 0.6, courtMargin: 0.2, blend: 0.4, near: 0.25,
                                                    ballCourtMargin: 0.25, keepPair: true, pairPad: 0,
                                                    exitTop: 0.05, exitBack: 0.2, exitDx: 0.25, ownMinScore: 0.5,
-                                                   ownStep: 0.08, ownLost: 4, pairNear: 0.25, glide: 6)
+                                                   ownStep: 0.08, ownLost: 4, pairNear: 0.25, glide: 6,
+                                                   hitBox: 2, hitHorizon: 10, hitPad: 0.02)
 }
 
 /// `cam_bt.main_players` / `keep_players_court` / `aim_x` (test 49). Boxes are x, y, width, height, 0..1 of the upright
@@ -199,6 +207,70 @@ public enum BallPlayers {
         out[m] = min(max(xk + vx * Double(m - k), lo), hi)
         m += 1
       }
+    }
+    return out
+  }
+
+  /// `cam_bt.turns_of` (test 52): the frames where the ball's x direction turns (a hit or a bounce).
+  static func turns(_ tr: [BallXY?], minDv: Double = 0.004) -> [Int] {
+    let n = tr.count
+    var vx = [Double?](repeating: nil, count: n)
+    if n > 1 {
+      for k in 1..<n {
+        if let a = tr[k], let b = tr[k - 1] { vx[k] = a.x - b.x }
+      }
+    }
+    var out: [Int] = []
+    if n > 2 {
+      for k in 2..<n {
+        if let a = vx[k], let b = vx[k - 1], a * b < 0, abs(a - b) > minDv { out.append(k) }
+      }
+    }
+    return out
+  }
+
+  /// `cam_bt.hit_boxes` (test 52): per frame, the box of the main player who plays the ball next — at the ball's next
+  /// turn within `horizon` frames (one just past, up to `back` frames, still counts), the main player nearest to it
+  /// within `near` long sides; nil elsewhere.
+  public static func hitBoxes(_ tr: [BallXY?], main: [[[Double]]], width W: Double, height H: Double, near: Double,
+                              horizon: Int, back: Int = 2) -> [[Double]?] {
+    let n = tr.count
+    var hits: [(Int, [Double])] = []
+    for t in turns(tr) {
+      guard let p = tr[t], t < main.count, let hb = hitter(p, boxes: main[t], width: W, height: H, near: near) else {
+        continue
+      }
+      hits.append((t, hb))
+    }
+    var out = [[Double]?](repeating: nil, count: n)
+    var j = 0
+    for k in 0..<n {
+      while j < hits.count && hits[j].0 < k - back { j += 1 }
+      if j < hits.count && hits[j].0 - k <= horizon { out[k] = hits[j].1 }
+    }
+    return out
+  }
+
+  /// `cam_bt.keep_box` (test 52): each target x moved, where it can be, into the centres that keep the box (+ `pad`
+  /// crop widths) inside a crop `cropWidth` wide, with the ball inside too where both fit; where they cannot, the ball
+  /// wins (`ballFirst`) or the player does.
+  public static func keepBox(_ xs: [Double?], tr: [BallXY?], boxes: [[Double]?], cropWidth w: Double, pad: Double,
+                             ballFirst: Bool) -> [Double?] {
+    var out = xs
+    for (k, x) in xs.enumerated() {
+      guard let x = x, k < boxes.count, let b = boxes[k] else { continue }
+      let left = b[0] - pad * w, right = b[0] + b[2] + pad * w
+      var lo = right - w / 2, hi = left + w / 2
+      if k < tr.count, let p = tr[k] {
+        let blo = p.x - w / 2, bhi = p.x + w / 2
+        if max(lo, blo) <= min(hi, bhi) {
+          lo = max(lo, blo)
+          hi = min(hi, bhi)
+        } else if ballFirst {
+          continue
+        }
+      }
+      if lo <= hi { out[k] = min(max(x, lo), hi) }
     }
     return out
   }

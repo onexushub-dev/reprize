@@ -28,10 +28,12 @@ public struct BallCameraParams: Equatable {
   }
 
   /// Beach tennis (test 49b): a faster camera (the ball crosses the court fast; a calmer one cuts the hitter more).
+  /// Test 52 (diagonal views: the near player attacking was cut): faster again, a 0.3, b 30 (labelled hits: hitter whole
+  /// 79 -> 87%, ball in crop unchanged).
   public static var beachTennis: BallCameraParams {
     var p = BallCameraParams()
-    p.smoothA = 1
-    p.smoothB = 100
+    p.smoothA = 0.3
+    p.smoothB = 30
     return p
   }
 }

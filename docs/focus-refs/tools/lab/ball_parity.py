@@ -49,7 +49,9 @@ BT_CLIPS = [("bt-own-a-02", "btplA-n5"), ("bt-own-b-02", "btplB-n5"), ("yt-bt-06
             # own court lock
             ("bt-own-b-04", "btplB-n5"),
             # Test 49e: a lob goes out at the top and the path takes the next court's ball mid-frame
-            ("bt-app-1110-f", "btpl-n5")]
+            ("bt-app-1110-f", "btpl-n5"),
+            # Test 52: the diagonal view; the path sat on a near player's head while the partner volleyed (head rule)
+            ("bt-app-1111-a", "btpl-n5")]
 
 
 def camera_rects(tr, today, W, H, zoom, smooth=None, aim=None):
@@ -203,6 +205,9 @@ def bt_case(name, tag):
     P = dict(bt.P)
     P.update(bt.SPORT_P[sport])
     screens = bt.screen_boxes(name) if P.get("screen") else []
+    # test 52: the head rule reads the fixture's own person boxes (Vision, top-left, 7 decimals), as the Swift port
+    people_tl = [[[round(float(x), 7) for x in b] for b in row] for row in cam_bt.people_rows(name, ev.clip_meta(name)["count"])]
+    det["people"] = [[[b[0] + b[2] / 2, b[1] + b[3] / 2, b[2], b[3]] for b in row] for row in people_tl]
     pred, _ = bt.track(det, P)
     n = meta["count"]
     real = ev.load_truth
@@ -220,7 +225,7 @@ def bt_case(name, tag):
     main = cam_bt.main_players(people)
     ball_court = cam_bt.keep_court(runs, cam_bt.T49["court"], run["gap"])
     players_court = cam_bt.keep_players_court(ball_court, main, cam_bt.T49["courtp"])
-    T = cam_bt.T49
+    T = cam_bt.T52
     cands = cam_bt.moving_candidates(det["frames"], screens, T["smin"])
     fol = cam_bt.keep_exits(players_court, T["exit"], cam_bt.BASE["back"], cam_bt.BASE["dx"], cands, T["step"],
                             aspect=H / W)
@@ -233,13 +238,16 @@ def bt_case(name, tag):
     else:
         zoom, parts = auto_zoom(tr, today, native, W, H, False, max_upscale=zs["max_upscale_v"],
                                 factor_v=zs["factor_v"], cam_tr=fol)
-    aim = cam_bt.aim_x(fol, main, W, H, cam_bt.T49["blend"], cam_bt.BASE["near"])
+    aim = cam_bt.aim_x(fol, main, W, H, T["blend"], cam_bt.BASE["near"])
     crop_w = min(1.0, (9 / 16) * H / W) / zoom
     near_only = [None if p is None else cam_bt.hitter(p, sorted(main[k], key=lambda b: -b[3])[:2], W, H, T["pairnear"])
                  for k, p in enumerate(fol)]
     aim = cam_bt.keep_pair(aim, fol, main, crop_w, T["pairpad"], int(T["pair"]), near_only)
     aim = cam_bt.glide(aim, fol, main, int(T["glide"]), T["courtp"])
-    rects = camera_rects(fol, today, W, H, zoom, smooth=(cam_bt.T49["a"], cam_bt.T49["b"]), aim=aim)
+    if T["hitbox"]:
+        boxes = cam_bt.hit_boxes(fol, main, W, H, cam_bt.BASE["near"], int(T["horizon"]))
+        aim = cam_bt.keep_box(aim, fol, boxes, crop_w, T["hitpad"], ball_first=T["hitbox"] < 2)
+    rects = camera_rects(fol, today, W, H, zoom, smooth=(T["a"], T["b"]), aim=aim)
     # the verdict on these arrays (ball_verdict.verdict)
     lim = bv.VERDICT[sport]
     h = bv.players_height(name)
@@ -267,7 +275,7 @@ def bt_case(name, tag):
         "detSize": det["size"], "step": det.get("step", 1), "labelSize": label_size, "videoSize": [W, H],
         "frames": det["frames"], "screens": [[r(x) for x in b] for b in screens],
         "playersHeight": h,
-        "people": [[[r(x) for x in b] for b in row] for row in people],
+        "people": people_tl,
         "todayPortrait": [[r(x) for x in row] for row in today.tolist()],
         "todayNative": [[r(x) for x in row] for row in native.tolist()],
         "expect": {

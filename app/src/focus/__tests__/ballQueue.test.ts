@@ -260,7 +260,7 @@ test('test 47a: not worth it on this video: kept as unsuitable with the reason, 
     startMs: 50000,
     endMs: 60000,
     sport: 'beachTennis',
-    rules: 'ball-bt-t49f',
+    rules: 'ball-bt-t52',
     share: 0.6,
     reason: 'tooSmall',
   });
