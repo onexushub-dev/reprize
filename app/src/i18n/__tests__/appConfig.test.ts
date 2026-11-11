@@ -8,6 +8,7 @@ const PERMISSIONS = [
   'NSMicrophoneUsageDescription',
   'NSSpeechRecognitionUsageDescription',
   'NSPhotoLibraryAddUsageDescription',
+  'NSPhotoLibraryUsageDescription',
   'NSLocalNetworkUsageDescription',
   'NSBluetoothAlwaysUsageDescription',
 ] as const;

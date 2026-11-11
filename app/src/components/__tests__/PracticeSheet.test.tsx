@@ -107,7 +107,7 @@ describe('the voice', () => {
     const onAllow = jest.fn();
     await render(<VoiceSheet visible onClose={jest.fn()} locale="pt-BR" speech="undetermined" onAllow={onAllow} />);
     expect(cam.setVoiceEnabled).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByRole('button', { name: 'Permitir' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Continuar' }));
     expect(onAllow).toHaveBeenCalled();
   });
 

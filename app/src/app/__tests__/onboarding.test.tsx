@@ -104,7 +104,6 @@ test('Continue goes to the next story and Skip jumps to the last one', async () 
   await fireEvent.press(screen.getByText('Pular'));
   expect(screen.getByText('ENVIE.')).toBeTruthy();
   expect(screen.queryByText('Pular')).toBeNull();
-  expect(screen.queryByText('Continuar')).toBeNull();
 });
 
 test('the Save story shows its ways, and tapping one opens it', async () => {
@@ -121,7 +120,7 @@ test('the last story explains the camera and asking for it ends the onboarding',
   await render(<Onboarding />);
   await fireEvent.press(screen.getByText('Pular'));
   expect(screen.getByText('Grátis, sem cadastro e com gravações ilimitadas. A seguir, o Reprize pede acesso à câmera.')).toBeTruthy();
-  await act(async () => fireEvent.press(screen.getByText('Permitir câmera e começar')));
+  await act(async () => fireEvent.press(screen.getByText('Continuar')));
   expect(repo.setPrefs).toHaveBeenCalledWith({ onboardingDone: true });
   expect(router.replace).toHaveBeenCalledWith('/setup');
 });
@@ -131,7 +130,7 @@ test('a refused camera keeps the player here with a way to Settings', async () =
   const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue();
   await render(<Onboarding />);
   await fireEvent.press(screen.getByText('Pular'));
-  await act(async () => fireEvent.press(screen.getByText('Permitir câmera e começar')));
+  await act(async () => fireEvent.press(screen.getByText('Continuar')));
   expect(repo.setPrefs).not.toHaveBeenCalled();
   expect(router.replace).not.toHaveBeenCalled();
   expect(screen.getByText('Sem câmera não dá para gravar os clipes. Libere em Ajustes.')).toBeTruthy();
@@ -180,7 +179,7 @@ describe('analytics', () => {
     await render(<Onboarding />);
     await fireEvent.press(screen.getByText('Pular'));
     (track as jest.Mock).mockClear();
-    await act(async () => fireEvent.press(screen.getByText('Permitir câmera e começar')));
+    await act(async () => fireEvent.press(screen.getByText('Continuar')));
     expect(sent()).toEqual([
       ['permission_result', { kind: 'camera', granted: true }],
       ['onboarding_completed', undefined],
@@ -192,7 +191,7 @@ describe('analytics', () => {
     await render(<Onboarding />);
     await fireEvent.press(screen.getByText('Pular'));
     (track as jest.Mock).mockClear();
-    await act(async () => fireEvent.press(screen.getByText('Permitir câmera e começar')));
+    await act(async () => fireEvent.press(screen.getByText('Continuar')));
     expect(sent()).toEqual([['permission_result', { kind: 'camera', granted: false }]]);
   });
 });

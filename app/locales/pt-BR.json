@@ -5,6 +5,7 @@
     "NSSpeechRecognitionUsageDescription": "O Reprize escuta você dizer \"salvar\" para salvar o clipe sem tocar no celular.",
     "NSPhotoLibraryAddUsageDescription": "O Reprize salva os clipes que você exportar na sua galeria.",
     "NSLocalNetworkUsageDescription": "O Reprize usa a rede local para mostrar a imagem da câmera no celular que serve de controle.",
-    "NSBluetoothAlwaysUsageDescription": "O Reprize usa o Bluetooth para conversar com o celular que serve de controle e para mostrar se o seu controle de selfie está conectado."
+    "NSBluetoothAlwaysUsageDescription": "O Reprize usa o Bluetooth para conversar com o celular que serve de controle e para mostrar se o seu controle de selfie está conectado.",
+    "NSPhotoLibraryUsageDescription": "O Reprize salva os clipes que você exportar na sua galeria."
   }
 }

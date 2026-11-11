@@ -673,7 +673,7 @@ test('the first time it is connected it explains voice before iOS asks, once', a
   await connected(false);
   expect(alert).toHaveBeenCalledTimes(1);
   expect(alert.mock.calls[0][0]).toBe('Salvar falando');
-  const allow = (alert.mock.calls[0][2] as any[]).find((b) => b.text === 'Permitir');
+  const allow = (alert.mock.calls[0][2] as any[]).find((b) => b.text === 'Continuar');
   await act(async () => {
     allow.onPress();
   });

@@ -649,7 +649,7 @@ test("Minhas gravações opens the game list, and is hidden during a game", asyn
   expect(screen.queryByRole("button", { name: "Minhas gravações" })).toBeNull();
 });
 
-test("voice on without speech permission shows Toque para permitir", async () => {
+test("voice on without speech permission shows Toque para ativar", async () => {
   repo.setPrefs({ modeSettings: { quadra: { voiceEnabled: true } } });
   jest
     .requireMock("../../../modules/replay-camera")
@@ -657,7 +657,7 @@ test("voice on without speech permission shows Toque para permitir", async () =>
   session({});
   await render(<Setup />);
   await openSettings();
-  expect(screen.getByLabelText("Voz, Toque para permitir")).toBeTruthy();
+  expect(screen.getByLabelText("Voz, Toque para ativar")).toBeTruthy();
   jest
     .requireMock("../../../modules/replay-camera")
     .getSpeechPermission.mockReturnValue("granted");

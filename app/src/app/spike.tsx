@@ -18,6 +18,8 @@ import {
   type TriggerSource,
 } from '../../modules/replay-camera';
 import { createGestureTest } from '../diag/gestureTest';
+import { DIAGNOSTICS_ENABLED } from '../diag/diagLog';
+import { Redirect } from 'expo-router';
 
 const bufferDir = new Directory(Paths.cache, 'replay-buffer');
 /** Zooms to test with (0.5 = ultra-wide) and the real distances the tester can mark, in metres. */
@@ -43,7 +45,13 @@ function clock(ms: number): string {
   return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
-export default function SpikeScreen() {
+/** Team-only: in store builds (no diagnostics) a deep link to /spike lands on the home screen. */
+export default function Spike() {
+  if (!DIAGNOSTICS_ENABLED) return <Redirect href="/" />;
+  return <SpikeScreen />;
+}
+
+function SpikeScreen() {
   useKeepAwake();
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());

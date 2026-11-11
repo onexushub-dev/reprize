@@ -5,6 +5,7 @@
     "NSSpeechRecognitionUsageDescription": "Reprize listens for you to say \"save\" so you can save a clip without touching your phone.",
     "NSPhotoLibraryAddUsageDescription": "Reprize saves the clips you export to your photo library.",
     "NSLocalNetworkUsageDescription": "Reprize uses your local network to show the camera image on the phone you use as a remote.",
-    "NSBluetoothAlwaysUsageDescription": "Reprize uses Bluetooth to talk to the phone you use as a remote and to show whether your selfie remote is connected."
+    "NSBluetoothAlwaysUsageDescription": "Reprize uses Bluetooth to talk to the phone you use as a remote and to show whether your selfie remote is connected.",
+    "NSPhotoLibraryUsageDescription": "Reprize saves the clips you export to your photo library."
   }
 }

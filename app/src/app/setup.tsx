@@ -45,6 +45,7 @@ import type {
 } from "../../modules/replay-camera/src/ReplayCamera.types";
 import { useCameraPinch } from "../camera/useCameraPinch";
 import { useDeviceLandscape } from "../camera/useDeviceLandscape";
+import { AboutLinks } from "../components/AboutLinks";
 import { Button } from "../components/Button";
 import { Chip } from "../components/Chip";
 import { CompactDock } from "../components/CompactDock";
@@ -722,6 +723,7 @@ export default function Setup() {
                 disabled={starting}
                 onPress={askThenStart}
               />
+              <AboutLinks />
             </SafeAreaView>
           </View>
         )}
