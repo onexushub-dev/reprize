@@ -57,6 +57,7 @@ jest.mock('../../focus/appBallQueue', () => ({
   ballAvailable: jest.fn(() => false),
   probeBallOnce: jest.fn(),
   checkSportOnce: jest.fn(),
+  sportChecking: jest.fn(() => false),
 }));
 jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), setHold: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
 jest.mock('../../data/focusFile', () => ({ ...jest.requireActual('../../data/focusFile'), readFocusFile: jest.fn(() => undefined) }));
@@ -1111,6 +1112,34 @@ describe('Seguir a Bola', () => {
     });
     expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
     expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: false });
+  });
+
+  test('test 51: the sport worked out by itself: no question (sand -> beach tennis; another sport -> EM BREVE)', async () => {
+    const mmkv = jest.requireMock('../../data/mmkv');
+    const labels = { volleyball: 0.7, _floorSand: 0.6, _floorTex: 9 };
+    mmkv.__setSport('quadra', { v: 1, verdict: 'other', labels, auto: 'beachTennis' });
+    await openEdit('Foco');
+    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Esporte: Beach tennis · Trocar' })).toBeTruthy();
+    expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: false });
+  });
+
+  test('test 51: another sport keeps Modo Foco; the player may still pick one', async () => {
+    const labels = { volleyball: 0.7, _floorSand: 0.01, _floorTex: 0 };
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'other', labels, auto: 'other' });
+    await openEdit('Foco');
+    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
+    expect(screen.getByText('Por enquanto só no basquete e no beach tennis. Este vídeo fica com o Modo Foco.')).toBeTruthy();
+    expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: true });
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'É basquete ou beach tennis? Escolher' })));
+    expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
+  });
+
+  test('test 51: not looked at yet: "Verificando", no question', async () => {
+    jest.requireMock('../../data/mmkv').__setSport('quadra', undefined);
+    await openEdit('Foco');
+    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
+    expect(screen.getByText('Verificando o esporte do vídeo…')).toBeTruthy();
   });
 
   test('a recording made in the beach tennis mode is beach tennis: no question', async () => {

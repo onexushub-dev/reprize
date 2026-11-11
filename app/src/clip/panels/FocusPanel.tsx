@@ -66,7 +66,7 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
   const [changing, setChanging] = useState(false);
   // On a free recording the framing works here, but it does not leave the app: the hints say so.
   const free = ctx.plan === 'free';
-  const ballShown = ctx.ball !== 'hidden' && ctx.ball !== 'soon';
+  const ballShown = ctx.ball !== 'hidden' && ctx.ball !== 'soon' && ctx.ball !== 'checking' && ctx.ball !== 'ask';
   const choose = (sport: BallSportId) => {
     setChanging(false);
     ctx.chooseBallSport(sport);
@@ -104,7 +104,25 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
           )
         }
       />
-      {ctx.ball === 'soon' || (ballShown && changing) ? (
+      {ctx.ball === 'checking' ? (
+        <PanelHead
+          title={t('clip.ballMode')}
+          hint={t('clip.ballChecking')}
+          right={<Toggle label={t('clip.ballMode')} on={false} disabled onPress={ctx.toggleBall} />}
+        />
+      ) : ctx.ball === 'soon' && !changing ? (
+        <View style={{ gap: 6 }}>
+          <PanelHead
+            title={t('clip.ballMode')}
+            hint={t('clip.ballOtherSport')}
+            badge={t('clip.ballSoon')}
+            right={<Toggle label={t('clip.ballMode')} on={false} disabled onPress={ctx.toggleBall} />}
+          />
+          <Pressable accessibilityRole="button" onPress={() => setChanging(true)} hitSlop={8}>
+            <Text style={styles.link}>{t('clip.ballOtherSportPick')}</Text>
+          </Pressable>
+        </View>
+      ) : ctx.ball === 'ask' || ctx.ball === 'soon' || (ballShown && changing) ? (
         <View style={{ gap: 6 }}>
           <PanelHead
             title={t('clip.ballMode')}

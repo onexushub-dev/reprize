@@ -117,9 +117,28 @@ test('Seguir a Bola: a second switch under Modo Foco, hidden on phones that cann
   expect(c.toggleBall).toHaveBeenCalledTimes(1);
 });
 
-test('Seguir a Bola on another sport: off until the player says which sport it is (test 48)', async () => {
+test('Seguir a Bola on another sport (test 51): EM BREVE, Modo Foco only; the player may still pick one', async () => {
   const Panel = panel('focus');
   const c = ctx({ ball: 'soon', ballSport: undefined });
+  await render(<Panel ctx={c} />);
+  expect(screen.getByText('EM BREVE')).toBeTruthy();
+  expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
+  expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ disabled: true });
+  await fireEvent.press(screen.getByRole('button', { name: 'É basquete ou beach tennis? Escolher' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Basquete' }));
+  expect(c.chooseBallSport).toHaveBeenCalledWith('basquete');
+});
+
+test('Seguir a Bola while the sport is worked out (test 51): off, no question', async () => {
+  const Panel = panel('focus');
+  await render(<Panel ctx={ctx({ ball: 'checking', ballSport: undefined })} />);
+  expect(screen.getByText('Verificando o esporte do vídeo…')).toBeTruthy();
+  expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
+});
+
+test('Seguir a Bola on a build that cannot tell the sport: the panel asks (test 48)', async () => {
+  const Panel = panel('focus');
+  const c = ctx({ ball: 'ask', ballSport: undefined });
   await render(<Panel ctx={c} />);
   expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
   expect(screen.getByText('Outros esportes: em breve.')).toBeTruthy();

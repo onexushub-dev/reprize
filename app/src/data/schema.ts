@@ -57,6 +57,8 @@ export type BallSport = {
   labels?: Record<string, number>;
   unlocked?: boolean;
   sport?: BallSportId;
+  /** Test 51: the sport worked out with no question (the floor and the classifier); `other` = Modo Foco only. */
+  auto?: BallSportId | 'other';
 };
 
 /** The sports Seguir a Bola analyses, each with its own model and rules (the native `BallSport`). */

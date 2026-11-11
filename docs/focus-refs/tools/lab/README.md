@@ -187,6 +187,31 @@ static-camera clips and against the same ground truth, the ways to make the fram
 
 Run the Mac tests with `bash tools/lab/mac-tests.sh` (ball) or `bash tools/lab/mac-tests.sh person`.
 
+### Test 51 (2026-11-10, first measurements) — which sport, with no question to the player
+
+Victor: pick Seguir a Bola's model by itself (basketball / beach tennis); any other sport gets Modo Foco only. 147
+clips (79 basketball, 43 beach tennis, 10 beach volleyball / futevôlei, 15 others; web clips measure only):
+`sport_probe.py` (6 frames per clip: both ball detectors, YOLOX-Tiny COCO person / sports ball / racket),
+`sport_signals.py`, `sport_sand.py` -> `lab/tests/sport/t51/`, `t51-signals.json`, `t51-sand.json`.
+
+- **The ball detectors on single frames say little**: `ball_tiny_btpl` scores 0.5–0.9 on something in nearly every
+  clip of every sport (basketball included); `ball_tiny_gym` reaches 0.5 on only a few frames even in our gyms; ball
+  size / player height overlaps (btpl: beach tennis 0.04–0.12, basketball 0.06–0.15, beach volleyball 0.03–0.13).
+- **Apple's classifier** (test 43, 94 clips): every beach sport comes out as "volleyball"; "racquet" and "sand" never
+  fire on beach tennis; "beach" 0.12–0.21 on 6 of 10 (and on futevôlei). It rules basketball out well, it cannot tell
+  beach tennis from beach volleyball / futevôlei.
+- **The floor** (sand-coloured share of the bottom of the picture >= 0.2 and its fine texture >= 4.3): basketball 0 of
+  79 called sand (wood floors are sand-coloured but smooth), beach tennis 39 of 43 (missed: a stream, two web clips, a
+  vertical close-up), beach volleyball / futevôlei 5 of 10, others 0 of 15.
+- **A racket** (COCO, not in the app): on sand, beach tennis has one in >= 1 of 6 frames on 39 of 43 clips, beach
+  volleyball / futevôlei on 4 of 10; on hard courts the COCO detector also "sees" rackets in basketball (up to 4 of 6).
+
+**Victor (2026-11-10): in the app now** — sand (>= 0.2, grain >= 4.5, a little margin over 4.3: basketball's highest
+4.1, 4.27 with another downscale) -> beach tennis; else test 43's rule -> other (Modo Foco only); else basketball. The
+Swift port (`SportFloor`) gives the same numbers as OpenCV on the same pictures (checked with a NumPy copy of it).
+Beach volleyball / futevôlei on sand may get beach tennis (accepted for now). Next: YOLOX-Tiny COCO's racket on the
+phone, and a classifier trained on Victor's own clips of the other beach sports.
+
 ### Test 50 result (2026-11-10) — basketball: a long pass, the receiver lost for a second
 
 Victor (field clip, app export with Seguir a Bola, `refs/2026-11-10/basquete/`: `3C8A306D...` without it, `64230949...`
