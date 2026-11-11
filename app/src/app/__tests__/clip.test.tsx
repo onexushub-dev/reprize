@@ -557,8 +557,8 @@ describe('watch and edit', () => {
     (Image.getSize as jest.Mock).mockReturnValue(new Promise(() => {}));
     __setClip({ ...base, focus: { v: 1, status: 'ready', file: '/c1.focus.json' } });
     await openEdit('Foco');
-    expect(screen.getByText('Preparando o enquadramento…')).toBeTruthy();
-    expect(screen.queryByText('Modo Foco indisponível para esse clipe.')).toBeNull();
+    expect(screen.getByText('Rastreando os jogadores… você pode continuar editando.')).toBeTruthy();
+    expect(screen.queryByText('Jogadores indisponível para esse clipe.')).toBeNull();
   });
 
   test('watching swipes between clips without zoom; editing zooms and does not swipe', async () => {
@@ -644,7 +644,8 @@ describe('Modo Foco', () => {
   const { __setPrefs } = jest.requireMock('../../data/mmkv');
   const ready = { v: 1, status: 'ready', file: '/c1.focus.json' };
   const track = { startMs: 30000, stepMs: 100, rects: [[0.1, 0.1, 0.8, 0.8]] };
-  const chip = () => screen.getByRole('switch', { name: 'Modo Foco' });
+  const chip = () => screen.getByRole('radio', { name: /^Jogadores/ });
+  const original = () => screen.getByRole('radio', { name: 'Original' });
 
   beforeEach(() => {
     readFocusFile.mockImplementation((path: string) => (path === '/c1.focus.json' ? track : undefined));
@@ -664,7 +665,7 @@ describe('Modo Foco', () => {
   test('turning it off is stored on the clip and shows the whole video', async () => {
     __setClip({ ...base, focus: ready });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(chip()));
+    await act(async () => fireEvent.press(original()));
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'none' } });
     // The repo stand-in does not notify the screen: open the stored clip again.
     await openEdit('Foco');
@@ -682,7 +683,7 @@ describe('Modo Foco', () => {
   test('while the analysis runs the tag says it is preparing', async () => {
     __setClip({ ...base, focus: { v: 1, status: 'pending' } });
     await open();
-    expect(screen.getByText('Modo Foco · preparando')).toBeTruthy();
+    expect(screen.getByText('Rastreando os jogadores…')).toBeTruthy();
     expect(video.last.follow).toBeUndefined();
   });
 
@@ -698,8 +699,9 @@ describe('Modo Foco', () => {
     expect(video.last.follow).toBeUndefined();
     await pressAction('Editar');
     await act(async () => fireEvent.press(screen.getByRole('tab', { name: /^Foco/ })));
-    expect(screen.queryByRole('switch', { name: 'Modo Foco' })).toBeNull();
-    expect(screen.getByText('Modo Foco indisponível para esse clipe.')).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: /^Jogadores/ })).toBeNull();
+    expect(original().props.accessibilityState).toMatchObject({ checked: true });
+    expect(screen.getByText('Jogadores indisponível para esse clipe.')).toBeTruthy();
   });
 
   test('no tag on a phone without the analysis', async () => {
@@ -727,6 +729,18 @@ describe('Modo Foco', () => {
     __setClip({ ...base, focus: ready, edit: { muted: false, focus: false, zoom: { scale: 2, cx: 0.5, cy: 0.5 } } });
     await openEdit('Foco');
     expect(chip().props.accessibilityState).toMatchObject({ checked: false });
+    await act(async () => fireEvent.press(chip()));
+    expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false } });
+  });
+
+  test('a clip saved from now on opens as Original: nothing applied until a tap (spec 2026-11-11)', async () => {
+    __setClip({ ...base, focus: ready, edit: { speed: 1, muted: false, framing: 'none' } });
+    await open();
+    expect(screen.queryByRole('button', { name: 'Modo Foco' })).toBeNull();
+    expect(video.last.follow).toBeUndefined();
+    await pressAction('Editar');
+    await act(async () => fireEvent.press(screen.getByRole('tab', { name: /^Foco/ })));
+    expect(original().props.accessibilityState).toMatchObject({ checked: true });
     await act(async () => fireEvent.press(chip()));
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false } });
   });
@@ -1054,7 +1068,7 @@ describe('analytics', () => {
   test('turning Modo Foco on reports it, turning it off does not', async () => {
     __setClip({ ...base, focus: { v: 1, status: 'ready', file: '/c1.focus.json' }, edit: { muted: false, focus: false } });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(screen.getByRole('switch', { name: 'Modo Foco' })));
+    await act(async () => fireEvent.press(screen.getByRole('radio', { name: /^Jogadores/ })));
     expect(events()).toContainEqual(['focus_mode_used', undefined]);
   });
 });
@@ -1068,7 +1082,7 @@ describe('Seguir a Bola', () => {
   const focusTrack = { startMs: 30000, stepMs: 100, rects: [[0.1, 0.1, 0.8, 0.8]] };
   const ballReady = { v: 1, status: 'ready', startMs: 30000, endMs: 60000, file: '/c1.ball.json', share: 0.8 };
   const ballTrack = { startMs: 30000, stepMs: 100, rects: [[0.3, 0, 0.3164, 1]] };
-  const ballSwitch = () => screen.getByRole('switch', { name: 'Seguir a Bola' });
+  const ballCard = () => screen.getByRole('radio', { name: /^Bola/ });
 
   beforeEach(() => {
     // a recording whose sport the player already gave (basketball): the switch is there (test 48)
@@ -1088,71 +1102,73 @@ describe('Seguir a Bola', () => {
     expect(balls.checkSportOnce).toHaveBeenCalledWith('s1', expect.objectContaining({ path: '/c1.mp4' }));
   });
 
-  test('another sport: the panel asks which one; the answer is kept for the recording (test 48)', async () => {
-    const labels = { volleyball: 0.7 };
-    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'other', labels });
+  test('the sport chip opens every sport; the answer is kept for the recording and Bola follows it', async () => {
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'allow', labels: { people: 0.8 }, auto: 'unsure', rule: 2 });
     await openEdit('Foco');
-    expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
-    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Beach tennis' })));
-    expect(repo.setBallSport).toHaveBeenCalledWith('s1', { v: 1, verdict: 'other', labels, sport: 'beachTennis' });
-    expect(screen.getByRole('button', { name: 'Esporte: Beach tennis · Trocar' })).toBeTruthy();
-  });
-
-  test('a recording the classifier is unsure about: the panel asks once, the answer serves its clips', async () => {
-    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'allow', labels: { people: 0.8 } });
-    await openEdit('Foco');
-    expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
-    expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: true });
-    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Basquete' })));
+    expect(screen.getByText('Escolher esporte')).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: /^Bola/ })).toBeNull();
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Esporte da gravação: Escolher esporte. Trocar' })));
+    expect(screen.getByRole('radio', { name: 'Basquete' }).props.accessibilityState).toMatchObject({ checked: false });
+    await act(async () => fireEvent.press(screen.getByRole('radio', { name: 'Basquete' })));
     expect(repo.setBallSport).toHaveBeenCalledWith('s1', {
       v: 1,
       verdict: 'allow',
       labels: { people: 0.8 },
+      auto: 'unsure',
+      rule: 2,
       sport: 'basquete',
     });
-    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
-    expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: false });
+    expect(ballCard()).toBeTruthy();
   });
 
-  test('test 51: the sport worked out by itself: no question (sand -> beach tennis; another sport -> EM BREVE)', async () => {
-    const mmkv = jest.requireMock('../../data/mmkv');
+  test('worked out by itself: the chip says so and Bola is there for a sport with a model', async () => {
     const labels = { volleyball: 0.7, _floorSand: 0.6, _floorTex: 9 };
-    mmkv.__setSport('quadra', { v: 1, verdict: 'other', labels, auto: 'beachTennis' });
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'other', labels, auto: 'beachTennis', rule: 2 });
     await openEdit('Foco');
-    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Esporte: Beach tennis · Trocar' })).toBeTruthy();
-    expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: false });
+    expect(screen.getByRole('button', { name: 'Esporte da gravação: Beach tennis. Trocar' })).toBeTruthy();
+    expect(screen.getByText('· identificado')).toBeTruthy();
+    expect(ballCard()).toBeTruthy();
   });
 
-  test('test 51: another sport keeps Modo Foco; the player may still pick one', async () => {
-    const labels = { volleyball: 0.7, _floorSand: 0.01, _floorTex: 0 };
-    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'other', labels, auto: 'other' });
+  test('a sport without a ball model: no Bola card; choosing one while on Bola goes back to Original', async () => {
+    __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
+    __setClip({ ...base, focus: focusReady, edit: { muted: false, framing: 'ball' } });
     await openEdit('Foco');
-    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
-    expect(screen.getByText('Por enquanto só no basquete e no beach tennis. Este vídeo fica com o Modo Foco.')).toBeTruthy();
-    expect(ballSwitch().props.accessibilityState).toMatchObject({ disabled: true });
-    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'É basquete ou beach tennis? Escolher' })));
-    expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Esporte da gravação: Basquete. Trocar' })));
+    await act(async () => fireEvent.press(screen.getByRole('radio', { name: 'Tênis' })));
+    expect(balls.ballQueue.cancel).toHaveBeenCalledWith('c1');
+    expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'none' } });
+    await openEdit('Foco');
+    expect(screen.queryByRole('radio', { name: /^Bola/ })).toBeNull();
   });
 
-  test('test 51: not looked at yet: "Verificando", no question', async () => {
-    jest.requireMock('../../data/mmkv').__setSport('quadra', undefined);
+  test('a clip stored on Bola in a recording whose sport is not known: Original, nothing queued', async () => {
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'allow', auto: 'unsure', rule: 2 });
+    __setClip({ ...base, focus: focusReady, ball: ballReady, edit: { muted: false, framing: 'ball' } });
     await openEdit('Foco');
-    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
-    expect(screen.getByText('Verificando o esporte do vídeo…')).toBeTruthy();
+    expect(balls.ballQueue.request).not.toHaveBeenCalled();
+    expect(screen.getByRole('radio', { name: 'Original' }).props.accessibilityState).toMatchObject({ checked: true });
+    expect(video.last.content).toBeUndefined();
   });
 
-  test('a recording made in the beach tennis mode is beach tennis: no question', async () => {
+  test('test 51\'s answer (basketball by default) is not trusted: nothing marked', async () => {
+    jest.requireMock('../../data/mmkv').__setSport('quadra', { v: 1, verdict: 'allow', labels: { people: 0.8 }, auto: 'basquete' });
+    await openEdit('Foco');
+    expect(screen.getByText('Escolher esporte')).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: /^Bola/ })).toBeNull();
+  });
+
+  test('a recording made in the beach tennis mode is beach tennis', async () => {
     jest.requireMock('../../data/mmkv').__setSport('beachTennis', undefined);
     await openEdit('Foco');
-    expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Esporte: Beach tennis · Trocar' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Esporte da gravação: Beach tennis. Trocar' })).toBeTruthy();
+    expect(screen.queryByText('· identificado')).toBeNull();
   });
 
   test('the first tap shows what it does; "Seguir o clipe todo" turns it on and remembers the answer', async () => {
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(ballSwitch()));
+    await act(async () => fireEvent.press(ballCard()));
     expect(repo.updateClip).not.toHaveBeenCalledWith('c1', expect.objectContaining({ edit: expect.anything() }));
     expect(screen.getByText('Corte o lance antes')).toBeTruthy();
     await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Seguir o clipe todo' })));
@@ -1164,41 +1180,55 @@ describe('Seguir a Bola', () => {
   test('"Cortar o lance primeiro" leaves it off', async () => {
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(ballSwitch()));
+    await act(async () => fireEvent.press(ballCard()));
     await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cortar o lance primeiro' })));
     expect(repo.updateClip).not.toHaveBeenCalledWith('c1', expect.objectContaining({ edit: expect.anything() }));
   });
 
-  test('while it analyses, the chip on the video shows it; Modo Foco keeps framing; ✕ goes back to Modo Foco', async () => {
+  test('while it analyses, the chip on the video shows it; Modo Foco keeps framing; ✕ goes back to the framing before', async () => {
     __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
     __setClip({ ...base, focus: focusReady, edit: { muted: false, framing: 'ball' } });
     await openEdit('Foco');
     expect(balls.ballQueue.request).toHaveBeenCalledWith('c1');
-    expect(screen.getByText('Seguir a Bola · na fila')).toBeTruthy();
-    expect(ballSwitch().props.accessibilityState).toMatchObject({ checked: true });
+    // in the editor the progress is on the Bola card only, nothing on the video (spec 2026-11-11, P1)
+    expect(screen.queryByText('Rastreando a bola…')).toBeNull();
+    expect(ballCard().props.accessibilityState).toMatchObject({ checked: true });
+    expect(screen.getByText('Rastreando a bola… você pode continuar editando.')).toBeTruthy();
     expect(video.last.follow).toBeDefined(); // the current picture (Modo Foco) meanwhile
     expect(video.last.content).toBeUndefined();
-    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cancelar Seguir a Bola' })));
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Parar o rastreamento' })));
     expect(balls.ballQueue.cancel).toHaveBeenCalledWith('c1');
-    expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false } });
+    expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'none' } });
   });
 
   test('ready: a 9:16 preview following the ball; a pinch turns it off', async () => {
     __setClip({ ...base, focus: focusReady, ball: ballReady, edit: { muted: false, framing: 'ball' } });
     await openEdit('Foco');
     expect(readFocusFile).toHaveBeenCalledWith('/c1.ball.json', 'portrait');
-    expect(screen.getByText('Seguir a Bola · 9:16')).toBeTruthy();
+    expect(screen.queryByText('Seguir a Bola · 9:16')).toBeNull(); // the tag is on the clip screen, not in the editor
     expect(video.last.content).toBeDefined();
     expect(video.last.box.height).toBeGreaterThan(video.last.box.width); // the vertical frame
-    expect(screen.getByRole('switch', { name: 'Modo Foco' }).props.accessibilityState).toMatchObject({ checked: false });
+    expect(screen.getByRole('radio', { name: /^Jogadores/ }).props.accessibilityState).toMatchObject({ checked: false });
+    expect(ballCard().props.accessibilityState).toMatchObject({ checked: true });
     await act(async () => video.last.onCommit({ scale: 2, cx: 0.5, cy: 0.5 }));
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'none' } });
   });
 
-  test('Modo Foco on while it is on: instant, and the analysis stops', async () => {
+  test('on the clip screen while Bola is tracked: a pill with ✕, Salvar and Enviar wait (spec 2026-11-11, P1)', async () => {
+    __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
+    __setClip({ ...base, focus: focusReady, edit: { muted: false, framing: 'ball' } });
+    await open();
+    expect(screen.getByText('Rastreando a bola…')).toBeTruthy();
+    expect(screen.getByText('Salvar e Enviar ficam disponíveis quando o rastreamento terminar.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Salvar na galeria' }).props.accessibilityState).toMatchObject({ disabled: true });
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Parar o rastreamento da bola' })));
+    expect(balls.ballQueue.cancel).toHaveBeenCalledWith('c1');
+  });
+
+  test('Jogadores while Bola is on: instant, and the analysis stops', async () => {
     __setClip({ ...base, focus: focusReady, edit: { muted: false, framing: 'ball' } });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(screen.getByRole('switch', { name: 'Modo Foco' })));
+    await act(async () => fireEvent.press(screen.getByRole('radio', { name: /^Jogadores/ })));
     expect(balls.ballQueue.cancel).toHaveBeenCalledWith('c1');
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false } });
   });
@@ -1206,6 +1236,14 @@ describe('Seguir a Bola', () => {
   test('hidden where the phone cannot run it', async () => {
     balls.ballAvailable.mockReturnValue(false);
     await openEdit('Foco');
-    expect(screen.queryByRole('switch', { name: 'Seguir a Bola' })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /^Bola/ })).toBeNull();
+  });
+
+  test('no ball in play on this cut: back to the framing before the tap, Bola dimmed (spec 2026-11-11)', async () => {
+    __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
+    const unsuitable = { v: 1, status: 'unsuitable', startMs: 30000, endMs: 60000, sport: 'basquete', reason: 'rarelyFound' };
+    __setClip({ ...base, focus: focusReady, ball: unsuitable, edit: { muted: false, framing: 'ball' } });
+    await openEdit('Foco');
+    expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'none' } });
   });
 });

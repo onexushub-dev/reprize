@@ -47,11 +47,12 @@ import { sessionSummary, track as trackEvent } from '../../analytics';
 import { exportPlanOf } from '../../analytics/plans';
 import { askPhotos } from '../../share/askPhotos';
 import { ballForCut, readyBallFile } from '../../data/ballFile';
-import type { BallSportId } from '../../data/schema';
+import type { RecordingSportId } from '../../data/schema';
 import { readFocusFile } from '../../data/focusFile';
 import { removeFile, repo } from '../../data/mmkv';
-import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce, sportChecking } from '../../focus/appBallQueue';
-import { ballSportIdOf, ballSportOf, sportNeedsCheck } from '../../focus/sportCheck';
+import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce } from '../../focus/appBallQueue';
+import { ballEstimate } from '../../focus/ballQueue';
+import { ballSportIdOf, hasBallModel, recordingSportOf } from '../../focus/sportCheck';
 import { focusQueue } from '../../focus/appFocusQueue';
 import { focusHold } from '../../focus/focusQueue';
 import { useFocusFraming } from '../../focus/useFocusFraming';
@@ -93,6 +94,8 @@ const FOCUS_READY_EASE_MS = 400;
 /** Seguir a Bola: under this share of frames with the ball, a note says the camera follows the players when it loses it. */
 const BALL_SPARSE_SHARE = 0.35;
 const BALL_SPARSE_MS = 6000;
+/** How long "✓ Bola encontrada" / "✓ Jogadores encontrados" stays on the clip (spec 2026-11-11, P1). */
+const FOUND_MS = 2500;
 
 type Player = ReturnType<typeof useVideoPlayer>;
 
@@ -271,8 +274,17 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
 
   // Seguir a Bola (spec 2026-11-09): the 9:16 framing of the current cut, once its analysis is ready. Until then the
   // preview keeps Modo Foco's framing (A3: the video keeps playing the current picture) and the chip shows the progress.
-  const ballChosen = edit.framing === 'ball';
-  const ballFile = clip ? readyBallFile(clip) : undefined;
+  // Spec 2026-11-11: the recording's sport (undefined = not known: nothing marked) and the one Seguir a Bola analyses it
+  // as (its model and rules; undefined = no Bola card).
+  const [, setSportTick] = useState(0);
+  const recSport = recordingSportOf(session);
+  const ballSport = ballSportIdOf(session);
+  // The framing before Bola was tapped: where the clip goes back to when Bola is cancelled or finds no ball.
+  const beforeBall = useRef<'none' | 'focus'>('none');
+  // Bola only for a sport with a ball model: a clip stored on Bola whose recording's sport is not known (or has no model)
+  // shows as the Original it is, nothing queued, until the player says the sport (spec 2026-11-11 decision 5).
+  const ballChosen = edit.framing === 'ball' && ballSport !== undefined;
+  const ballFile = clip && ballSport !== undefined ? readyBallFile(clip) : undefined;
   const ballTrack = useMemo(
     () => (ballFile && sizeKnown ? readFocusFile(ballFile, 'portrait') : undefined),
     [ballFile, sizeKnown],
@@ -281,15 +293,13 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const focusPreview = track !== undefined && edit.rotation === 0 && !handZoom && (edit.focus || (ballChosen && !ballOn));
   const ballProgress = useSyncExternalStore(ballQueue.subscribe, () => ballQueue.progress(id));
   const cutKey = clip ? `${clip.trim.startMs}:${clip.trim.endMs}` : '';
-  // Test 48: the sport Seguir a Bola analyses this recording as (its model and rules); undefined = the panel asks.
-  const [, setSportTick] = useState(0);
-  const ballSport = ballSportIdOf(session);
   // On, with the cut or the sport changed or never analysed: the queue analyses it (the frames already found are reused).
   useEffect(() => {
     if (!ballChosen || leaving) return;
     ballQueue.request(id);
   }, [ballChosen, cutKey, ballSport, id, leaving]);
-  // Test 47a: judged not worth it on this cut and sport: back to Modo Foco, the chip says why for a few seconds.
+  // Test 47a: no ball in play on this cut and sport: back to the framing before the tap (spec 2026-11-11 decision 6),
+  // the chip says so for a few seconds and the Bola card is dimmed.
   const unsuitable =
     clip && clip.ball && clip.ball.status === 'unsuitable' && ballSport && ballForCut(clip.ball, clip.trim, ballSport)
       ? clip.ball.reason || 'still'
@@ -301,7 +311,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   useEffect(() => {
     if (!ballChosen || unsuitableKey === undefined) return;
     turnedBack.current = unsuitableKey;
-    setEdit({ framing: 'focus' });
+    setEdit({ framing: beforeBall.current });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ballChosen, unsuitableKey]);
   useEffect(() => {
@@ -331,11 +341,36 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   if (!ballChip && unsuitableNote && edit.rotation === 0 && !handZoom) {
     ballChip = { kind: 'unsuitable' };
   }
+  // Spec 2026-11-11 (P1): "✓ Bola encontrada" for a moment when the ball was being tracked on screen and got ready.
+  const lastBallKind = useRef<string | undefined>(undefined);
+  const [ballFoundKey, setBallFoundKey] = useState<string>();
+  const ballKind = ballChip ? ballChip.kind : undefined;
+  useEffect(() => {
+    const before = lastBallKind.current;
+    lastBallKind.current = ballKind;
+    if (before !== 'working' || ballKind !== 'ready') return;
+    setBallFoundKey(cutKey);
+    const timer = setTimeout(() => setBallFoundKey(undefined), FOUND_MS);
+    return () => clearTimeout(timer);
+  }, [ballKind, cutKey]);
+  if (ballChip && ballChip.kind === 'ready' && ballFoundKey === cutKey) ballChip = { kind: 'found' };
   let focusChip: 'preparing' | 'on' | 'off' | undefined;
   if (edit.rotation === 0) {
     if (track) focusChip = focusActive ? 'on' : 'off';
     else if (focusSupported && (!focusState || focusState.status === 'pending')) focusChip = 'preparing';
   }
+  // "✓ Jogadores encontrados" for a moment when Jogadores was being tracked on screen and got ready.
+  const lastFocusChip = useRef<string | undefined>(undefined);
+  const [playersFound, setPlayersFound] = useState(false);
+  const focusShown = edit.framing === 'focus' ? focusChip : undefined;
+  useEffect(() => {
+    const before = lastFocusChip.current;
+    lastFocusChip.current = focusShown;
+    if (before !== 'preparing' || focusShown !== 'on') return;
+    setPlayersFound(true);
+    const timer = setTimeout(() => setPlayersFound(false), FOUND_MS);
+    return () => clearTimeout(timer);
+  }, [focusShown]);
   // The analysis starts once the clip's shape is known: it takes the processor, and the thumbnail that measures the
   // video must not wait behind it (the frame would stay in its default landscape shape meanwhile).
   // TEMP(diag-remote): where the wait for the framing goes (screen open → shape known → framing on screen).
@@ -563,25 +598,23 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     else setEdit({ zoom: z.scale > 1 ? z : undefined });
   }
 
-  function toggleFocus() {
-    if (focusActive) return setEdit({ framing: 'none' });
-    trackEvent('focus_mode_used');
-    // Modo Foco on stops Seguir a Bola's analysis at once (what it found stays for later).
-    if (ballChosen) ballQueue.cancel(id);
-    setEdit({ framing: 'focus', zoom: undefined });
-    setZoomKey((k) => k + 1);
-  }
-
-  /** Seguir a Bola on (the first-use sheet first, until it is turned off) or off (back to Modo Foco, the default). */
-  function toggleBall() {
-    if (ballChosen) {
-      ballQueue.cancel(id);
-      setEdit({ framing: 'focus' });
-      setZoomKey((k) => k + 1);
+  /**
+   * Original, Jogadores or Bola, on the player's tap only (spec 2026-11-11 decision 4). Jogadores or Original stop
+   * Seguir a Bola's analysis at once (what it found stays for later); Bola shows its first-use sheet first.
+   */
+  function pickFraming(framing: 'none' | 'focus' | 'ball') {
+    if (framing === edit.framing) return;
+    if (framing === 'ball') {
+      if (ballSport === undefined) return;
+      beforeBall.current = edit.framing === 'focus' ? 'focus' : 'none';
+      if (!repo.getPrefs().ballIntroSeen) return setBallIntro(true);
+      turnBallOn();
       return;
     }
-    if (!repo.getPrefs().ballIntroSeen) return setBallIntro(true);
-    turnBallOn();
+    if (ballChosen) ballQueue.cancel(id);
+    if (framing === 'focus') trackEvent('focus_mode_used');
+    setEdit({ framing, zoom: undefined });
+    setZoomKey((k) => k + 1);
   }
 
   function turnBallOn() {
@@ -596,11 +629,26 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     if (go) turnBallOn();
   }
 
-  /** ✕ on the chip: Seguir a Bola off, back to Modo Foco; the frames found so far stay for next time. */
+  /** ✕ on the chip: Seguir a Bola off, back to the framing before it; the frames found so far stay for next time. */
   function cancelBall() {
     ballQueue.cancel(id);
-    setEdit({ framing: 'focus' });
+    setEdit({ framing: beforeBall.current });
     setZoomKey((k) => k + 1);
+  }
+
+  /** The player says the recording's sport; Bola goes off when the new sport has no ball model. */
+  function chooseSport(sport: RecordingSportId) {
+    if (!session) return;
+    const before = session.ballSport;
+    const base = before ? { ...before } : { v: 1 as const, verdict: 'allow' as const };
+    delete base.inherited;
+    repo.setBallSport(session.id, { ...base, v: 1, sport });
+    if (ballChosen && !hasBallModel(sport)) {
+      ballQueue.cancel(id);
+      setEdit({ framing: 'none' });
+      setZoomKey((k) => k + 1);
+    }
+    setSportTick((k) => k + 1);
   }
 
   function enterEdit(tool?: ToolId) {
@@ -836,37 +884,38 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // A ready framing is read once the video's shape is known: until then it is still on its way, not impossible.
   else if (focusFile && !sizeKnown && edit.rotation === 0) focusUi = 'preparing';
   const tools = focusSupported ? EDIT_TOOLS : EDIT_TOOLS.filter((t) => t.id !== 'focus');
+  // Spec 2026-11-11 (P1): while Bola is still being tracked, Salvar and Enviar wait (with a note). Jogadores does not
+  // hold them: it is ready in seconds, and older clips have it on by default.
+  const tracking = ballChip !== undefined && ballChip.kind === 'working';
   let ballUi: BallUi = 'hidden';
-  if (ballAvailable()) {
+  if (ballAvailable() && ballSport !== undefined) {
     if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
-    else if (ballSport === undefined) {
-      // Test 51: no question unless this build cannot tell; another sport keeps Modo Foco ("EM BREVE")
-      const needs = sportNeedsCheck(session);
-      if (!needs && ballSportOf(session) === 'other') ballUi = 'soon';
-      else if (needs && session && (!session.ballSport || !session.ballSport.labels || sportChecking(session.id))) {
-        ballUi = 'checking';
-      }
-      else ballUi = 'ask';
-    }
     else ballUi = unsuitable !== undefined ? 'unsuitable' : 'off';
   }
+  // The percent only once frames are being analysed; waiting for the phone to cool down is said as such.
+  const ballCooling = ballUi === 'analysing' && ballProgress !== undefined && ballProgress.state === 'cooling';
+  const ballPercent =
+    ballUi === 'analysing' && ballProgress && ballProgress.state === 'running' && ballProgress.total > 0 && ballProgress.done > 0
+      ? ballEstimate(ballProgress, Date.now()).percent
+      : undefined;
   const ctx: ToolContext = {
     edit,
     plan,
     unlock: () => void (clip && unlockRecording(clip.sessionId, t)),
     setEdit,
     focus: focusUi,
-    toggleFocus,
     ball: ballUi,
-    toggleBall,
-    ballSport,
+    ballPercent,
+    ballCooling,
     ballReason: unsuitable,
-    chooseBallSport: (sport: BallSportId) => {
-      if (!session) return;
-      const before = session.ballSport;
-      repo.setBallSport(session.id, { ...(before || { v: 1, verdict: 'other' as const }), v: 1, sport });
-      setSportTick((k) => k + 1);
+    sport: recSport !== undefined ? recSport.sport : undefined,
+    sportHow: recSport !== undefined ? recSport.how : undefined,
+    pickFraming,
+    stopFraming: () => {
+      if (ballChosen) cancelBall();
+      else if (edit.framing === 'focus') pickFraming('none');
     },
+    chooseSport,
     resetZoom: () => {
       setEdit({ zoom: undefined });
       setZoomKey((k) => k + 1);
@@ -920,7 +969,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           <View pointerEvents="none" style={StyleSheet.absoluteFill}>
             <ShareOverlay frame={shown.frame} layout={shown.layout} scale={scale} watermark={options ? options.watermark : true} />
           </View>
-          {editing && ballChip ? (
+          {editing && ballChip && ballChip.kind === 'failed' ? (
             <BallChip state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} />
           ) : null}
           {!playing ? (
@@ -988,10 +1037,10 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           onSaveName={saveName}
           onBack={() => router.back()}
           onDelete={confirmDelete}
-          focusTag={ballChosen ? undefined : focusChip === 'on' ? 'on' : focusChip === 'preparing' ? 'preparing' : undefined}
+          focusTag={edit.framing !== 'focus' ? undefined : focusChip === 'on' ? (playersFound ? 'found' : 'on') : focusChip === 'preparing' ? 'preparing' : undefined}
           ballTag={ballChip ? <BallChip state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} /> : undefined}
           onFocusTag={() => enterEdit('focus')}
-          notice={busy || !notice ? undefined : t(notice)}
+          notice={tracking ? t('clip.trackingWaitNote') : busy || !notice ? undefined : t(notice)}
           position={siblings.length > 1 ? t('clip.ofTotal', { number, total: siblings.length }) : undefined}
           progress={
             <WatchProgress
@@ -1007,7 +1056,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           onEdit={() => enterEdit()}
           onSave={() => void save()}
           onShare={() => void share()}
-          actionsDisabled={busyActions}
+          actionsDisabled={busyActions || tracking}
           saving={job !== undefined && job.kind === 'save'}
           sharing={job !== undefined && job.kind === 'share'}
           fast={fast}

@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackIcon, DownloadIcon, EditIcon, ShareIcon, TrashIcon } from '../components/icons';
 import { MAX_CLIP_NAME } from '../data/schema';
+import { TickIcon } from '../components/sportIcons';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import { EDGE, IconButton, SCRIM } from './IconButton';
@@ -17,7 +18,8 @@ type Props = {
   onSaveName: () => void;
   onBack: () => void;
   onDelete: () => void;
-  focusTag: 'on' | 'preparing' | undefined;
+  /** Jogadores on the clip: on, being tracked, or just found (spec 2026-11-11, P1). */
+  focusTag: 'on' | 'preparing' | 'found' | undefined;
   onFocusTag: () => void;
   /** Seguir a Bola's chip, in the Modo Foco tag's place. */
   ballTag?: ReactNode;
@@ -89,10 +91,14 @@ export function ClipWatch(p: Props) {
             <Pressable accessibilityRole="button" accessibilityLabel={t('clip.focusMode')} onPress={p.onFocusTag} style={styles.tag}>
               {p.focusTag === 'preparing' ? (
                 <ActivityIndicator size="small" color={colors.accent} />
+              ) : p.focusTag === 'found' ? (
+                <TickIcon size={16} />
               ) : (
                 <View style={styles.dot} />
               )}
-              <Text style={styles.tagText}>{p.focusTag === 'preparing' ? t('clip.focusPreparingTag') : t('clip.focusMode')}</Text>
+              <Text style={[styles.tagText, p.focusTag === 'found' ? styles.foundText : null]}>
+                {p.focusTag === 'preparing' ? t('clip.focusPreparingTag') : p.focusTag === 'found' ? t('clip.focusFound') : t('clip.focusMode')}
+              </Text>
             </Pressable>
           </View>
         ) : null}
@@ -166,6 +172,7 @@ function Action({
 
 const styles = StyleSheet.create({
   ballRow: { height: 72 },
+  foundText: { color: colors.accent },
   root: { flex: 1, backgroundColor: colors.ground },
   top: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: 12 },
   topRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
