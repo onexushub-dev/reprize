@@ -35,12 +35,13 @@ test('the catalog has no key the watch does not use', () => {
   expect(Object.keys(catalog.strings).sort()).toEqual(usedKeys(view));
 });
 
-test('the clip count is a plural in both languages', () => {
+// Portuguese puts 0 in "one", so an explicit zero keeps "0 clipes" (Foundation uses zero for 0 in any language).
+test('the clip count is a plural in both languages, with 0 in the plural', () => {
   const loc: Record<string, Localization> = catalog.strings['%lld clips'].localizations;
   const forms = (l: Localization) =>
     'variations' in l ? Object.fromEntries(Object.entries(l.variations.plural).map(([k, v]) => [k, v.stringUnit.value])) : {};
-  expect(forms(loc.en)).toEqual({ one: '%lld clip', other: '%lld clips' });
-  expect(forms(loc['pt-BR'])).toEqual({ one: '%lld clipe', other: '%lld clipes' });
+  expect(forms(loc.en)).toEqual({ zero: '%lld clips', one: '%lld clip', other: '%lld clips' });
+  expect(forms(loc['pt-BR'])).toEqual({ zero: '%lld clipes', one: '%lld clipe', other: '%lld clipes' });
 });
 
 test('the Portuguese copy is what the watch said before', () => {
