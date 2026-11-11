@@ -1,7 +1,7 @@
 import type { AnalyzeBallOptions, BallAnalysis } from '../../../modules/replay-camera/src/ReplayCamera.types';
-import { readyBallFile } from '../../data/ballFile';
+import { BALL_RULES, readyBallFile } from '../../data/ballFile';
 import { createRepo, type KV } from '../../data/repo';
-import { ballEstimate, createBallQueue } from '../ballQueue';
+import { ballEstimate, createBallQueue, type BallQueueDeps } from '../ballQueue';
 
 function setup() {
   const map = new Map<string, string>();
@@ -11,7 +11,7 @@ function setup() {
   const runs: { opts: AnalyzeBallOptions; resolve: (a: BallAnalysis) => void; reject: (e: unknown) => void }[] = [];
   let clock = 0;
   const sport: { id: 'basquete' | 'beachTennis' | undefined } = { id: 'basquete' };
-  const deps = {
+  const deps: BallQueueDeps & { analyze: jest.Mock } = {
     analyze: jest.fn((o: AnalyzeBallOptions) => new Promise<BallAnalysis>((resolve, reject) => void runs.push({ opts: o, resolve, reject }))),
     cancel: jest.fn(),
     supported: () => true,
@@ -43,7 +43,14 @@ test('the switch asks for the current cut; the analysis gets the cut, the cache,
   const { repo, queue, runs, addClip } = setup();
   const clip = addClip('/c/1.mp4');
   queue.request(clip.id);
-  expect(repo.getClip(clip.id)!.ball).toEqual({ v: 1, status: 'pending', startMs: 50000, endMs: 60000, sport: 'basquete' });
+  expect(repo.getClip(clip.id)!.ball).toEqual({
+    v: 1,
+    status: 'pending',
+    startMs: 50000,
+    endMs: 60000,
+    sport: 'basquete',
+    rules: 'ball-t50',
+  });
   expect(runs[0].opts).toEqual({
     clipPath: '/c/1.mp4',
     startMs: 50000,
@@ -68,6 +75,7 @@ test('ready for that cut; asking again for the same cut does nothing', async () 
     startMs: 50000,
     endMs: 60000,
     sport: 'basquete',
+    rules: 'ball-t50',
     file: '/c/1.ball.json',
     share: 0.3,
   });
@@ -177,6 +185,7 @@ test('failed, and failed for heat, are kept for the chip; asking again retries',
     startMs: 50000,
     endMs: 60000,
     sport: 'basquete',
+    rules: 'ball-t50',
     hot: true,
   });
   queue.request(clip.id);
@@ -251,10 +260,100 @@ test('test 47a: not worth it on this video: kept as unsuitable with the reason, 
     startMs: 50000,
     endMs: 60000,
     sport: 'beachTennis',
+    rules: 'ball-bt-t49f',
     share: 0.6,
     reason: 'tooSmall',
   });
   expect(readyBallFile(repo.getClip(clip.id)!)).toBeUndefined();
+  queue.request(clip.id);
+  expect(runs).toHaveLength(1);
+});
+
+test('test 50: a result made with older rules (or none, before they were kept) is analysed again', async () => {
+  const { repo, queue, runs, addClip, done, flush } = setup();
+  const clip = addClip('/c/1.mp4');
+  repo.updateClip(clip.id, {
+    ball: { v: 1, status: 'ready', startMs: 50000, endMs: 60000, sport: 'basquete', file: '/c/1.ball.json', share: 0.8 },
+  });
+  queue.request(clip.id);
+  expect(runs).toHaveLength(1);
+  expect(repo.getClip(clip.id)!.ball).toMatchObject({ status: 'pending', rules: 'ball-t50' });
+  runs[0].resolve(done());
+  await flush();
+  expect(repo.getClip(clip.id)!.ball).toMatchObject({ status: 'ready', rules: 'ball-t50' });
+  // now current: not again
+  queue.request(clip.id);
+  expect(runs).toHaveLength(1);
+  // older rules of the same sport: again
+  repo.updateClip(clip.id, { ball: { ...repo.getClip(clip.id)!.ball!, rules: 'ball-t42' } });
+  queue.request(clip.id);
+  expect(runs).toHaveLength(2);
+});
+
+test('the rules here are the native ones (ReplayCore/BallSport.swift)', () => {
+  const fs = jest.requireActual('fs') as typeof import('fs');
+  const path = jest.requireActual('path') as typeof import('path');
+  const swift = fs.readFileSync(
+    path.join(__dirname, '../../../modules/replay-camera/ios/Core/Sources/ReplayCore/BallSport.swift'),
+    'utf8',
+  );
+  for (const [id, rules] of Object.entries(BALL_RULES)) {
+    expect(swift).toMatch(new RegExp(`id: "${id}", modelId: "[^"]+", rules: "${rules}"`));
+  }
+});
+
+test('test 50: a Modo Foco file without person boxes is made again first, then the ball is analysed', async () => {
+  const { repo, deps, queue, runs, addClip, done, flush } = setup();
+  let finishFocus: () => void = () => {};
+  const refreshFocus = jest.fn(() => new Promise<void>((r) => (finishFocus = r)));
+  deps.focusLacksPeople = () => true;
+  deps.refreshFocus = refreshFocus;
+  const clip = addClip('/c/1.mp4');
+  queue.request(clip.id);
+  expect(refreshFocus).toHaveBeenCalledTimes(1);
+  expect(runs).toHaveLength(0); // the ball waits for the people
+  finishFocus();
+  await flush();
+  expect(runs).toHaveLength(1);
+  runs[0].resolve(done());
+  await flush();
+  expect(repo.getClip(clip.id)!.ball).toMatchObject({ status: 'ready', rules: 'ball-t50' });
+});
+
+test('test 50: cancelled while the Modo Foco file is made again: the ball does not run', async () => {
+  const { deps, queue, runs, addClip, flush } = setup();
+  let finishFocus: () => void = () => {};
+  deps.focusLacksPeople = () => true;
+  deps.refreshFocus = () => new Promise<void>((r) => (finishFocus = r));
+  const clip = addClip('/c/1.mp4');
+  queue.request(clip.id);
+  queue.cancel(clip.id);
+  finishFocus();
+  await flush();
+  expect(runs).toHaveLength(0);
+  expect(queue.progress(clip.id)).toBeUndefined();
+});
+
+test('test 50: a result already made with today\'s rules but before the Modo Foco file had people is made again', async () => {
+  const { repo, deps, queue, runs, addClip, done, flush } = setup();
+  let people = false;
+  deps.focusLacksPeople = () => !people;
+  deps.refreshFocus = jest.fn(async () => {
+    people = true;
+  });
+  deps.note = jest.fn();
+  const clip = addClip('/c/1.mp4');
+  repo.updateClip(clip.id, {
+    ball: { v: 1, status: 'ready', startMs: 50000, endMs: 60000, sport: 'basquete', rules: 'ball-t50', file: '/c/1.ball.json' },
+  });
+  queue.request(clip.id);
+  expect(deps.refreshFocus).toHaveBeenCalledTimes(1);
+  expect(deps.note).toHaveBeenCalledTimes(1);
+  await flush();
+  expect(runs).toHaveLength(1);
+  runs[0].resolve(done());
+  await flush();
+  // the people are there now: not again
   queue.request(clip.id);
   expect(runs).toHaveLength(1);
 });

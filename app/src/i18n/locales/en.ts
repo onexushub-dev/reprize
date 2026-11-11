@@ -499,6 +499,7 @@ export const en = {
     focusBackNow: 'Turn it on to go back at once; the analysis stops.',
     ballTag: 'Follow the Ball · 9:16',
     ballWaiting: 'Follow the Ball · queued',
+    ballPreparing: 'Follow the Ball · preparing the video',
     ballAnalysing: 'Follow the Ball · analysing %{percent}% · ~%{seconds} s',
     ballCooling: 'Follow the Ball · cooling the phone down',
     ballFailed: 'Follow the Ball: the analysis failed. Tap to try again.',

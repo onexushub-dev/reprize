@@ -80,7 +80,7 @@ final class BallFramingTests: XCTestCase {
     struct Fixture: Decodable { let cases: [Case] }
     struct Case: Decodable {
       let clip: String; let detSize: [Double]; let videoSize: [Double]; let frames: [[[Double]]?]
-      let todayPortrait: [[Double]]; let todayNative: [[Double]]; let expect: Expect
+      let todayPortrait: [[Double]]; let todayNative: [[Double]]; let people: [[[Double]]]?; let expect: Expect
     }
     struct Expect: Decodable { let zoom: Double; let rects: [[Double]] }
     let url = try XCTUnwrap(Bundle.module.url(forResource: "ball-parity", withExtension: "json", subdirectory: "Fixtures"))
@@ -89,7 +89,7 @@ final class BallFramingTests: XCTestCase {
         f.map { $0.map { BallCandidate(cx: $0[0], cy: $0[1], width: $0[2], height: $0[3], score: $0[4]) } }
       }
       let r = BallFraming.compute(grid: grid, width: c.videoSize[0], height: c.videoSize[1], today: c.todayPortrait,
-                                  native: c.todayNative)
+                                  native: c.todayNative, people: c.people ?? [])
       XCTAssertEqual(r.zoom.zoom, c.expect.zoom, accuracy: 1e-9, c.clip)
       let worst = zip(r.rects, c.expect.rects).map { g, e in (0..<4).map { abs(g[$0] - e[$0]) }.max()! }.max() ?? 1
       XCTAssertLessThan(worst, 1e-5, c.clip)

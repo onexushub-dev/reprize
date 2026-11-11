@@ -1,6 +1,8 @@
+import { File } from 'expo-file-system';
 import { AppState } from 'react-native';
 
 import * as camera from '../../modules/replay-camera';
+import { focusPath } from '../data/focusFile';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBallQueue } from './ballQueue';
@@ -17,6 +19,28 @@ export const ballQueue = createBallQueue({
   repo,
   sportOf: (clip) => ballSportIdOf(repo.getSession(clip.sessionId)),
   now: () => Date.now(),
+  // Test 50: a Modo Foco file from before 2026-11-10 has no person boxes; made again (same range as the Modo Foco queue).
+  focusLacksPeople: (clip) => {
+    try {
+      const f = JSON.parse(new File(`file://${focusPath(clip.path)}`).textSync()) as Record<string, unknown>;
+      return f.v === 1 && f.people === undefined;
+    } catch {
+      return false; // no file (yet) or unreadable: the native side copes as before
+    }
+  },
+  refreshFocus: (clip) => {
+    const range = clip.bounds ? clip.bounds : { startMs: 0, endMs: clip.durationMs };
+    if (DIAGNOSTICS_ENABLED) diag('Seguir a Bola: Modo Foco refeito para ter as pessoas (arquivo antigo)');
+    return camera.analyzeFocus({
+      clipPath: clip.path,
+      startMs: range.startMs,
+      endMs: range.endMs,
+      outPath: focusPath(clip.path),
+    });
+  },
+  note: (e) => {
+    if (DIAGNOSTICS_ENABLED) diag(`Seguir a Bola: corte analisado de novo (regras ${e.from || 'antigas'} para ${e.to})`);
+  },
   // TEMP(diag-remote): the field test reads the analysis time on the Diagnóstico screen.
   measured: (clip, r) => {
     if (!DIAGNOSTICS_ENABLED) return;

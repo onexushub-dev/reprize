@@ -497,6 +497,7 @@ export const ptBR: Messages = {
     focusBackNow: 'Ligue para voltar na hora; a análise para.',
     ballTag: 'Seguir a Bola · 9:16',
     ballWaiting: 'Seguir a Bola · na fila',
+    ballPreparing: 'Seguir a Bola · preparando o vídeo',
     ballAnalysing: 'Seguir a Bola · analisando %{percent}% · ~%{seconds} s',
     ballCooling: 'Seguir a Bola · esfriando o celular',
     ballFailed: 'Seguir a Bola: não deu para analisar. Toque para tentar de novo.',

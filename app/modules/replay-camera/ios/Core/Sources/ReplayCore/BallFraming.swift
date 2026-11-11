@@ -83,13 +83,14 @@ public enum BallFraming {
   /// reads today's zoom from them). `width`, `height`: the upright video. `sport`: the profile (basketball as before);
   /// `screens`: video screens found in the clip (`BallScreen`, sports with `screens`); `players`: the players' median
   /// height from today's analysis, for the verdict; `people`: today's person boxes per row of the cut (sports with
-  /// `follow`: the court lock and the aim toward the hitter; none = the ball alone).
+  /// `follow`: the court lock and the aim toward the hitter; sports with the path's shirt rule, test 50; none = the
+  /// ball alone, no shirt rule).
   public static func compute(grid: [[BallCandidate]?], width W: Double, height H: Double, today: [[Double]],
                              native: [[Double]], sport: BallSport = .basketball, screens: [[Double]] = [],
                              players: Double? = nil, people: [[[Double]]] = []) -> Result {
     let n = grid.count
     let path = BallPath.track(frames: grid, width: W, height: H, step: step, params: sport.path,
-                              screens: sport.screens ? screens : [])
+                              screens: sport.screens ? screens : [], people: sport.path.personRatio > 0 ? people : [])
     let trusted = BallTrust.trusted(path, width: W, height: H)
     var followed = BallRuns.keep(trusted, minRun: sport.minRun, gap: sport.runGap)
     var main: [[[Double]]] = []
