@@ -6,7 +6,7 @@ import { focusPath } from '../data/focusFile';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBallQueue } from './ballQueue';
-import { ballSportIdOf, ballSportOf, labelSummary, sportVerdict } from './sportCheck';
+import { autoSport, ballSportIdOf, labelSummary, sportNeedsCheck, sportVerdict } from './sportCheck';
 
 /** Seguir a Bola's speed rule (spec 2026-11-09 §4.7, Victor: per typical cut): up to 400 ms per 19-region frame. */
 export const BALL_PROBE_MAX_MS = 400;
@@ -102,13 +102,18 @@ export function probeBallOnce(): void {
 
 const checking = new Set<string>();
 
+/** Test 51: whether this recording's sport is being worked out right now (the row says "Verificando…"). */
+export function sportChecking(sessionId: string): boolean {
+  return checking.has(sessionId);
+}
+
 /**
  * Test 43: once per recording, Apple's scene classifier on 3 frames of one of its clips decides whether Seguir a Bola
  * shows as "EM BREVE" (another sport for sure) or stays on offer. Recordings made in a sport mode need no look.
  */
 export function checkSportOnce(sessionId: string, clip: { path: string; trim: { startMs: number; endMs: number } }): void {
   const session = repo.getSession(sessionId);
-  if (!session || checking.has(sessionId) || ballSportOf(session) !== undefined) return;
+  if (!session || checking.has(sessionId) || !sportNeedsCheck(session)) return;
   checking.add(sessionId);
   camera
     .classifySport(clip.path, clip.trim.startMs, clip.trim.endMs)
@@ -119,10 +124,12 @@ export function checkSportOnce(sessionId: string, clip: { path: string; trim: { 
         return;
       }
       const verdict = sportVerdict(labels);
-      repo.setBallSport(sessionId, { v: 1, verdict, labels });
+      const auto = autoSport(labels);
+      repo.setBallSport(sessionId, { v: 1, verdict, labels, ...(auto !== undefined ? { auto } : {}) });
       // TEMP(diag-remote): the field test checks the verdict on the Diagnóstico screen.
       if (DIAGNOSTICS_ENABLED) {
-        diag(`Seguir a Bola: esporte ${verdict === 'other' ? 'OUTRO (EM BREVE)' : 'liberado'} — ${labelSummary(labels)}`);
+        const said = auto === undefined ? (verdict === 'other' ? 'OUTRO (EM BREVE)' : 'liberado') : auto === 'other' ? 'OUTRO (somente Modo Foco)' : auto;
+        diag(`Seguir a Bola: esporte ${said} — ${labelSummary(labels)}`);
       }
     })
     .catch((e: unknown) => console.warn('[Reprize] sport check failed', e))
