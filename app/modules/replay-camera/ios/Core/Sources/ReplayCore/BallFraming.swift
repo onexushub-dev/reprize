@@ -90,7 +90,8 @@ public enum BallFraming {
                              players: Double? = nil, people: [[[Double]]] = []) -> Result {
     let n = grid.count
     let path = BallPath.track(frames: grid, width: W, height: H, step: step, params: sport.path,
-                              screens: sport.screens ? screens : [], people: sport.path.personRatio > 0 ? people : [])
+                              screens: sport.screens ? screens : [],
+                              people: sport.path.personRatio > 0 || sport.path.headTop > 0 ? people : [])
     let trusted = BallTrust.trusted(path, width: W, height: H)
     var followed = BallRuns.keep(trusted, minRun: sport.minRun, gap: sport.runGap)
     var main: [[[Double]]] = []
@@ -116,7 +117,14 @@ public enum BallFraming {
         a = BallPlayers.keepPair(a, tr: followed, main: main, cropWidth: min(1.0, (9.0 / 16.0) * H / W) / zoom.zoom,
                                  pad: f.pairPad, nearOnly: f.pairNear, width: W, height: H)
       }
-      aim = BallPlayers.glide(a, tr: followed, main: main, frames: f.glide, margin: f.courtMargin)
+      a = BallPlayers.glide(a, tr: followed, main: main, frames: f.glide, margin: f.courtMargin)
+      if f.hitBox > 0 {
+        // test 52: the player about to hit kept whole
+        let boxes = BallPlayers.hitBoxes(followed, main: main, width: W, height: H, near: f.near, horizon: f.hitHorizon)
+        a = BallPlayers.keepBox(a, tr: followed, boxes: boxes, cropWidth: min(1.0, (9.0 / 16.0) * H / W) / zoom.zoom,
+                                pad: f.hitPad, ballFirst: f.hitBox < 2)
+      }
+      aim = a
     }
     let rects = n == 0 ? [] : BallCamera.rects(ball: followed, today: todayRows, width: W, height: H, zoom: zoom.zoom,
                                                params: sport.camera, aim: aim)
