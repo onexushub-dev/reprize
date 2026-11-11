@@ -9,8 +9,12 @@ import CoreML
 /// stop for heat continues from what was found. One analysis at a time; it is the user waiting, so `.userInitiated`.
 ///
 /// Heat (Victor, 2026-11-09, after the iPhone XR run): an analysis waits to start while the phone is `serious` or worse,
-/// always finishes once started, and stops at `critical` (keeping the detections).
+/// always finishes once started, and stops at `critical` (keeping the detections). Victor, 2026-11-11: a short cut (up
+/// to `shortCutMs`, about 4 s of work on a 16 Pro Max) starts even at `serious`; it waits only at `critical`.
 enum BallAnalyzer {
+  /// Cuts up to this long start while the phone is `serious` (only `critical` makes them wait).
+  static let shortCutMs = 15_000.0
+
   struct Outcome {
     let ready: Bool
     /// Analysed frames in the cut: found now, and taken from the cache.
@@ -103,7 +107,7 @@ enum BallAnalyzer {
     let reused = total - missing.count
 
     if !missing.isEmpty {
-      try waitUntilCool(clipPath: clipPath, done: reused, total: total)
+      try waitUntilCool(clipPath: clipPath, done: reused, total: total, short: endMs - startMs <= shortCutMs)
       if detector == nil || detector?.modelId != sport.modelId { detector = try Detector(modelId: sport.modelId) }
       guard let det = detector else { throw Failure.noModel }
       var found: [BallFraming.Detection] = []
@@ -206,10 +210,12 @@ enum BallAnalyzer {
     }
   }
 
-  /// Waits (cancellable) while the phone is `serious` or worse, with the chip showing "esfriando".
-  private static func waitUntilCool(clipPath: String, done: Int, total: Int) throws {
+  /// Waits (cancellable) while the phone is `serious` or worse (`critical` for a short cut), with the card showing
+  /// "Aguardando".
+  private static func waitUntilCool(clipPath: String, done: Int, total: Int, short: Bool) throws {
     var told = false
-    while ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue {
+    let limit = short ? ProcessInfo.ThermalState.critical : ProcessInfo.ThermalState.serious
+    while ProcessInfo.processInfo.thermalState.rawValue >= limit.rawValue {
       if isCancelled(clipPath) { throw Failure.cancelled }
       if !told { emit?(clipPath, done, total, "cooling"); told = true }
       Thread.sleep(forTimeInterval: 2)

@@ -46,23 +46,37 @@ export type StoredModeSettings = Partial<ModeSettings> & { lens?: 'ultraWide' | 
 export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean; /** Seguir a Bola: whether the recording looks like basketball (test 43). */ ballSport?: BallSport };
 
 /**
- * Whether a recording looks like basketball to Apple's scene classifier (test 43): `other` = another sport for sure, so
- * Seguir a Bola asks which sport it is; `allow` otherwise. `unlocked`: the player said it is basketball after all.
- * `sport`: the sport the player chose for Seguir a Bola (test 48), which picks the analysis' model. `labels`: what the
- * classifier saw (the field test reads them).
+ * The recording's sport (spec 2026-11-11 §5), stored under its historical name. `sport`: the sport the player chose
+ * (or, with `inherited`, the one taken from the previous recording); `auto`: the one worked out by itself with rule
+ * `rule` (2 = spec 2026-11-11: no proof, no sport; `unsure` = nothing marked). Before: `verdict` (test 43, Apple's
+ * scene classifier: `other` = another sport for sure), `unlocked` (the player said basketball), `auto` with test 51's
+ * rule (which ended in basketball by default: looked at again). `labels`: what the classifier saw, plus the floor
+ * (`_floorSand`, `_floorTex`); the field test reads them.
  */
 export type BallSport = {
   v: 1;
   verdict: 'other' | 'allow';
   labels?: Record<string, number>;
   unlocked?: boolean;
-  sport?: BallSportId;
-  /** Test 51: the sport worked out with no question (the floor and the classifier); `other` = Modo Foco only. */
-  auto?: BallSportId | 'other';
+  sport?: RecordingSportId;
+  inherited?: boolean;
+  auto?: RecordingSportId | 'other' | 'unsure';
+  rule?: 2;
 };
 
 /** The sports Seguir a Bola analyses, each with its own model and rules (the native `BallSport`). */
 export type BallSportId = 'basquete' | 'beachTennis';
+
+/** Every sport a recording can be (the sport sheet, spec 2026-11-11 §3); the first ones have a ball model. */
+export type RecordingSportId =
+  | BallSportId
+  | 'tenis'
+  | 'futevolei'
+  | 'futebol'
+  | 'volei'
+  | 'voleiPraia'
+  | 'handebol'
+  | 'outro';
 
 /** Test 47a: why Seguir a Bola is not applied to a cut (the native `BallVerdictReason`). */
 export type BallUnsuitable = 'tooFar' | 'rarelyFound' | 'tooSmall' | 'still';

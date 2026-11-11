@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CloseIcon } from '../components/icons';
+import { ProgressRing, TickIcon } from '../components/sportIcons';
 import { ballEstimate, type BallProgress } from '../focus/ballQueue';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
@@ -13,6 +14,8 @@ import { SCRIM } from './IconButton';
  */
 export type BallChipState =
   | { kind: 'ready'; sparse: boolean }
+  /** Just got ready while on screen: "✓ Bola encontrada" for a moment (spec 2026-11-11, P1). */
+  | { kind: 'found' }
   | { kind: 'working'; progress: BallProgress | undefined }
   | { kind: 'failed'; hot: boolean }
   | { kind: 'unsuitable' };
@@ -29,8 +32,9 @@ type Props = {
 const TICK_MS = 1000;
 
 /**
- * Seguir a Bola on the video (spec 2026-11-09 §4.1, layouts A2/A3): the progress only here, never in the panel — a chip
- * with the percentage and the time left, a thin bar and ✕; "Seguir a Bola · 9:16" once ready.
+ * Seguir a Bola on the clip screen (spec 2026-11-11, P1): while it works a pill "Rastreando a bola · 62%" with a ring and
+ * ✕ (in the editor the progress is on the Bola card instead); "✓ Bola encontrada" for a moment once ready, then
+ * "Seguir a Bola · 9:16".
  */
 export function BallChip({ state, onCancel, onRetry }: Props) {
   const { t } = useT();
@@ -50,6 +54,16 @@ export function BallChip({ state, onCancel, onRetry }: Props) {
           <Text style={styles.text}>{t('clip.ballTag')}</Text>
         </View>
         {state.sparse ? <Text style={styles.sparse}>{t('clip.ballSparse')}</Text> : null}
+      </View>
+    );
+  }
+  if (state.kind === 'found') {
+    return (
+      <View pointerEvents="none" style={styles.wrap}>
+        <View style={[styles.chip, styles.found]} accessibilityRole="text">
+          <TickIcon size={16} />
+          <Text style={[styles.text, styles.foundText]}>{t('clip.ballFound')}</Text>
+        </View>
       </View>
     );
   }
@@ -73,25 +87,20 @@ export function BallChip({ state, onCancel, onRetry }: Props) {
   }
   const p = state.progress;
   let label = t('clip.ballWaiting');
-  let fraction = 0;
+  let percent: number | undefined;
   if (p && p.state === 'cooling') label = t('clip.ballCooling');
-  // started, before the first frames are counted (an older clip's Modo Foco file made again first, test 50)
-  else if (p && p.state === 'running' && p.total === 0) label = t('clip.ballPreparing');
-  else if (p && p.state !== 'waiting' && p.total > 0) {
-    const e = ballEstimate(p, now);
-    label = t('clip.ballAnalysing', { percent: e.percent, seconds: e.secondsLeft });
-    fraction = e.percent / 100;
+  else if (p && p.state === 'running' && p.total > 0 && p.done > 0) {
+    percent = ballEstimate(p, now).percent;
+    label = t('clip.ballAnalysing', { percent });
   }
   return (
     <View pointerEvents="box-none" style={styles.wrap}>
       <View style={styles.chip} accessibilityRole="progressbar" accessibilityLabel={label}>
+        {percent !== undefined ? <ProgressRing progress={percent / 100} size={20} /> : <ActivityIndicator size="small" color={colors.accent} />}
         <Text style={styles.text}>{label}</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('clip.ballCancel')} hitSlop={10} onPress={onCancel}>
-          <CloseIcon size={14} />
+        <Pressable accessibilityRole="button" accessibilityLabel={t('clip.ballCancel')} hitSlop={10} onPress={onCancel} style={styles.stop}>
+          <CloseIcon size={12} />
         </Pressable>
-        <View style={styles.bar}>
-          <View style={[styles.fill, { width: `${Math.round(fraction * 100)}%` }]} />
-        </View>
       </View>
     </View>
   );
@@ -110,9 +119,10 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
-  text: { flexShrink: 1, fontFamily: fonts.bodySemi, fontSize: 12, color: colors.text },
-  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, backgroundColor: 'rgba(255,255,255,0.15)' },
-  fill: { height: 2, backgroundColor: colors.accent },
+  text: { flexShrink: 1, fontFamily: fonts.bodySemi, fontSize: 13, color: colors.text },
+  found: { borderWidth: 1, borderColor: colors.accent },
+  foundText: { color: colors.accent, fontFamily: fonts.bodyBold },
+  stop: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   sparse: {
     maxWidth: 300,
     textAlign: 'center',

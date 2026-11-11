@@ -6,17 +6,20 @@ import { EDIT_TOOLS, type ToolContext } from '../tools';
 
 function ctx(over: Partial<ToolContext> = {}): ToolContext {
   return {
-    edit: readEdit(undefined),
+    edit: { ...readEdit(undefined), framing: 'none', focus: false },
     plan: 'paid',
     unlock: jest.fn(),
     setEdit: jest.fn(),
-    focus: 'on',
-    toggleFocus: jest.fn(),
-    ball: 'hidden',
-    toggleBall: jest.fn(),
-    ballSport: 'basquete',
+    focus: 'off',
+    ball: 'off',
+    ballPercent: undefined,
+    ballCooling: false,
     ballReason: undefined,
-    chooseBallSport: jest.fn(),
+    sport: 'basquete',
+    sportHow: 'detected',
+    pickFraming: jest.fn(),
+    stopFraming: jest.fn(),
+    chooseSport: jest.fn(),
     resetZoom: jest.fn(),
     turn: jest.fn(),
     ...over,
@@ -83,102 +86,107 @@ test('Girar turns the video', async () => {
   expect(c.turn).toHaveBeenCalled();
 });
 
-test('Foco: a switch when ready, a wait while preparing, a message when it cannot frame', async () => {
+const card = (name: string) => screen.getByRole('radio', { name });
+
+test('Foco: Original, Jogadores and Bola, Original by default, nothing applied until a tap (spec 2026-11-11)', async () => {
+  const Panel = panel('focus');
+  const c = ctx();
+  await render(<Panel ctx={c} />);
+  expect(card('Original').props.accessibilityState).toMatchObject({ checked: true });
+  expect(card('Jogadores').props.accessibilityState).toMatchObject({ checked: false });
+  expect(card('Bola').props.accessibilityState).toMatchObject({ checked: false });
+  expect(screen.getByText('O clipe como foi gravado. Escolha um enquadramento.')).toBeTruthy();
+  expect(screen.getByText('Mantenha o dedo pressionado no vídeo para ver o clipe original')).toBeTruthy();
+  await fireEvent.press(card('Jogadores'));
+  expect(c.pickFraming).toHaveBeenCalledWith('focus');
+  await fireEvent.press(card('Bola'));
+  expect(c.pickFraming).toHaveBeenCalledWith('ball');
+});
+
+test('Jogadores: preparing on its card, then its hint; no card where it cannot frame', async () => {
+  const Panel = panel('focus');
+  const focusEdit = { ...readEdit(undefined), framing: 'focus' as const, focus: true };
+  const view = await render(<Panel ctx={ctx({ edit: focusEdit, focus: 'preparing' })} />);
+  expect(card('Jogadores, rastreando').props.accessibilityState).toMatchObject({ checked: true });
+  expect(screen.getByText('Rastreando os jogadores… você pode continuar editando.')).toBeTruthy();
+  await view.rerender(<Panel ctx={ctx({ edit: focusEdit, focus: 'on' })} />);
+  expect(screen.getByText('A câmera acompanha os jogadores, com zoom quando a jogada se concentra.')).toBeTruthy();
+  await view.rerender(<Panel ctx={ctx({ focus: 'unavailable' })} />);
+  expect(screen.queryByRole('radio', { name: 'Jogadores' })).toBeNull();
+});
+
+test('Bola: its percent on the card while it analyses, then its hint', async () => {
+  const Panel = panel('focus');
+  const ballEdit = { ...readEdit(undefined), framing: 'ball' as const, focus: false };
+  const c = ctx({ edit: ballEdit, ball: 'analysing', ballPercent: 62 });
+  const view = await render(<Panel ctx={c} />);
+  expect(card('Bola, rastreando 62%')).toBeTruthy();
+  expect(screen.getByText('62%')).toBeTruthy();
+  // ✕ on the card being tracked stops it
+  await fireEvent.press(screen.getByRole('button', { name: 'Parar o rastreamento' }));
+  expect(c.stopFraming).toHaveBeenCalled();
+  expect(screen.getByText('Rastreando a bola… você pode continuar editando.')).toBeTruthy();
+  await view.rerender(<Panel ctx={ctx({ edit: ballEdit, ball: 'on' })} />);
+  expect(screen.getByText('A câmera segue a bola, na vertical 9:16 para Stories, Reels e TikTok.')).toBeTruthy();
+});
+
+test('Bola waiting for the phone to cool down: "Aguardando", and why, instead of 0%', async () => {
+  const Panel = panel('focus');
+  const ballEdit = { ...readEdit(undefined), framing: 'ball' as const, focus: false };
+  await render(<Panel ctx={ctx({ edit: ballEdit, ball: 'analysing', ballCooling: true })} />);
+  expect(card('Bola, aguardando o celular esfriar')).toBeTruthy();
+  expect(screen.getByText('Aguardando')).toBeTruthy();
+  expect(screen.queryByText('0%')).toBeNull();
+  expect(screen.getByText(/O celular está quente/)).toBeTruthy();
+});
+
+test('a clip stored on Bola whose sport is not known shows as Original', async () => {
+  const Panel = panel('focus');
+  const ballEdit = { ...readEdit(undefined), framing: 'ball' as const, focus: false };
+  await render(<Panel ctx={ctx({ edit: ballEdit, ball: 'hidden', sport: undefined, sportHow: undefined })} />);
+  expect(card('Original').props.accessibilityState).toMatchObject({ checked: true });
+});
+
+test('Bola: no card for a sport without a ball model, nor when the sport is not known', async () => {
+  const Panel = panel('focus');
+  const view = await render(<Panel ctx={ctx({ ball: 'hidden', sport: 'tenis', sportHow: 'chosen' })} />);
+  expect(screen.queryByRole('radio', { name: 'Bola' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Esporte da gravação: Tênis. Trocar' })).toBeTruthy();
+  await view.rerender(<Panel ctx={ctx({ ball: 'hidden', sport: undefined, sportHow: undefined })} />);
+  expect(screen.queryByRole('radio', { name: 'Bola' })).toBeNull();
+  expect(screen.getByText('Escolher esporte')).toBeTruthy();
+  expect(screen.getByText('Não identificamos o esporte. Toque em Escolher esporte para ver todos os enquadramentos.')).toBeTruthy();
+});
+
+test('Bola found no ball in this cut: dimmed, the clip stays as it was (test 47a)', async () => {
+  const Panel = panel('focus');
+  await render(<Panel ctx={ctx({ ball: 'unsuitable', ballReason: 'rarelyFound' })} />);
+  expect(card('Bola').props.accessibilityState).toMatchObject({ disabled: true });
+  expect(screen.getByText('Não encontramos uma bola em jogo neste trecho. O clipe continua como estava.')).toBeTruthy();
+});
+
+test('the sport chip: "identificado" only when worked out; the sheet lists every sport', async () => {
   const Panel = panel('focus');
   const c = ctx();
   const view = await render(<Panel ctx={c} />);
-  expect(screen.getByText('A câmera acompanha o lance, com zoom quando a jogada se concentra.')).toBeTruthy();
-  expect(screen.getByText('Mantenha o dedo pressionado no vídeo para ver o clipe original')).toBeTruthy();
-  const sw = screen.getByRole('switch', { name: 'Modo Foco' });
-  expect(sw.props.accessibilityState).toMatchObject({ checked: true });
-  await fireEvent.press(sw);
-  expect(c.toggleFocus).toHaveBeenCalled();
-  await view.rerender(<Panel ctx={ctx({ focus: 'off' })} />);
-  expect(screen.getByRole('switch', { name: 'Modo Foco' }).props.accessibilityState).toMatchObject({ checked: false });
-  await view.rerender(<Panel ctx={ctx({ focus: 'preparing' })} />);
-  expect(screen.getByText('Preparando o enquadramento…')).toBeTruthy();
-  expect(screen.getByRole('switch', { name: 'Modo Foco' }).props.accessibilityState).toMatchObject({ disabled: true });
-  await view.rerender(<Panel ctx={ctx({ focus: 'unavailable' })} />);
-  expect(screen.getByText('Modo Foco indisponível para esse clipe.')).toBeTruthy();
-  expect(screen.queryByRole('switch', { name: 'Modo Foco' })).toBeNull();
+  expect(screen.getByText('· identificado')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Esporte da gravação: Basquete. Trocar' }));
+  expect(screen.getByText('IDENTIFICADO')).toBeTruthy();
+  expect(screen.getByRole('radio', { name: 'Basquete' }).props.accessibilityState).toMatchObject({ checked: true });
+  await fireEvent.press(screen.getByRole('radio', { name: 'Futevôlei' }));
+  expect(c.chooseSport).toHaveBeenCalledWith('futevolei');
+  await view.rerender(<Panel ctx={ctx({ sportHow: 'chosen' })} />);
+  expect(screen.queryByText('· identificado')).toBeNull();
 });
 
-test('Seguir a Bola: a second switch under Modo Foco, hidden on phones that cannot run it', async () => {
+test('not known: the sheet opens with nothing marked', async () => {
   const Panel = panel('focus');
-  const view = await render(<Panel ctx={ctx({ ball: 'hidden' })} />);
-  expect(screen.queryByRole('switch', { name: 'Seguir a Bola' })).toBeNull();
-  const c = ctx({ ball: 'off' });
-  await view.rerender(<Panel ctx={c} />);
-  expect(screen.getByText('A câmera segue a bola, na vertical 9:16 para Stories, Reels e TikTok.')).toBeTruthy();
-  expect(screen.getByText('NOVO')).toBeTruthy();
-  const sw = screen.getByRole('switch', { name: 'Seguir a Bola' });
-  expect(sw.props.accessibilityState).toMatchObject({ checked: false });
-  await fireEvent.press(sw);
-  expect(c.toggleBall).toHaveBeenCalledTimes(1);
-});
-
-test('Seguir a Bola on another sport (test 51): EM BREVE, Modo Foco only; the player may still pick one', async () => {
-  const Panel = panel('focus');
-  const c = ctx({ ball: 'soon', ballSport: undefined });
-  await render(<Panel ctx={c} />);
-  expect(screen.getByText('EM BREVE')).toBeTruthy();
-  expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
-  expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ disabled: true });
-  await fireEvent.press(screen.getByRole('button', { name: 'É basquete ou beach tennis? Escolher' }));
-  await fireEvent.press(screen.getByRole('button', { name: 'Basquete' }));
-  expect(c.chooseBallSport).toHaveBeenCalledWith('basquete');
-});
-
-test('Seguir a Bola while the sport is worked out (test 51): off, no question', async () => {
-  const Panel = panel('focus');
-  await render(<Panel ctx={ctx({ ball: 'checking', ballSport: undefined })} />);
-  expect(screen.getByText('Verificando o esporte do vídeo…')).toBeTruthy();
-  expect(screen.queryByText('Que esporte é esta gravação?')).toBeNull();
-});
-
-test('Seguir a Bola on a build that cannot tell the sport: the panel asks (test 48)', async () => {
-  const Panel = panel('focus');
-  const c = ctx({ ball: 'ask', ballSport: undefined });
-  await render(<Panel ctx={c} />);
-  expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
-  expect(screen.getByText('Outros esportes: em breve.')).toBeTruthy();
-  expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ disabled: true });
-  await fireEvent.press(screen.getByRole('button', { name: 'Beach tennis' }));
-  expect(c.chooseBallSport).toHaveBeenCalledWith('beachTennis');
-});
-
-test('Seguir a Bola shows the sport it uses, and "Trocar" asks again', async () => {
-  const Panel = panel('focus');
-  const c = ctx({ ball: 'off', ballSport: 'beachTennis' });
-  await render(<Panel ctx={c} />);
-  await fireEvent.press(screen.getByRole('button', { name: 'Esporte: Beach tennis · Trocar' }));
-  expect(screen.getByText('Que esporte é esta gravação?')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: 'Basquete' }));
-  expect(c.chooseBallSport).toHaveBeenCalledWith('basquete');
-});
-
-test('Seguir a Bola not worth it on this video: off, with the reason (test 47a)', async () => {
-  const Panel = panel('focus');
-  await render(<Panel ctx={ctx({ ball: 'unsuitable', ballSport: 'beachTennis', ballReason: 'tooFar' })} />);
-  expect(
-    screen.getByText(
-      'Seguir a Bola não disponível neste vídeo. Gravado de muito longe: os jogadores e a bola ficam pequenos demais.',
-    ),
-  ).toBeTruthy();
-  expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ disabled: true });
-});
-
-test('Seguir a Bola on: Modo Foco says why it is off, and how to go back while it analyses', async () => {
-  const Panel = panel('focus');
-  const view = await render(<Panel ctx={ctx({ focus: 'off', ball: 'analysing' })} />);
-  expect(screen.getByRole('switch', { name: 'Seguir a Bola' }).props.accessibilityState).toMatchObject({ checked: true });
-  expect(screen.getByText('Ligue para voltar na hora; a análise para.')).toBeTruthy();
-  // the progress is on the video, never in the panel
-  expect(screen.queryByText(/analisando/)).toBeNull();
-  await view.rerender(<Panel ctx={ctx({ focus: 'off', ball: 'on' })} />);
-  expect(screen.getByText('Desligado enquanto Seguir a Bola estiver ligado.')).toBeTruthy();
-  expect(screen.getByText('Pronto. Trocar de modo agora é instantâneo.')).toBeTruthy();
-  expect(screen.getByRole('switch', { name: 'Modo Foco' }).props.accessibilityState).toMatchObject({ checked: false });
+  await render(<Panel ctx={ctx({ ball: 'hidden', sport: undefined, sportHow: undefined })} />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Esporte da gravação: Escolher esporte. Trocar' }));
+  expect(screen.queryByText('IDENTIFICADO')).toBeNull();
+  for (const name of ['Basquete', 'Beach tennis', 'Tênis', 'Futevôlei', 'Futebol', 'Vôlei', 'Vôlei de praia', 'Handebol', 'Outro']) {
+    expect(screen.getByRole('radio', { name }).props.accessibilityState).toMatchObject({ checked: false });
+  }
 });
 
 test('on a free recording the sound works, and the hint says it does not leave the app', async () => {
@@ -192,14 +200,14 @@ test('on a free recording the sound works, and the hint says it does not leave t
   expect(c.unlock).not.toHaveBeenCalled();
 });
 
-test('on a free recording Modo Foco works, and the hint says it does not leave the app', async () => {
-  const c = ctx({ focus: 'on', plan: 'free' });
+test('on a free recording Jogadores works, and the note says it does not leave the app', async () => {
+  const c = ctx({ focus: 'on', plan: 'free', edit: { ...readEdit(undefined), framing: 'focus', focus: true } });
   const Panel = panel('focus');
   await render(<Panel ctx={c} />);
   expect(screen.getByText('O Modo Foco funciona aqui no app, mas só vai no clipe salvo ou enviado com o PRO.')).toBeTruthy();
   expect(screen.getByLabelText('PRO')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('switch', { name: 'Modo Foco' }));
-  expect(c.toggleFocus).toHaveBeenCalledTimes(1);
+  await fireEvent.press(card('Original'));
+  expect(c.pickFraming).toHaveBeenCalledWith('none');
   expect(c.unlock).not.toHaveBeenCalled();
 });
 

@@ -300,7 +300,9 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
         .map((id) => read<Clip>(key.clip(id)))
         .filter((c): c is Clip => c !== undefined);
       const number = stored.reduce((top, c, i) => Math.max(top, c.number !== undefined ? c.number : i + 1), 0) + 1;
-      const clip: Clip = { ...input, id: newId(), trim: cut, bounds: cut, number };
+      // Spec 2026-11-11 decision 4: a new clip opens as Original (no framing); clips saved before keep Modo Foco on.
+      const edit = input.edit !== undefined ? input.edit : { speed: 1 as const, muted: false, framing: 'none' as const };
+      const clip: Clip = { ...input, edit, id: newId(), trim: cut, bounds: cut, number };
       write(key.clip(clip.id), clip);
       write(key.clipsOf(clip.sessionId), [...clipIds(clip.sessionId), clip.id]);
       changed();

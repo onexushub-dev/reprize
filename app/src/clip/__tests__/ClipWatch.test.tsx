@@ -52,7 +52,9 @@ test('the Modo Foco tag says on or preparing, and opens it', async () => {
   await fireEvent.press(screen.getByRole('button', { name: 'Modo Foco' }));
   expect(p.onFocusTag).toHaveBeenCalled();
   await view.rerender(<ClipWatch {...props({ focusTag: 'preparing' })} />);
-  expect(screen.getByText('Modo Foco · preparando')).toBeTruthy();
+  expect(screen.getByText('Rastreando os jogadores…')).toBeTruthy();
+  await view.rerender(<ClipWatch {...props({ focusTag: 'found' })} />);
+  expect(screen.getByText('Jogadores encontrados')).toBeTruthy();
   await view.rerender(<ClipWatch {...props()} />);
   expect(screen.queryByText(/Modo Foco/)).toBeNull();
 });

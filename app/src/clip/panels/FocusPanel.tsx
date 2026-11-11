@@ -1,202 +1,238 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { BallSportId, BallUnsuitable } from '../../data/schema';
+import { CloseIcon, LockIcon } from '../../components/icons';
+import { BallIcon, ChevronDownIcon, NoneIcon, PlayersIcon, ProgressRing, SportIcon } from '../../components/sportIcons';
+import type { RecordingSportId } from '../../data/schema';
 import type { MessageKey } from '../../i18n';
 import { useT } from '../../i18n/useT';
+import type { Framing } from '../../share/editing';
 import { colors, fonts } from '../../theme/tokens';
 import type { ToolContext } from '../tools';
-import { PanelHead } from './PanelParts';
+import { SPORT_LABEL, SportSheet } from './SportSheet';
 
-/** The panel's on/off switch (amber when on). */
-function Toggle({ label, on, disabled, onPress }: { label: string; on: boolean; disabled?: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="switch"
-      accessibilityLabel={label}
-      accessibilityState={{ checked: on, disabled: !!disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      hitSlop={8}
-      style={[styles.track, on ? styles.trackOn : null, disabled ? styles.off : null]}>
-      <View style={[styles.knob, on ? styles.knobOn : null]} />
-    </Pressable>
-  );
-}
-
-/** The sports Seguir a Bola analyses, as the panel offers them (test 48). */
-const BALL_SPORTS: { id: BallSportId; label: MessageKey }[] = [
-  { id: 'basquete', label: 'clip.sportBasquete' },
-  { id: 'beachTennis', label: 'clip.sportBeachTennis' },
-];
-
-/** Test 47a: why Seguir a Bola is not applied, in a sentence. */
-const WHY: Record<BallUnsuitable, MessageKey> = {
-  tooFar: 'clip.ballWhyTooFar',
-  rarelyFound: 'clip.ballWhyRarelyFound',
-  tooSmall: 'clip.ballWhyTooSmall',
-  still: 'clip.ballWhyStill',
+type Card = {
+  framing: Framing;
+  label: MessageKey;
+  icon: (color: string) => ReactNode;
+  /** Working: the card shows a ring (with the percent when known) instead of its icon. */
+  busy: boolean;
+  percent?: number;
+  /** Waiting for the phone to cool down: "Aguardando" instead of a percent. */
+  waiting?: boolean;
+  dimmed: boolean;
 };
 
-/** "Que esporte é esta gravação?" with one button per sport Seguir a Bola knows; the others are coming. */
-function SportChoice({ onChoose }: { onChoose: (sport: BallSportId) => void }) {
-  const { t } = useT();
-  return (
-    <View style={{ gap: 8 }}>
-      <Text style={styles.question}>{t('clip.ballSportQuestion')}</Text>
-      <View style={styles.choices}>
-        {BALL_SPORTS.map((s) => (
-          <Pressable key={s.id} accessibilityRole="button" onPress={() => onChoose(s.id)} style={styles.choice}>
-            <Text style={styles.choiceText}>{t(s.label)}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Text style={styles.noteText}>{t('clip.ballSportOthers')}</Text>
-    </View>
-  );
-}
-
 /**
- * The Foco panel: Modo Foco and, below it, Seguir a Bola (spec 2026-11-09 §4.1, layouts A1–A3). The two exclude each
- * other; the analysis' progress is shown on the video, never here.
+ * The Foco panel (spec 2026-11-11 §3): the recording's sport on the right of the title, and one row of cards —
+ * Original, Jogadores, Bola (only for a sport with a ball model). Nothing is applied by itself: a card is applied when
+ * tapped, shows its progress while it works, and stays ready afterwards (switching back is instant).
  */
 export function FocusPanel({ ctx }: { ctx: ToolContext }) {
   const { t } = useT();
-  // "Trocar": the player wants to say another sport than the one Seguir a Bola uses now
-  const [changing, setChanging] = useState(false);
-  // On a free recording the framing works here, but it does not leave the app: the hints say so.
+  const [sheet, setSheet] = useState(false);
+  // A clip saved before (Modo Foco on by default) where Jogadores cannot frame shows as the Original it is.
+  // Likewise a clip stored on Bola where Bola is not offered (its sport not known, or without a ball model).
+  let framing: Framing = ctx.edit.framing;
+  if ((framing === 'focus' && ctx.focus === 'unavailable') || (framing === 'ball' && ctx.ball === 'hidden')) framing = 'none';
   const free = ctx.plan === 'free';
-  const ballShown = ctx.ball !== 'hidden' && ctx.ball !== 'soon' && ctx.ball !== 'checking' && ctx.ball !== 'ask';
-  const choose = (sport: BallSportId) => {
-    setChanging(false);
-    ctx.chooseBallSport(sport);
-  };
-  const sportName = ctx.ballSport ? t(BALL_SPORTS.filter((s) => s.id === ctx.ballSport)[0].label) : undefined;
-  const ballOn = ctx.ball === 'on' || ctx.ball === 'analysing';
-  const focusOn = ctx.focus === 'on';
-  const preparing = ctx.focus === 'preparing';
+  const playersWorking = framing === 'focus' && ctx.focus === 'preparing';
+  const ballWorking = framing === 'ball' && ctx.ball === 'analysing';
 
-  let focusHint = free ? t('clip.focusPro') : t('clip.focusHint');
-  if (ctx.focus === 'unavailable') focusHint = t('clip.focusUnavailable');
-  else if (ctx.ball === 'analysing') focusHint = t('clip.focusBackNow');
-  else if (ctx.ball === 'on') focusHint = t('clip.focusOffForBall');
-
-  let note = <Text style={styles.noteText}>{t('clip.focusHold')}</Text>;
-  if (ctx.ball === 'on') note = <Text style={styles.noteText}>{t('clip.ballReadyNote')}</Text>;
-  else if (preparing && !ballOn) {
-    note = (
-      <>
-        <ActivityIndicator size="small" color={colors.soft} />
-        <Text style={styles.noteText}>{t('clip.focusPreparingNote')}</Text>
-      </>
-    );
+  const cards: Card[] = [
+    { framing: 'none', label: 'clip.framingOriginal', icon: (c) => <NoneIcon color={c} />, busy: false, dimmed: false },
+  ];
+  if (ctx.focus !== 'unavailable') {
+    cards.push({
+      framing: 'focus',
+      label: 'clip.framingPlayers',
+      icon: (c) => <PlayersIcon color={c} />,
+      busy: playersWorking,
+      dimmed: false,
+    });
   }
+  if (ctx.ball !== 'hidden') {
+    cards.push({
+      framing: 'ball',
+      label: 'clip.framingBall',
+      icon: (c) => <BallIcon color={c} />,
+      busy: ballWorking,
+      percent: ballWorking && !ctx.ballCooling ? ctx.ballPercent : undefined,
+      waiting: ballWorking && ctx.ballCooling,
+      dimmed: ctx.ball === 'unsuitable',
+    });
+  }
+
+  let hint: string;
+  let warn = false;
+  if (playersWorking) hint = t('clip.framingHintPlayersWorking');
+  else if (ballWorking && ctx.ballCooling) hint = t('clip.framingHintBallCooling');
+  else if (ballWorking) hint = t('clip.framingHintBallWorking');
+  else if (framing === 'focus') hint = t('clip.framingHintPlayers');
+  else if (framing === 'ball') hint = t('clip.framingHintBall');
+  else if (ctx.ball === 'unsuitable') {
+    hint = t('clip.framingHintBallNotFound');
+    warn = true;
+  } else if (ctx.sport === undefined) hint = t('clip.framingHintUnsure');
+  else hint = t('clip.framingHintNone');
+  if (ctx.focus === 'unavailable' && framing === 'none' && ctx.ball !== 'unsuitable') {
+    hint = t('clip.framingPlayersUnavailable');
+  }
+
+  const sportName = ctx.sport !== undefined ? t(SPORT_LABEL[ctx.sport]) : t('clip.sportChoose');
+  const choose = (sport: RecordingSportId) => {
+    setSheet(false);
+    ctx.chooseSport(sport);
+  };
 
   return (
     <View style={{ gap: 10 }}>
-      <PanelHead
-        title={t('clip.focusMode')}
-        hint={focusHint}
-        pro={free && ctx.focus !== 'unavailable' ? t('setup.proBadge') : undefined}
-        right={
-          ctx.focus === 'unavailable' ? undefined : (
-            <Toggle label={t('clip.focusMode')} on={focusOn} disabled={preparing && !ballOn} onPress={ctx.toggleFocus} />
-          )
-        }
-      />
-      {ctx.ball === 'checking' ? (
-        <PanelHead
-          title={t('clip.ballMode')}
-          hint={t('clip.ballChecking')}
-          right={<Toggle label={t('clip.ballMode')} on={false} disabled onPress={ctx.toggleBall} />}
-        />
-      ) : ctx.ball === 'soon' && !changing ? (
-        <View style={{ gap: 6 }}>
-          <PanelHead
-            title={t('clip.ballMode')}
-            hint={t('clip.ballOtherSport')}
-            badge={t('clip.ballSoon')}
-            right={<Toggle label={t('clip.ballMode')} on={false} disabled onPress={ctx.toggleBall} />}
-          />
-          <Pressable accessibilityRole="button" onPress={() => setChanging(true)} hitSlop={8}>
-            <Text style={styles.link}>{t('clip.ballOtherSportPick')}</Text>
-          </Pressable>
-        </View>
-      ) : ctx.ball === 'ask' || ctx.ball === 'soon' || (ballShown && changing) ? (
-        <View style={{ gap: 6 }}>
-          <PanelHead
-            title={t('clip.ballMode')}
-            hint={free ? t('clip.ballPro') : t('clip.ballHint')}
-            pro={free ? t('setup.proBadge') : undefined}
-            right={<Toggle label={t('clip.ballMode')} on={false} disabled onPress={ctx.toggleBall} />}
-          />
-          <SportChoice onChoose={choose} />
-        </View>
-      ) : ctx.ball === 'unsuitable' ? (
-        <View style={{ gap: 6 }}>
-          <PanelHead
-            title={t('clip.ballMode')}
-            hint={`${t('clip.ballUnsuitable')}. ${ctx.ballReason ? t(WHY[ctx.ballReason]) : ''}`}
-            right={<Toggle label={t('clip.ballMode')} on={false} disabled onPress={ctx.toggleBall} />}
-          />
-          {sportName ? (
-            <Pressable accessibilityRole="button" onPress={() => setChanging(true)} hitSlop={8}>
-              <Text style={styles.link}>
-                {t('clip.ballSportLine', { sport: sportName })} · {t('clip.ballSportChange')}
-              </Text>
-            </Pressable>
+      <View style={styles.head}>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>{t('clip.focusMode')}</Text>
+          {free ? (
+            <View style={styles.pro} accessibilityLabel={t('setup.proBadge')}>
+              <LockIcon color={colors.onAccent} size={9} />
+              <Text style={styles.proText}>{t('setup.proBadge')}</Text>
+            </View>
           ) : null}
         </View>
-      ) : ballShown ? (
-        <View style={{ gap: 6 }}>
-          <PanelHead
-            title={t('clip.ballMode')}
-            hint={free ? t('clip.ballPro') : t('clip.ballHint')}
-            pro={free ? t('setup.proBadge') : undefined}
-            badge={free ? undefined : t('clip.ballNew')}
-            right={<Toggle label={t('clip.ballMode')} on={ballOn} onPress={ctx.toggleBall} />}
-          />
-          {sportName ? (
-            <Pressable accessibilityRole="button" onPress={() => setChanging(true)} hitSlop={8}>
-              <Text style={styles.link}>
-                {t('clip.ballSportLine', { sport: sportName })} · {t('clip.ballSportChange')}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={t('clip.sportChipA11y', { sport: sportName })}
+          onPress={() => setSheet(true)}
+          hitSlop={6}
+          style={styles.chip}>
+          <SportIcon sport={ctx.sport} size={18} color={colors.accent} />
+          <Text style={styles.chipText}>{sportName}</Text>
+          {ctx.sportHow === 'detected' ? <Text style={styles.chipNote}>{t('clip.sportDetected')}</Text> : null}
+          <ChevronDownIcon />
+        </Pressable>
+      </View>
+      <View accessibilityRole="radiogroup" style={styles.row}>
+        {cards.map((c) => {
+          const on = framing === c.framing;
+          const color = c.dimmed ? '#5A5A5A' : on ? colors.accent : colors.soft;
+          const name = t(c.label);
+          const a11y = c.waiting
+            ? t('clip.framingWaitingA11y', { name })
+            : c.busy
+            ? c.percent !== undefined
+              ? t('clip.framingWorking', { name, percent: c.percent })
+              : t('clip.framingWorkingNoPercent', { name })
+            : name;
+          return (
+            <View key={c.framing} style={styles.cardWrap}>
+              <Pressable
+                accessibilityRole="radio"
+                accessibilityLabel={a11y}
+                accessibilityState={{ checked: on, disabled: c.dimmed }}
+                disabled={c.dimmed}
+                onPress={() => ctx.pickFraming(c.framing)}
+                style={[styles.card, on ? styles.cardOn : null, c.dimmed ? styles.cardDimmed : null]}>
+                {c.busy ? (
+                  c.percent !== undefined ? (
+                    <ProgressRing progress={c.percent / 100} />
+                  ) : (
+                    <ActivityIndicator size="small" color={colors.accent} />
+                  )
+                ) : (
+                  c.icon(color)
+                )}
+                <Text style={[styles.cardText, { color }]}>
+                  {c.waiting ? t('clip.framingWaiting') : c.busy && c.percent !== undefined ? `${c.percent}%` : name}
+                </Text>
+              </Pressable>
+              {c.busy || c.waiting ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('clip.framingStop')}
+                  hitSlop={8}
+                  onPress={ctx.stopFraming}
+                  style={styles.stop}>
+                  <CloseIcon size={10} color={colors.onAccent} />
+                </Pressable>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+      <Text style={[styles.hint, warn ? styles.hintWarn : null]}>{hint}</Text>
+      {free && framing !== 'none' ? (
+        <Text style={styles.note}>{framing === 'ball' ? t('clip.ballPro') : t('clip.focusPro')}</Text>
       ) : null}
-      <View style={styles.note}>{note}</View>
+      <Text style={styles.note}>{t('clip.focusHold')}</Text>
+      <SportSheet
+        visible={sheet}
+        sport={ctx.sport}
+        how={ctx.sportHow}
+        onChoose={choose}
+        onClose={() => setSheet(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  track: { width: 52, height: 32, borderRadius: 16, backgroundColor: colors.border, justifyContent: 'center', padding: 3 },
-  trackOn: { backgroundColor: colors.accent },
-  off: { opacity: 0.45 },
-  knob: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.text },
-  knobOn: { alignSelf: 'flex-end', backgroundColor: colors.onAccent },
-  note: {
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pro: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    minHeight: 40,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
+    gap: 2,
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
   },
-  link: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.accent },
-  question: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.text },
-  choices: { flexDirection: 'row', gap: 8 },
-  choice: {
-    flex: 1,
+  proText: { fontFamily: fonts.bodyBold, fontSize: 9, color: colors.onAccent },
+  title: { fontFamily: fonts.displayBold, fontSize: 18, letterSpacing: 0.7, textTransform: 'uppercase', color: colors.text },
+  chip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    borderRadius: 12,
+    gap: 6,
+    minHeight: 36,
+    paddingLeft: 8,
+    paddingRight: 10,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    flexShrink: 1,
   },
-  choiceText: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.text },
-  noteText: { flexShrink: 1, fontFamily: fonts.body, fontSize: 12, color: colors.soft },
+  chipText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
+  chipNote: { fontFamily: fonts.body, fontSize: 11, color: colors.muted },
+  row: { flexDirection: 'row', gap: 8 },
+  cardWrap: { flex: 1 },
+  stop: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.ground,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 6,
+  },
+  cardOn: { borderWidth: 2, borderColor: colors.accent },
+  cardDimmed: { borderStyle: 'dashed' },
+  cardText: { fontFamily: fonts.bodyBold, fontSize: 14 },
+  hint: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.muted, minHeight: 36 },
+  hintWarn: { color: colors.warning },
+  note: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
 });
