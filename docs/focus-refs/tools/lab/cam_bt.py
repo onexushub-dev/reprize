@@ -41,9 +41,15 @@ MAIN_SHARE = 0.6
 # target going on the ball's way where it is lost, the pair kept only near it (49f; 1x, Victor)
 T49 = dict(blend=0.4, a=1.0, b=100.0, courtp=0.2, court=0.25, pair=1.0, pairpad=0.0,
            exit=0.05, own=1.0, smin=0.5, step=0.08, pairnear=0.25, glide=6.0)
+# Test 52 as shipped (Victor, 2026-11-11): T49f + a faster camera and the player about to hit kept whole (the path's
+# head rule is ball_track.SPORT_P["beachTennis"]).
+T52 = dict(T49, a=0.3, b=30.0, hitbox=2.0, horizon=10.0, hitpad=0.02)
 BASE = dict(dz=0.10, a=3.0, b=300.0, lead=0, blend=0.0, near=0.25, court=0.0, courtp=0.0, pair=0.0, pairpad=0.03, exit=0.0,
             back=0.2, dx=0.25, own=0.0, smin=0.5, step=0.08, hitall=0.0,
-            pairnear=0.0, glide=0.0)
+            pairnear=0.0, glide=0.0,
+            # test 52: hitbox 1 = keep the next hitter whole where the ball allows, 2 = even if the ball leaves; horizon
+            # frames ahead; hitpad crop widths around the player
+            hitbox=0.0, horizon=10.0, hitpad=0.02)
 
 
 def runs_of(tr, gap=4):
@@ -257,6 +263,58 @@ def glide(xs, tr, people, frames, margin):
     return out
 
 
+def turns_of(tr, min_dv=0.004):
+    """Frames where the ball's x direction turns (a hit or a bounce), as `scores` counts them."""
+    n = len(tr)
+    vx = [None] * n
+    for k in range(1, n):
+        if tr[k] is not None and tr[k - 1] is not None:
+            vx[k] = tr[k][0] - tr[k - 1][0]
+    return [k for k in range(2, n) if vx[k] is not None and vx[k - 1] is not None and vx[k] * vx[k - 1] < 0
+            and abs(vx[k] - vx[k - 1]) > min_dv]
+
+
+def hit_boxes(tr, people, W, H, near, horizon, back=2):
+    """Test 52: per frame, the box of the main player who plays the ball next: at the next turn of the ball within
+    `horizon` frames (the analysis is offline), the main player nearest to the ball there (within `near` long
+    sides); the turn just past (`back` frames) still counts. None where no such hit is close."""
+    n = len(tr)
+    hits = []
+    for t in turns_of(tr):
+        hb = hitter(tr[t], people[t], W, H, near)
+        if hb is not None:
+            hits.append((t, hb))
+    out = [None] * n
+    j = 0
+    for k in range(n):
+        while j < len(hits) and hits[j][0] < k - back:
+            j += 1
+        if j < len(hits) and hits[j][0] - k <= horizon:
+            out[k] = hits[j][1]
+    return out
+
+
+def keep_box(xs, tr, boxes, w, pad, ball_first=True):
+    """Test 52: move the target so the given box (the player about to hit) stays whole (+ `pad` crop widths) with the
+    ball inside the crop too; where both cannot fit, the ball wins (`ball_first`) or the player does."""
+    out = list(xs)
+    for k, x in enumerate(xs):
+        b = boxes[k]
+        if x is None or b is None:
+            continue
+        left, right = b[0] - pad * w, b[0] + b[2] + pad * w
+        lo, hi = right - w / 2, left + w / 2
+        if tr[k] is not None:
+            blo, bhi = tr[k][0] - w / 2, tr[k][0] + w / 2
+            if max(lo, blo) <= min(hi, bhi):
+                lo, hi = max(lo, blo), min(hi, bhi)
+            elif ball_first:
+                continue
+        if lo <= hi:
+            out[k] = min(max(x, lo), hi)
+    return out
+
+
 def keep_pair(xs, tr, people, w, pad, mode=1, near_only=None):
     """Test 49c: move the target, when it can be done without losing the ball, so both near players stay whole.
 
@@ -322,6 +380,10 @@ def camera(name, track, zoom, v):
         xs = keep_pair(xs, tr, people, w, v["pairpad"], v["pair"], near_only)
     if v["glide"] > 0:
         xs = glide(xs, tr, people, v["glide"], v["courtp"])
+    if v["hitbox"] > 0:
+        # test 52: the player about to hit kept whole (the ball inside too where both fit)
+        boxes = hit_boxes(tr, people, W, H, v["near"], int(v["horizon"]))
+        xs = keep_box(xs, tr, boxes, w, v["hitpad"], ball_first=v["hitbox"] < 2)
     isball = np.array([p is not None for p in tr])
     cx0 = today[:, 0] + today[:, 2] / 2
     cy0 = today[:, 1] + today[:, 3] / 2
@@ -369,9 +431,39 @@ def scores(name, track, zoom, v):
         hit_all.append(whole(k, hb))
         if any(abs(k - t) <= 2 for t in turns):
             hit_turn.append(whole(k, hb))
+    # test 52: the near players only (the two tallest main boxes) when one of them is the hitter at a hit
+    near_turn = []
+    for k, p in pts:
+        if not any(abs(k - t) <= 2 for t in turns):
+            continue
+        pair = sorted(people[k], key=lambda b: -b[3])[:2]
+        hb = hitter(p, pair, W, H, BASE["near"])
+        if hb is not None:
+            near_turn.append(whole(k, hb))
+    # test 52: the same from the LABELLED ball (not the track the camera follows): at the labelled hits (the labelled
+    # ball's x direction turns), the main player nearest to it whole in the crop; and the near pair's one
+    lab = sorted((t, v) for t, v in truth["samples"].items() if isinstance(v, tuple))
+    lhit, lnear = [], []
+    for i in range(1, len(lab) - 1):
+        (t0, p0), (t1, p1), (t2, p2) = lab[i - 1], lab[i], lab[i + 1]
+        if t1 - t0 > 200 or t2 - t1 > 200:
+            continue
+        v0, v1 = p1[0] - p0[0], p2[0] - p1[0]
+        if v0 * v1 >= 0 or abs(v1 - v0) < 0.01:
+            continue
+        k = t1 // 100
+        if k >= n:
+            continue
+        hb = hitter(p1, people[k], W, H, BASE["near"])
+        if hb is not None:
+            lhit.append(whole(k, hb))
+            pair = sorted(people[k], key=lambda b: -b[3])[:2]
+            if any(b is hb for b in pair):
+                lnear.append(whole(k, hb))
     cx = rects[:, 0] + rects[:, 2] / 2
     sp = np.abs(np.diff(cx)) / rects[1:, 2] * 10  # crop widths per second
-    return {"ball": s["in"], "pts": s["pts"], "self": self_in, "hit": np.mean(hit_all) if hit_all else None,
+    return {"lhit": lhit, "lnear": lnear,
+            "near": np.mean(near_turn) if near_turn else None, "nnear": len(near_turn), "ball": s["in"], "pts": s["pts"], "self": self_in, "hit": np.mean(hit_all) if hit_all else None,
             "nhit": len(hit_all), "turn": np.mean(hit_turn) if hit_turn else None, "nturn": len(hit_turn),
             "pan": float(np.sum(sp)) / 10 / (n / 100.0), "fast": float(np.percentile(sp, 95)) if len(sp) else 0}
 
@@ -407,7 +499,7 @@ def main():
     print("|---|---|---|---|---|---|")
     for spec in a.var:
         name, v = parse_var(spec)
-        acc = dict(bi=0.0, bp=0, self=[], hit=[], hw=0, turn=[], tw=0, pan=[], fast=[])
+        acc = dict(bi=0.0, bp=0, self=[], hit=[], hw=0, turn=[], tw=0, pan=[], fast=[], near=[], nw=0, lhit=[], lnear=[])
         detail = []
         for c in a.clips:
             zr = story.sport_zoom(c, track_of(c))
@@ -424,14 +516,22 @@ def main():
             if r["turn"] is not None:
                 acc["turn"].append(r["turn"] * r["nturn"])
                 acc["tw"] += r["nturn"]
+            if r["near"] is not None:
+                acc["near"].append(r["near"] * r["nnear"])
+                acc["nw"] += r["nnear"]
+            acc["lhit"] += r["lhit"]
+            acc["lnear"] += r["lnear"]
             acc["pan"].append(r["pan"])
             acc["fast"].append(r["fast"])
-            detail.append(f"{c[-5:]} hit {r['hit'] if r['hit'] is None else round(100 * r['hit'])}")
+            detail.append(f"{c[-5:]} {sum(r['lhit'])}/{len(r['lhit'])}")
         f = lambda x: "—" if x is None else f"{100 * x:.1f}%"  # noqa: E731
         print(f"| {name} | {f(acc['bi'] / acc['bp'] if acc['bp'] else None)} | {f(np.mean(acc['self']))} | "
               f"{f(sum(acc['hit']) / acc['hw'] if acc['hw'] else None)} / "
               f"{f(sum(acc['turn']) / acc['tw'] if acc['tw'] else None)} | {np.mean(acc['pan']):.1f} | "
-              f"{np.mean(acc['fast']):.2f} |", flush=True)
+              f"{np.mean(acc['fast']):.2f} | near hitter at hits "
+              f"{f(sum(acc['near']) / acc['nw'] if acc['nw'] else None)} ({acc['nw']}) | LABELLED hits: hitter whole "
+              f"{f(np.mean(acc['lhit']) if acc['lhit'] else None)} ({len(acc['lhit'])}), near player "
+              f"{f(np.mean(acc['lnear']) if acc['lnear'] else None)} ({len(acc['lnear'])}) |", flush=True)
         if a.clips_detail:
             print("    " + ", ".join(detail))
 

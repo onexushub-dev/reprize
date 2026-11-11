@@ -46,6 +46,11 @@ public struct BallPathParams: Equatable {
   public var personAsp = 0.0
   public var personW = 0.0
   public var personEdge = 0.01
+  /// A head, not the ball (test 52, beach tennis: the path sat on a near player's head while the partner volleyed): a
+  /// candidate inside a person's box within `headTop` of its height from the top scores × `headW` (0 = left out). 0 =
+  /// off.
+  public var headTop = 0.0
+  public var headW = 0.0
 
   public init() {}
 
@@ -66,6 +71,9 @@ public struct BallPathParams: Equatable {
     var p = BallPathParams()
     p.stillR = 0.006
     p.stillShare = 0.3
+    // test 52
+    p.headTop = 0.15
+    p.headW = 0
     return p
   }
 }
@@ -85,18 +93,23 @@ public enum BallPath {
     let W = width, H = height, L = max(width, height)
     let an = (0..<n).filter { frames[$0] != nil }
     // 0. shirts (test 50): their score lowered before the shape and score filter, as `ball_track.track`
-    let usePeople = P.personRatio > 0 && people.contains { !$0.isEmpty }
+    let usePeople = (P.personRatio > 0 || P.headTop > 0) && people.contains { !$0.isEmpty }
     // 1. shape and score
     var cand: [Int: [BallCandidate]] = [:]
     for k in an {
       let rows = usePeople && k < people.count ? people[k] : []
-      let weighed: [BallCandidate] = (frames[k] ?? []).compactMap { c in
-        guard !rows.isEmpty, c.height * H >= P.personAsp * c.width * W,
+      let weighed: [BallCandidate] = (frames[k] ?? []).compactMap { c0 in
+        var c = c0
+        // test 52: a head (before the shirt rule, as `ball_track.track`)
+        if !rows.isEmpty && P.headTop > 0 && isHead(c, boxes: rows, P: P) {
+          if P.headW <= 0 { return nil }
+          c.score = c.score * P.headW
+        }
+        guard !rows.isEmpty, P.personRatio > 0, c.height * H >= P.personAsp * c.width * W,
               isShirt(c, size: max(c.width * W, c.height * H), boxes: rows, H: H, P: P) else { return c }
         if P.personW <= 0 { return nil }
-        var w = c
-        w.score = c.score * P.personW
-        return w
+        c.score = c.score * P.personW
+        return c
       }
       cand[k] = weighed.filter { c in
         let wp = c.width * W, hp = c.height * H
@@ -131,6 +144,17 @@ public enum BallPath {
     }
     let off = an.first.map { $0 % step } ?? 0
     return step > 1 ? upsample(pred, n: n, step: step, off: off) : (0..<n).map { pred[$0] ?? nil }
+  }
+
+  /// Test 52: inside a person's box, within `headTop` of its height from its top (boxes top-left; centres worked out
+  /// as the lab's centre boxes).
+  static func isHead(_ c: BallCandidate, boxes: [[Double]], P: BallPathParams) -> Bool {
+    for t in boxes where t.count >= 4 {
+      let bx = t[0] + t[2] / 2, by = t[1] + t[3] / 2, bw = t[2], bh = t[3]
+      let top = by - bh / 2
+      if abs(c.cx - bx) <= bw / 2 && top <= c.cy && c.cy <= top + P.headTop * bh { return true }
+    }
+    return false
   }
 
   /// `ball_track.person_big`: inside a person's box (one the picture does not cut) and bigger than `personRatio` of the
