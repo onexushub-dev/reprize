@@ -63,7 +63,11 @@ P = dict(box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=
          # person_asp: only a candidate at least this many times taller than wide (a shirt is tall, the ball round).
          person_ratio=0.0, person_w=0.0, person_asp=0.0,
          # test 50: tall_max > 0 leaves out a candidate more than tall_max times taller than wide. 0 = off.
-         tall_max=0.0)
+         tall_max=0.0,
+         # test 52 (beach tennis, bt-app-1111-a: the path sat on the near player's head while his partner volleyed):
+         # head_top > 0: a candidate inside a person's box within head_top of its height from the top scores x head_w
+         # (0 = dropped). 0 = off.
+         head_top=0.0, head_w=0.0, person_vision=0.0)
 # test 35 (2026-11-08): per sport. Basketball with its own detector (tests 28/32): the still-object filter at 0.2 threw
 # away the real ball while it was held or dribbled in place (13% of the labelled points); at 0.5 a spare ball, the rim
 # or a painted ball (there on nearly every frame) are still left out. The other sports keep test 17's values for now.
@@ -72,7 +76,7 @@ P = dict(box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=
 # the ball in play passing near one (16% of arena A's labelled points); share 0.3 (middle of the 0.004-0.01 / 0.2-0.4
 # plateau). Path cover 69 -> 78% on arena A, 81 -> 85% on arena B before the trust change of hybrid.py (r_det).
 SPORT_P = {"basquete": dict(still_share=0.5, person_ratio=0.3, person_asp=1.35, person_w=0.3),
-           "beachTennis": dict(still_r=0.006, still_share=0.3, screen=1.0)}
+           "beachTennis": dict(still_r=0.006, still_share=0.3, screen=1.0, head_top=0.15, head_w=0.0, person_vision=1.0)}
 # Test 50 (2026-11-10): basketball's shirt rule (person_ratio / person_asp / person_w; people from
 # lab/tests/detect/<clip>.people-yx.json, none = off). To score test 50's "today", pass person_ratio=0.
 # Test 47b (2026-11-10, a tournament stream: the path followed round things inside the video on the venue's LED
@@ -176,16 +180,23 @@ def track(det, P):
     screens = screen_boxes(det["clip"]) if P.get("screen") and det.get("clip") else []
     play = play_span(det["clip"], n, step, bool(P["near_916"])) if P.get("near") and det.get("clip") else None
     people = None
-    if P.get("person_ratio") and det.get("people") is not None:
+    if (P.get("person_ratio") or P.get("head_top")) and det.get("people") is not None:
         people = det["people"]  # given (ball_parity.py: the fixture's own boxes, centre format)
-    elif P.get("person_ratio") and det.get("clip"):
+    elif (P.get("person_ratio") or P.get("head_top")) and det.get("clip"):
         people = vision_rows(det["clip"], n) if P.get("person_vision") else people_rows(det["clip"])
     # 1. shape and score
     cand = {}
     for k in an:
         cs = []
         for cx, cy, w, h, s in frames[k]:
-            if people is not None and k < len(people) and people[k]:
+            if people is not None and k < len(people) and people[k] and P.get("head_top"):
+                # test 52: a head, not the ball (a player's head is the size of the ball at the back of the court)
+                if any(abs(cx - b[0]) <= b[2] / 2 and b[1] - b[3] / 2 <= cy <= b[1] - b[3] / 2 + P["head_top"] * b[3]
+                       for b in people[k]):
+                    if P.get("head_w", 0) <= 0:
+                        continue
+                    s = s * P["head_w"]
+            if people is not None and k < len(people) and people[k] and P.get("person_ratio"):
                 big = person_big(cx, cy, max(w * W, h * H), people[k], H, P["person_ratio"]) and \
                     h * H >= P.get("person_asp", 0.0) * w * W
                 if big:

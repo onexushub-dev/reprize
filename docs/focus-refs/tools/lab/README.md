@@ -187,6 +187,34 @@ static-camera clips and against the same ground truth, the ways to make the fram
 
 Run the Mac tests with `bash tools/lab/mac-tests.sh` (ball) or `bash tools/lab/mac-tests.sh person`.
 
+### Test 52 (2026-11-11) — beach tennis on the diagonal: the near player who attacks
+
+Victor's field clip `bt-app-1111-a` (diagonal, `refs/bt-own/field-1111/`; `.ball.mp4` = the app's export): the near
+left player was hardly shown when she attacked. **Cause: the app ran without the players** — the clip's Modo Foco file
+predates `people` (2026-11-10); the lab's T49f with no people matches the app's camera (`app_camera.py`: mean |dx|
+0.005; with Vision's people 0.063). Reopened with last night's build (Modo Foco made again), the app shows her. Also
+found: the path sat on her partner's HEAD at 10.2–11.4 s while she volleyed (`ball_track.py` `head_top` / `head_w`:
+a candidate within 15% of a person's box from its top, Vision boxes, `person_vision=1`).
+New in `cam_bt.py`: `hitbox` (1 = the player about to hit next, within `horizon` frames, kept whole where the ball
+allows; 2 = even if the ball leaves), and a LABELLED hitter score (at the labelled ball's turns). 31 clips (20 own
+labelled, rz-1105-a/b, yt-bt-06, 7 app clips), tracks re-made as `det-t52-base` / `-h15` / `-h15w3`:
+
+| camera (T49f + ...) | ball in crop | own points | hitter whole: all / at hits | pan | labelled hits: hitter / near player |
+|---|---|---|---|---|---|
+| T49f (a 1, b 100) | 98.4% | 99.5% | 93.5 / 90.4% | 1.7 | 79.1% / 75.9% (110 / 87) |
+| a 0.5, b 50 | 98.4% | 99.3% | 94.6 / 92.5% | 1.9 | 83.6% / 81.6% |
+| a 0.3, b 30 | 98.5% | 99.4% | 95.0 / 93.7% | 2.1 | 87.3% / 87.4% |
+| a 0.3, b 30 + hitbox 2 | 98.4% | 99.3% | 94.8 / 93.6% | 2.1 | 88.2% / 88.5% |
+| a 0.5, b 50 + hitbox 2 | 98.2% | 99.2% | 94.4 / 92.7% | 1.9 | 84.5% / 82.8% |
+
+The head rule changes no labelled score (it fixes 1111-a's 10.2–11.4 s by eye). yt-bt-06 (vertical, 1.5x): 97.0 ->
+97.4% hitter whole, ball 100% in all. Few labelled hits (110): Victor's eye decides. Videos
+`lab/tests/story/{bt-own-b-03,bt-own-b-06,bt-rz-1105-a,bt-app-1111-a,yt-bt-06}.bt-compare-t52.mp4` (T49f | a 0.5 b 50
+| a 0.3 b 30 | a 0.3 b 30 + hitbox 2 + head rule).
+**Victor (2026-11-11): the fourth -> the app** (`ball-bt-t52`: `headTop` 0.15 / `headW` 0, camera a 0.3 b 30, `hitBox`
+2 / 10 / 0.02; `cam_bt.T52`, `ball_track.SPORT_P["beachTennis"]` with the head rule and Vision boxes;
+`ball_parity.py --out-bt` adds bt-app-1111-a and gives the path the fixture's own person boxes).
+
 ### Test 51 (2026-11-10, first measurements) — which sport, with no question to the player
 
 Victor: pick Seguir a Bola's model by itself (basketball / beach tennis); any other sport gets Modo Foco only. 147
