@@ -8,6 +8,12 @@
         "en": {
           "variations": {
             "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld clips"
+                }
+              },
               "one": {
                 "stringUnit": {
                   "state": "translated",
@@ -26,6 +32,12 @@
         "pt-BR": {
           "variations": {
             "plural": {
+              "zero": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld clipes"
+                }
+              },
               "one": {
                 "stringUnit": {
                   "state": "translated",
