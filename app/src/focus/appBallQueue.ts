@@ -6,7 +6,7 @@ import { focusPath } from '../data/focusFile';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBallQueue } from './ballQueue';
-import { autoSport, ballSportIdOf, labelSummary, sportNeedsCheck, sportVerdict } from './sportCheck';
+import { autoSport, ballSportIdOf, inheritedSport, labelSummary, sportNeedsCheck, sportVerdict } from './sportCheck';
 
 /** Seguir a Bola's speed rule (spec 2026-11-09 §4.7, Victor: per typical cut): up to 400 ms per 19-region frame. */
 export const BALL_PROBE_MAX_MS = 400;
@@ -108,8 +108,9 @@ export function sportChecking(sessionId: string): boolean {
 }
 
 /**
- * Test 43: once per recording, Apple's scene classifier on 3 frames of one of its clips decides whether Seguir a Bola
- * shows as "EM BREVE" (another sport for sure) or stays on offer. Recordings made in a sport mode need no look.
+ * Once per recording, on the first clip opened (spec 2026-11-11 §4): Apple's scene classifier and the floor on 3 frames
+ * of the clip work out the recording's sport (no proof, no sport), or it takes the previous recording's sport (started
+ * at most 3 h before, floors agreeing). Recordings made in a sport mode, or with a sport the player chose, need no look.
  */
 export function checkSportOnce(sessionId: string, clip: { path: string; trim: { startMs: number; endMs: number } }): void {
   const session = repo.getSession(sessionId);
@@ -125,11 +126,24 @@ export function checkSportOnce(sessionId: string, clip: { path: string; trim: { 
       }
       const verdict = sportVerdict(labels);
       const auto = autoSport(labels);
-      repo.setBallSport(sessionId, { v: 1, verdict, labels, ...(auto !== undefined ? { auto } : {}) });
+      const now = repo.getSession(sessionId);
+      // The player may have chosen a sport meanwhile: theirs stays.
+      if (!now || (now.ballSport && (now.ballSport.sport || now.ballSport.unlocked))) return;
+      const others = repo.listSessions().map((s) => s.session);
+      const inherited = inheritedSport(now, others, labels);
+      repo.setBallSport(sessionId, {
+        v: 1,
+        verdict,
+        labels,
+        rule: 2,
+        ...(auto !== undefined ? { auto } : {}),
+        ...(inherited !== undefined ? { sport: inherited, inherited: true } : {}),
+      });
       // TEMP(diag-remote): the field test checks the verdict on the Diagnóstico screen.
       if (DIAGNOSTICS_ENABLED) {
-        const said = auto === undefined ? (verdict === 'other' ? 'OUTRO (EM BREVE)' : 'liberado') : auto === 'other' ? 'OUTRO (somente Modo Foco)' : auto;
-        diag(`Seguir a Bola: esporte ${said} — ${labelSummary(labels)}`);
+        const said = auto === undefined ? 'sem medida do piso' : auto === 'unsure' ? 'SEM CERTEZA (nada marcado)' : auto;
+        const from = inherited !== undefined ? ` — herdado da anterior: ${inherited}` : '';
+        diag(`Esporte: ${said}${from} — ${labelSummary(labels)}`);
       }
     })
     .catch((e: unknown) => console.warn('[Reprize] sport check failed', e))

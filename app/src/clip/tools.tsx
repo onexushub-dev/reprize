@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
 
 import { FocusIcon, RotateIcon, SoundIcon, SpeedIcon, ZoomIcon } from '../components/icons';
-import type { BallSportId, BallUnsuitable } from '../data/schema';
+import type { BallUnsuitable, RecordingSportId } from '../data/schema';
+import type { SportHow } from '../focus/sportCheck';
 import type { MessageKey } from '../i18n';
 import type { Plan } from '../payments/types';
-import type { Edit } from '../share/editing';
+import type { Edit, Framing } from '../share/editing';
 import type { ToolId } from './editSession';
 import { FocusPanel } from './panels/FocusPanel';
 import { RotatePanel } from './panels/RotatePanel';
@@ -16,16 +17,11 @@ import { ZoomPanel } from './panels/ZoomPanel';
 export type FocusUi = 'on' | 'off' | 'preparing' | 'unavailable';
 
 /**
- * Seguir a Bola as the Foco panel shows it: on (ready), analysing (the switch is on, the progress is on the video), off,
- * `soon` on a recording that looks like another sport (test 43: the panel asks which sport it is, test 48),
- * `unsuitable` when the analysis found it would not look good on this cut (test 47a), or `hidden` on a phone that
- * cannot run it.
+ * Bola's card (spec 2026-11-11 §3): `on` (ready and applied), `analysing` (chosen, progress on the card), `off` (offered),
+ * `unsuitable` (no ball in play in this cut, test 47a: dimmed), `hidden` (no card: the sport has no ball model, the sport
+ * is not known, or the phone cannot run it).
  */
-/**
- * Seguir a Bola's row: `soon` = another sport (test 51: Modo Foco only, "EM BREVE", the player may still pick one);
- * `checking` = the sport is being worked out (milliseconds); `ask` = a build that cannot work it out: the panel asks.
- */
-export type BallUi = 'on' | 'analysing' | 'off' | 'soon' | 'checking' | 'ask' | 'unsuitable' | 'hidden';
+export type BallUi = 'on' | 'analysing' | 'off' | 'unsuitable' | 'hidden';
 
 /** Everything a tool panel reads and does; the clip screen builds it. */
 export type ToolContext = {
@@ -35,16 +31,24 @@ export type ToolContext = {
   /** Unlocks this recording (Pro, a Pass or the paywall). */
   unlock(): void;
   setEdit(patch: Partial<Edit>): void;
+  /** Jogadores (Modo Foco): ready, still analysing, or not possible for this clip ('on' / 'off' = ready). */
   focus: FocusUi;
-  toggleFocus(): void;
   ball: BallUi;
-  toggleBall(): void;
-  /** The sport Seguir a Bola analyses this recording as; undefined = not known (the panel asks). */
-  ballSport: BallSportId | undefined;
-  /** Test 47a: why Seguir a Bola is not applied to this cut (with `ball` `unsuitable`). */
+  /** While Bola analyses: 0–100; undefined = not measured yet. */
+  ballPercent: number | undefined;
+  /** Bola waits for the phone to cool down before it starts (spec 2026-11-09 §4.4). */
+  ballCooling: boolean;
+  /** Test 47a: why Bola is not applied to this cut (with `ball` `unsuitable`). */
   ballReason: BallUnsuitable | undefined;
-  /** The player says which sport this recording is (test 48). */
-  chooseBallSport(sport: BallSportId): void;
+  /** The recording's sport and how it came; undefined = not known (the sheet opens with nothing marked). */
+  sport: RecordingSportId | undefined;
+  sportHow: SportHow | undefined;
+  /** Original, Jogadores or Bola: only on the player's tap (spec 2026-11-11 decision 4). */
+  pickFraming(framing: Framing): void;
+  /** ✕ on the card being tracked: stop, back to the framing before the tap (what was found is kept). */
+  stopFraming(): void;
+  /** The player says the recording's sport (it serves every clip of the recording). */
+  chooseSport(sport: RecordingSportId): void;
   resetZoom(): void;
   turn(): void;
 };
