@@ -23,6 +23,19 @@ export function ballForCut(ball: Clip['ball'], trim: Clip['trim'], sport?: BallS
   );
 }
 
+/**
+ * The rules each sport's Seguir a Bola framing is made with: the native `BallSport.rules` (ReplayCore/BallSport.swift;
+ * a test keeps the two in step). When they change (test 50: basketball's shirt rule and camera speed), a clip analysed
+ * with the older ones is analysed again the next time Seguir a Bola is on: its detections are cached, so only the path
+ * and the camera run (well under a second).
+ */
+export const BALL_RULES: Record<BallSportId, string> = { basquete: 'ball-t50', beachTennis: 'ball-bt-t49f' };
+
+/** Whether the record was made with today's rules for its sport (a record without a sport is basketball's). */
+export function ballRulesCurrent(ball: NonNullable<Clip['ball']>): boolean {
+  return ball.rules === BALL_RULES[ball.sport || 'basquete'];
+}
+
 /** The framing file of the clip's current cut, when it is ready. */
 export function readyBallFile(clip: Pick<Clip, 'ball' | 'trim'>): string | undefined {
   const { ball } = clip;

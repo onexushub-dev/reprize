@@ -38,13 +38,25 @@ public struct BallPathParams: Equatable {
   public var stillCost = 0.05
   /// Paths shorter than this (analysed frames) are dropped.
   public var minLen = 3
+  /// A shirt, not the ball (test 50): a candidate at least `personAsp` times taller than wide, inside a person's box
+  /// that the picture does not cut (`personEdge` from every side) and bigger than `personRatio` of that person's height
+  /// (the tallest such person), has its score × `personW` (0 = left out). People: today's Modo Foco boxes per frame.
+  /// personRatio 0 = off.
+  public var personRatio = 0.0
+  public var personAsp = 0.0
+  public var personW = 0.0
+  public var personEdge = 0.01
 
   public init() {}
 
-  /// Basketball (test 35): the still filter at 0.5, so a ball held or dribbled in place is kept.
+  /// Basketball (test 35): the still filter at 0.5, so a ball held or dribbled in place is kept. Test 50: the passer's
+  /// yellow shirt (0.64) kept the path while the passed ball flew at 0.2–0.3; shirts score × 0.3.
   public static var basketball: BallPathParams {
     var p = BallPathParams()
     p.stillShare = 0.5
+    p.personRatio = 0.3
+    p.personAsp = 1.35
+    p.personW = 0.3
     return p
   }
 
@@ -63,16 +75,30 @@ public struct BallPathParams: Equatable {
 public enum BallPath {
   /// `frames`: one entry per 100 ms frame of the clip, nil on the frames not analysed (every `step`-th is). `width`,
   /// `height`: the upright video in pixels (only their ratio matters). `screens`: video screens at the venue (x0, y0,
-  /// x1, y1, 0..1; `BallScreen`), whose candidates are left out (test 47b). Returns one entry per frame.
+  /// x1, y1, 0..1; `BallScreen`), whose candidates are left out (test 47b). `people`: person boxes per frame (x, y,
+  /// width, height, 0..1, top-left origin; today's Modo Foco file), for the shirt rule (`personRatio`, test 50); none =
+  /// the rule is off. Returns one entry per frame.
   public static func track(frames: [[BallCandidate]?], width: Double, height: Double, step: Int,
-                           params P: BallPathParams = .basketball, screens: [[Double]] = []) -> [BallPoint?] {
+                           params P: BallPathParams = .basketball, screens: [[Double]] = [],
+                           people: [[[Double]]] = []) -> [BallPoint?] {
     let n = frames.count
     let W = width, H = height, L = max(width, height)
     let an = (0..<n).filter { frames[$0] != nil }
+    // 0. shirts (test 50): their score lowered before the shape and score filter, as `ball_track.track`
+    let usePeople = P.personRatio > 0 && people.contains { !$0.isEmpty }
     // 1. shape and score
     var cand: [Int: [BallCandidate]] = [:]
     for k in an {
-      cand[k] = (frames[k] ?? []).filter { c in
+      let rows = usePeople && k < people.count ? people[k] : []
+      let weighed: [BallCandidate] = (frames[k] ?? []).compactMap { c in
+        guard !rows.isEmpty, c.height * H >= P.personAsp * c.width * W,
+              isShirt(c, size: max(c.width * W, c.height * H), boxes: rows, H: H, P: P) else { return c }
+        if P.personW <= 0 { return nil }
+        var w = c
+        w.score = c.score * P.personW
+        return w
+      }
+      cand[k] = weighed.filter { c in
         let wp = c.width * W, hp = c.height * H
         if c.score < P.conf || max(wp, hp) > P.boxMax * L { return false }
         if max(wp, hp) / max(1e-6, min(wp, hp)) > P.aspectMax { return false }
@@ -105,6 +131,21 @@ public enum BallPath {
     }
     let off = an.first.map { $0 % step } ?? 0
     return step > 1 ? upsample(pred, n: n, step: step, off: off) : (0..<n).map { pred[$0] ?? nil }
+  }
+
+  /// `ball_track.person_big`: inside a person's box (one the picture does not cut) and bigger than `personRatio` of the
+  /// tallest such person's height. Boxes are top-left; their centres are worked out as the lab's centre boxes.
+  static func isShirt(_ c: BallCandidate, size: Double, boxes: [[Double]], H: Double, P: BallPathParams) -> Bool {
+    let e = P.personEdge
+    var tallest: Double? = nil
+    for t in boxes where t.count >= 4 {
+      let bx = t[0] + t[2] / 2, by = t[1] + t[3] / 2, bw = t[2], bh = t[3]
+      guard abs(c.cx - bx) <= bw / 2, abs(c.cy - by) <= bh / 2, by - bh / 2 > e, by + bh / 2 < 1 - e,
+            bx - bw / 2 > e, bx + bw / 2 < 1 - e else { continue }
+      tallest = max(tallest ?? 0, bh * H)
+    }
+    guard let t = tallest else { return false }
+    return size > P.personRatio * t
   }
 
   private struct Node: Hashable, Comparable {

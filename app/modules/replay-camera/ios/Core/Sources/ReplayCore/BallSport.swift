@@ -34,11 +34,12 @@ public struct BallSport: Equatable {
     self.camera = camera; self.follow = follow
   }
 
-  /// Basketball as it was (tests 28–42): `ball_tiny_gym`, still filter 0.5, every trusted point, test 31's
-  /// zoom.
+  /// Basketball (tests 28–42): `ball_tiny_gym`, still filter 0.5, every trusted point, test 31's zoom; test 50: shirts
+  /// (tall, inside a person, over 0.3 of their height) score × 0.3 in the path, and the beach tennis camera speed (a 1,
+  /// b 100), so a long pass and its receiver stay in the picture.
   public static let basketball = BallSport(
-    id: "basquete", modelId: "ball_tiny_gym", rules: "ball-t42", path: .basketball, minRun: 0, runGap: 4,
-    zoom: BallZoomParams(), screens: false, verdict: nil)
+    id: "basquete", modelId: "ball_tiny_gym", rules: "ball-t50", path: .basketball, minRun: 0, runGap: 4,
+    zoom: BallZoomParams(), screens: false, verdict: nil, camera: .basketball)
 
   /// Beach tennis (tests 45–49): its own detector (public sets + both of Victor's arenas, every ball marked), the
   /// still filter at 0.6% of the long side, runs of 1 s, 1.0x horizontal / test 31's rule up to x1.5 vertical, screens

@@ -51,7 +51,19 @@ P = dict(box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=
          # crop (the players' centre) instead. 0 = off: on the 19 own clips the native crop changes nothing (it spans
          # 70-90% of the width) and the 9:16 one costs cover (+0.1 x0.5: 90.6 -> 86.9%, b-01 98 -> 53%: today's framing
          # frames people off the rally in a class) for 6 fewer of 192 ball points shown far from a rally.
-         near=0.0, near_w=0.5, near_916=0.0)
+         near=0.0, near_w=0.5, near_916=0.0,
+         # test 50 (2026-11-10, basket-app-1110-a: a long pass, the path stayed on a yellow shirt the detector scored 0.64
+         # and lost the ball at the receiver): size_cost > 0 costs a step size_cost x |ln(size ratio)| beyond size_free
+         # (sizes: the boxes' long side in px). 0 = off.
+         size_cost=0.0, size_free=0.0,
+         # test 50: person_ratio > 0: a candidate inside a person's box (one not cut by the picture's edge) and bigger
+         # than person_ratio x the tallest such person's height is a shirt or a body part, not the ball: its score x
+         # person_w (0 = dropped). People: lab/tests/detect/<clip>.people-yx.json (people_yolox.py; the app has
+         # Vision's in the Modo Foco file). 0 = off.
+         # person_asp: only a candidate at least this many times taller than wide (a shirt is tall, the ball round).
+         person_ratio=0.0, person_w=0.0, person_asp=0.0,
+         # test 50: tall_max > 0 leaves out a candidate more than tall_max times taller than wide. 0 = off.
+         tall_max=0.0)
 # test 35 (2026-11-08): per sport. Basketball with its own detector (tests 28/32): the still-object filter at 0.2 threw
 # away the real ball while it was held or dribbled in place (13% of the labelled points); at 0.5 a spare ball, the rim
 # or a painted ball (there on nearly every frame) are still left out. The other sports keep test 17's values for now.
@@ -59,7 +71,10 @@ P = dict(box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=
 # 1080p) instead of 2%: a ball lying on the sand is found within a few px of the same spot, while 2% (38 px) also caught
 # the ball in play passing near one (16% of arena A's labelled points); share 0.3 (middle of the 0.004-0.01 / 0.2-0.4
 # plateau). Path cover 69 -> 78% on arena A, 81 -> 85% on arena B before the trust change of hybrid.py (r_det).
-SPORT_P = {"basquete": dict(still_share=0.5), "beachTennis": dict(still_r=0.006, still_share=0.3, screen=1.0)}
+SPORT_P = {"basquete": dict(still_share=0.5, person_ratio=0.3, person_asp=1.35, person_w=0.3),
+           "beachTennis": dict(still_r=0.006, still_share=0.3, screen=1.0)}
+# Test 50 (2026-11-10): basketball's shirt rule (person_ratio / person_asp / person_w; people from
+# lab/tests/detect/<clip>.people-yx.json, none = off). To score test 50's "today", pass person_ratio=0.
 # Test 47b (2026-11-10, a tournament stream: the path followed round things inside the video on the venue's LED
 # screen): a screen is a region whose content changes all the time and ALL AT ONCE (cuts, moving pictures), unlike the
 # sand (never) or a player (part of a region at a time). On the clip's frames, 160 px wide, every 2nd 100 ms frame: a
@@ -122,6 +137,35 @@ def screen_boxes(clip):
     return boxes
 
 
+def people_rows(clip):
+    """Test 50: person boxes [cx, cy, w, h] per 100 ms frame (None where not analysed), or None without the file."""
+    p = os.path.join(DET, f"{clip}.people-yx.json")
+    if not os.path.exists(p):
+        return None
+    return json.load(open(p))["frames"]
+
+
+def vision_rows(clip, n):
+    """Test 50: the app's own person boxes (Vision, renders/<clip>.people.json, as the Modo Foco file keeps them) in
+    people_rows' format, or None without the file."""
+    p = os.path.join(ev.ROOT, "renders", f"{clip}.people.json")
+    if not os.path.exists(p):
+        return None
+    import cam_bt
+    rows = cam_bt.people_rows(clip, n)
+    return [[[b[0] + b[2] / 2, b[1] + b[3] / 2, b[2], b[3]] for b in r] for r in rows]
+
+
+def person_big(cx, cy, size_px, boxes, H, ratio, edge=0.01):
+    """True when the candidate (centre, long side in px) sits inside a person's box not cut by the picture's edge and
+    is bigger than `ratio` x the tallest such person's height."""
+    hs = [b[3] * H for b in boxes
+          if abs(cx - b[0]) <= b[2] / 2 and abs(cy - b[1]) <= b[3] / 2
+          and b[1] - b[3] / 2 > edge and b[1] + b[3] / 2 < 1 - edge
+          and b[0] - b[2] / 2 > edge and b[0] + b[2] / 2 < 1 - edge]
+    return bool(hs) and size_px > ratio * max(hs)
+
+
 def track(det, P):
     W, H = det["size"]
     L = max(W, H)
@@ -131,14 +175,28 @@ def track(det, P):
     an = [k for k in range(n) if frames[k] is not None]
     screens = screen_boxes(det["clip"]) if P.get("screen") and det.get("clip") else []
     play = play_span(det["clip"], n, step, bool(P["near_916"])) if P.get("near") and det.get("clip") else None
+    people = None
+    if P.get("person_ratio") and det.get("people") is not None:
+        people = det["people"]  # given (ball_parity.py: the fixture's own boxes, centre format)
+    elif P.get("person_ratio") and det.get("clip"):
+        people = vision_rows(det["clip"], n) if P.get("person_vision") else people_rows(det["clip"])
     # 1. shape and score
     cand = {}
     for k in an:
         cs = []
         for cx, cy, w, h, s in frames[k]:
+            if people is not None and k < len(people) and people[k]:
+                big = person_big(cx, cy, max(w * W, h * H), people[k], H, P["person_ratio"]) and \
+                    h * H >= P.get("person_asp", 0.0) * w * W
+                if big:
+                    if P["person_w"] <= 0:
+                        continue
+                    s = s * P["person_w"]
             wp, hp = w * W, h * H
             if s < P["conf"] or max(wp, hp) > P["box_max"] * L or max(wp, hp) / max(1e-6, min(wp, hp)) > P["aspect_max"]:
                 continue
+            if P.get("tall_max") and hp > P["tall_max"] * wp:
+                continue  # test 50: taller than wide (a shirt); a ball blurred by a pass is wider, not taller
             if any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, y0, x1, y1 in screens):
                 continue
             if play is not None and play[k] is not None and not (play[k][0] - P["near"] <= cx <= play[k][1] + P["near"]):
@@ -244,6 +302,11 @@ def dp_track(an, moving, W, H, n, step, P):
                     if d > P["vmax"] * (k - q):
                         continue
                     v = best[(q, jj)] + g - P["move_cost"] * d - (P["still_cost"] if d < 0.005 * (k - q) else 0)
+                    if P.get("size_cost"):
+                        # test 50: the ball keeps its size from one point to the next (a yellow shirt is 2-3x bigger)
+                        sa = max(c[2] * W, c[3] * H, 1e-6)
+                        sb = max(cc[2] * W, cc[3] * H, 1e-6)
+                        v -= P["size_cost"] * max(0.0, abs(math.log(sa / sb)) - P.get("size_free", 0.0))
                     if v > b:
                         b, bp = v, (q, jj)
             best[(k, j)] = b

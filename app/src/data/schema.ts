@@ -85,6 +85,8 @@ export type ClipBall = {
   startMs: number;
   endMs: number;
   sport?: BallSportId;
+  /** The native rules the record was made with (`BallSport.rules`); a ready record with older ones is analysed again. */
+  rules?: string;
   file?: string;
   share?: number;
   hot?: boolean;

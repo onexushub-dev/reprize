@@ -1,5 +1,5 @@
 import type { AnalyzeBallOptions, BallAnalysis } from '../../modules/replay-camera/src/ReplayCamera.types';
-import { ballDetPath, ballForCut, ballPath } from '../data/ballFile';
+import { BALL_RULES, ballDetPath, ballForCut, ballPath, ballRulesCurrent } from '../data/ballFile';
 import { focusPath } from '../data/focusFile';
 import type { Repo } from '../data/repo';
 import type { BallSportId, BallUnsuitable, Clip } from '../data/schema';
@@ -17,6 +17,15 @@ export type BallQueueDeps = {
   now(): number;
   /** Every finished analysis with its numbers (field test). */
   measured?(clip: Clip, result: BallAnalysis): void;
+  /**
+   * Test 50: the clip's Modo Foco file has no person boxes ("people", written since 2026-11-10), which the path's shirt
+   * rule (basketball) and the players' rules (beach tennis) read. Such a file is made again before the analysis.
+   */
+  focusLacksPeople?(clip: Clip): boolean;
+  /** Runs the clip's Modo Foco analysis again (same range and file as the Modo Foco queue). */
+  refreshFocus?(clip: Clip): Promise<unknown>;
+  /** For the Diagnóstico screen (field test): a cut already analysed is analysed again (older rules or no people). */
+  note?(e: { redo: true; from: string | undefined; to: string }): void;
 };
 
 /** What the chip on the video shows while a clip is analysed. */
@@ -120,8 +129,9 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         now !== undefined && now.ball !== undefined && now.ball.status === 'pending' && ballForCut(now.ball, cut, sport)
       );
     };
-    deps
-      .analyze({
+    // An older Modo Foco file without person boxes is made again first (a failure there still lets the ball run).
+    const analyze = () =>
+      deps.analyze({
         clipPath: clip.path,
         startMs: cut.startMs,
         endMs: cut.endMs,
@@ -129,7 +139,18 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         outPath,
         focusPath: focusPath(clip.path),
         sport,
-      })
+      });
+    const refresh = deps.refreshFocus;
+    const run =
+      refresh !== undefined && deps.focusLacksPeople !== undefined && deps.focusLacksPeople(clip)
+        ? refresh(clip)
+            .catch(() => undefined)
+            .then(() => {
+              if (!wanted()) throw Object.assign(new Error('no longer wanted'), { code: 'CANCELLED' });
+              return analyze();
+            })
+        : analyze();
+    run
       .then((result) => {
         try {
           if (deps.measured) deps.measured(clip, result);
@@ -140,12 +161,20 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         if (result.status === 'unsuitable') {
           // test 47a: it would not look good on this video; the clip stays on Modo Foco and the panel says why
           deps.repo.updateClip(clip.id, {
-            ball: { v: 1, status: 'unsuitable', ...cut, sport, share: result.ballShare, reason: reasonOf(result.reason) },
+            ball: {
+              v: 1,
+              status: 'unsuitable',
+              ...cut,
+              sport,
+              rules: BALL_RULES[sport],
+              share: result.ballShare,
+              reason: reasonOf(result.reason),
+            },
           });
           return;
         }
         deps.repo.updateClip(clip.id, {
-          ball: { v: 1, status: 'ready', ...cut, sport, file: outPath, share: result.ballShare },
+          ball: { v: 1, status: 'ready', ...cut, sport, rules: BALL_RULES[sport], file: outPath, share: result.ballShare },
         });
       })
       .catch((e: unknown) => {
@@ -159,7 +188,7 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         console.warn('[Reprize] Seguir a Bola analysis failed', clip.path, e);
         if (!wanted()) return;
         deps.repo.updateClip(clip.id, {
-          ball: { v: 1, status: 'failed', ...cut, sport, ...(code === 'BALL_HOT' ? { hot: true } : {}) },
+          ball: { v: 1, status: 'failed', ...cut, sport, rules: BALL_RULES[sport], ...(code === 'BALL_HOT' ? { hot: true } : {}) },
         });
       })
       .finally(() => {
@@ -183,13 +212,20 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
     const sport = deps.sportOf(clip);
     if (!sport) return; // the player has not said which sport yet
     const cut = cutOf(clip);
-    if (clip.ball && ballForCut(clip.ball, clip.trim, sport) && clip.ball.status !== 'failed') {
-      // ready or judged unsuitable for this cut and sport, or already pending for them
-      if (clip.ball.status === 'ready' || clip.ball.status === 'unsuitable') return;
+    if (clip.ball && ballForCut(clip.ball, clip.trim, sport) && clip.ball.status !== 'failed' && ballRulesCurrent(clip.ball)) {
+      // ready or judged unsuitable for this cut, sport and rules, or already pending for them (a result made with older
+      // rules is analysed again: the detections are cached, so only the path and the camera run)
+      // A done result whose Modo Foco file still has no person boxes was made without them (test 50: the shirt rule could
+      // not act): made again, the Modo Foco file first.
+      const noPeople = deps.focusLacksPeople !== undefined && deps.focusLacksPeople(clip);
+      if ((clip.ball.status === 'ready' || clip.ball.status === 'unsuitable') && !noPeople) return;
       if (running && running.id === clipId) return;
       if (waiting.includes(clipId)) return;
     }
-    deps.repo.updateClip(clipId, { ball: { v: 1, status: 'pending', ...cut, sport } });
+    if (deps.note && clip.ball && clip.ball.status !== 'pending' && ballForCut(clip.ball, clip.trim, sport)) {
+      deps.note({ redo: true, from: clip.ball.rules, to: BALL_RULES[sport] });
+    }
+    deps.repo.updateClip(clipId, { ball: { v: 1, status: 'pending', ...cut, sport, rules: BALL_RULES[sport] } });
     if (running && running.id === clipId) {
       // another cut is being analysed: stop it, then this one (the frames found so far are kept)
       restart = true;

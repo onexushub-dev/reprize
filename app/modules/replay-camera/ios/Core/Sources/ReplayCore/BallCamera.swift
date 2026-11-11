@@ -18,6 +18,15 @@ public struct BallCameraParams: Equatable {
   public var bridge = 10
   public init() {}
 
+  /// Basketball (test 50): the beach tennis speed — on a long pass the calmer camera C reached the receiver late; never
+  /// worse on the 32 labelled basketball clips (ball in crop 96.6 -> 97.3%, after passes 92.2 -> 93.9%).
+  public static var basketball: BallCameraParams {
+    var p = BallCameraParams()
+    p.smoothA = 1
+    p.smoothB = 100
+    return p
+  }
+
   /// Beach tennis (test 49b): a faster camera (the ball crosses the court fast; a calmer one cuts the hitter more).
   public static var beachTennis: BallCameraParams {
     var p = BallCameraParams()

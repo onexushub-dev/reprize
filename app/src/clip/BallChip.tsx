@@ -75,6 +75,8 @@ export function BallChip({ state, onCancel, onRetry }: Props) {
   let label = t('clip.ballWaiting');
   let fraction = 0;
   if (p && p.state === 'cooling') label = t('clip.ballCooling');
+  // started, before the first frames are counted (an older clip's Modo Foco file made again first, test 50)
+  else if (p && p.state === 'running' && p.total === 0) label = t('clip.ballPreparing');
   else if (p && p.state !== 'waiting' && p.total > 0) {
     const e = ballEstimate(p, now);
     label = t('clip.ballAnalysing', { percent: e.percent, seconds: e.secondsLeft });

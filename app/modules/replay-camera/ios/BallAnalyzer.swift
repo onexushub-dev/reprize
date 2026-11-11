@@ -173,7 +173,9 @@ enum BallAnalyzer {
     emit?(clipPath, total, total, "framing")
     let grid = BallFraming.grid(startMs: startMs, endMs: endMs, phase: phase, detections: dets)
     let today = todayRows(focusPath: focusPath, startMs: startMs, count: grid.count, landscape: W >= H)
-    let people = sport.follow == nil ? [] : peopleRows(focusPath: focusPath, startMs: startMs, count: grid.count)
+    // the players (test 49, sports with `follow`) and the shirt rule of the path (test 50) read today's person boxes
+    let people = sport.follow == nil && sport.path.personRatio <= 0
+      ? [] : peopleRows(focusPath: focusPath, startMs: startMs, count: grid.count)
     let r = BallFraming.compute(grid: grid, width: Double(W), height: Double(H), today: today.portrait,
                                 native: today.native, sport: sport, screens: screens, players: players, people: people)
     if r.rects.isEmpty { throw Failure.unreadable }

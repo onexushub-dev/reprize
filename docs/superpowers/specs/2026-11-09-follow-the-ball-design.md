@@ -294,6 +294,33 @@ and its unchanged parity fixtures.
   `BallParityTests` / `ball-parity.json` unchanged.
 - Credit: the beach tennis training data (Roboflow "Beach_Tennis_01/02", CC BY 4.0) joins the credits list.
 
+### Part 5: basketball long passes (2026-11-10, lab test 50)
+
+Victor's field clip (`basket-app-1110-a`, the app's export of `basket-app-1108-a`): on a long pass across the court
+the 9:16 camera lost the ball and the receiver for about a second. Cause (lab test 50): the detector scored the
+passer's yellow shirt 0.64 while the passed ball flew at 0.2–0.3, so the path stayed on the shirt and saw the ball
+again only at the shot; camera C's smoothing then turned the jump into a 3 s pan. Changes (Victor approved by eye):
+
+- **Shirt rule in the path** (`BallPathParams.basketball`: `personRatio` 0.3, `personAsp` 1.35, `personW` 0.3): a
+  candidate at least 1.35x taller than wide, inside a person's box that the picture does not cut, and bigger than 0.3 of
+  that person's height scores x0.3. The person boxes are today's Modo Foco file's `people` (Vision, full body);
+  `BallAnalyzer` now reads them for basketball too. A Modo Foco file without `people` (made before part 4): the rule is
+  off and the path is as before.
+- **Basketball camera speed** (`BallCameraParams.basketball`): a 1, b 100 (beach tennis' speed) instead of camera C's
+  a 3, b 300. The clip's zoom rule still checks with camera C, as the lab measured.
+- Rules `ball-t50`. `ClipBall.rules` keeps the rules a record was made with (`BALL_RULES` in `data/ballFile.ts`, a
+  test keeps it equal to `BallSport.rules`); a result made with older rules, or before they were kept, is analysed again
+  the next time Seguir a Bola is on for the clip. The detections are cached, so only the path and the camera run.
+  A Modo Foco file from before 2026-11-10 has no `people`, so the shirt rule could not act on older clips (Victor's
+  field clip, recorded 2026-11-08): the ball queue now makes such a file again first (`focusLacksPeople` /
+  `refreshFocus`, the Modo Foco analysis over the clip's range), then analyses the ball.
+
+32 labelled basketball clips: ball in crop 96.6 -> 98.0%, at passes 92.2 -> 96.4%, the player with the ball whole after
+a pass 88.2 -> 92.8%; the field clip 85 -> 100%. Parity: `ball_parity.py --out` adds the person boxes per frame and the
+field clip (`BallParityTests.testLongPassReachesTheReceiver`, `testShirtRule`). Next (2026-11-11): retrain
+`ball_tiny_gym` with more "not a ball" crops mined from every frame of the labelled clips (shirts, hands, the rim, the
+mural), kept only if it beats today's model on clips it has not seen.
+
 ## 7. Open points
 
 - **Sport**: decided automatically (test 43, part 3 above); confirm in the field that no basketball recording gets
