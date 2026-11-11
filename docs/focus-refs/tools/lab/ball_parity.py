@@ -31,7 +31,12 @@ import cam_bt  # noqa: E402
 
 # (clip, detections tag): our gym (held-out half-models), another court, a web clip
 CLIPS = [("basket-app-1107-a", "bgym-n5"), ("basket-app-1107-d", "bgym-n5"), ("basket-ext-1109-b", "bgymall-n5"),
-         ("yt1105-basket-a", "bgymX-n5")]
+         ("yt1105-basket-a", "bgymX-n5"),
+         # Test 50: the long pass (the app's model on all tiles), where the passer's shirt held the path; no Modo Foco
+         # file in the lab, so today's framing is the centred crop the app uses when it has none
+         ("basket-app-1110-a", "bgymall-n5")]
+# Test 50: basketball's camera speed (BallCameraParams.basketball)
+BASKET_SMOOTH = (1.0, 100.0)
 # Tests 46-49 (beach tennis, its own fixture file; basketball's above is unchanged): the next court (a-02), balls on
 # the sand and short runs (b-02), a vertical clip and its zoom rule (yt-bt-06), a video screen (the stream), a clip the
 # verdict turns down (bt-v-1029, recorded at 0.5x: the ball too small).
@@ -104,9 +109,37 @@ def auto_zoom(tr, today, native, W, H, landscape, max_upscale=2.2, factor_h=1.0,
     return round(z, 2), {"content": z_content, "quality": z_quality, "ball": z_ball, "share": share}
 
 
+def people_fixture(name, n):
+    """Test 50: the clip's person boxes per frame as the app keeps them (x, y, w, h top-left, 6 decimals; [] where
+    none), and the same boxes in ball_track's centre format, worked out as the Swift port does (x + w / 2)."""
+    rows = bt.people_rows(name) or []
+    tl = []
+    for k in range(n):
+        row = rows[k] if k < len(rows) and rows[k] is not None else []
+        tl.append([[round(b[0] - b[2] / 2, 6), round(b[1] - b[3] / 2, 6), round(b[2], 6), round(b[3], 6)] for b in row])
+    centre = [[[b[0] + b[2] / 2, b[1] + b[3] / 2, b[2], b[3]] for b in row] for row in tl]
+    return tl, centre
+
+
+def load_today(name):
+    """story.load, or for a clip without today's Modo Foco file the centred 9:16 crop (BallFraming.aligned) and a whole
+    frame as its native rows."""
+    try:
+        return story.load(name)
+    except FileNotFoundError:
+        meta = ev.clip_meta(name)
+        n = meta["count"]
+        W, H = story.source_size(meta)
+        w, h = min(1.0, (9 / 16) * H / W), min(1.0, (16 / 9) * W / H)
+        today = np.array([[(1 - w) / 2, (1 - h) / 2, w, h]] * n)
+        return meta, truth_or_empty(name), today, n, W, H, "portrait" if H > W else "landscape"
+
+
 def case(name, tag):
     det = json.load(open(os.path.join(ev.ROOT, "lab", "tests", "detect", f"{name}.{tag}.json")))
     meta = ev.clip_meta(name)
+    people_tl, people_c = people_fixture(name, meta["count"])
+    det["people"] = people_c
     P = dict(bt.P)
     P.update(bt.SPORT_P.get(meta["sport"], {}))
     saved = dict(bt.P)
@@ -118,20 +151,24 @@ def case(name, tag):
         bt.P.clear()
         bt.P.update(saved)
     n = meta["count"]
-    label_size = ev.load_truth(name)["size"]
+    label_size = truth_or_empty(name)["size"]
     tr = hybrid.trusted({str(k): v for k, v in pred.items()}, n, label_size, meta["sport"])
-    _, _, today, n2, W, H, orient = story.load(name)
-    fc = json.load(open(os.path.join(sg.TESTS, "framing", f"{name}.current.focus.json")))
-    off = int(round((meta["startMs"] - fc["startMs"]) / 100))
-    native = np.array(fc["landscape" if orient == "landscape" else "portrait"], dtype=float)
+    _, _, today, n2, W, H, orient = load_today(name)
+    fpath = os.path.join(sg.TESTS, "framing", f"{name}.current.focus.json")
+    if os.path.exists(fpath):
+        fc = json.load(open(fpath))
+        off = int(round((meta["startMs"] - fc["startMs"]) / 100))
+        native = np.array(fc["landscape" if orient == "landscape" else "portrait"], dtype=float)
+    else:
+        off, native = 0, np.array([[0.0, 0.0, 1.0, 1.0]])
     assert n2 == n, (name, n2, n)
     zoom, parts = auto_zoom(tr, today, native, W, H, orient == "landscape")
-    rects = camera_rects(tr, today, W, H, zoom)
+    rects = camera_rects(tr, today, W, H, zoom, smooth=BASKET_SMOOTH)
     r = lambda v: round(float(v), 7)  # noqa: E731
     return {
         "clip": name, "detTag": tag, "params": {k: P[k] for k in sorted(P)},
         "detSize": det["size"], "step": det.get("step", 1), "labelSize": label_size, "videoSize": [W, H],
-        "frames": det["frames"],
+        "frames": det["frames"], "people": people_tl,
         "todayPortrait": [[r(x) for x in row] for row in today.tolist()],
         "todayNative": [[r(x) for x in row] for row in native.tolist()], "todayNativeOffset": off,
         "expect": {
@@ -254,6 +291,8 @@ def check():
     """camera_rects / auto_zoom here == story.camera / story.auto_zoom on the clips' own tracks."""
     for name, tag in CLIPS:
         track_tag = {"bgym-n5": "det-t38-bgym", "bgymall-n5": "det-t40-bgymall", "bgymX-n5": "det-t39o-base"}[tag]
+        if not os.path.exists(os.path.join(sg.TESTS, "oneclick", f"{name}.ball.{track_tag}.json")):
+            continue  # test 50's field clip has no stored lab track (nor labels)
         meta, truth, n, ref, W, H, _ = story.camera(name, "C", 1.2, track_tag)
         oc = json.load(open(os.path.join(sg.TESTS, "oneclick", f"{name}.ball.{track_tag}.json")))
         tr = hybrid.trusted(oc["pred_one"], n, truth["size"], meta["sport"])
@@ -282,7 +321,7 @@ def main():
     if a.out:
         cases = [case(c, t) for c, t in CLIPS]
         with open(a.out, "w") as f:
-            json.dump({"source": "docs/focus-refs/tools/lab/ball_parity.py (Modo Foco lab, tests 35-42)",
+            json.dump({"source": "docs/focus-refs/tools/lab/ball_parity.py (Modo Foco lab, tests 35-42, 50)",
                        "cases": cases}, f, separators=(",", ":"))
         for c in cases:
             e = c["expect"]

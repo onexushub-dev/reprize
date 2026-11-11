@@ -146,6 +146,7 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 6 | Hybrid framing: the ball while SAM 2 is sure of it, today's Modo Foco when not (`hybrid.py`, videos in `lab/tests/framing/`) | **first round done** (below) |
 | 10 | iPhone step 1: EdgeTAM as 4 fixed-shape Core ML models + the tracking loop (`loop.py`, `coreml_export.py`, `coreml-mac.sh`) | **done: same quality as EdgeTAM, 45 ms/frame on the Mac's Neural Engine** (below) |
 | 11 | iPhone step 2: time and check the Core ML models on the phones (16 Pro Max, XR) with FocusBench, a throwaway test app (`ios-bench/`, `ios_bench.py`) | **done: 16 Pro Max 122 ms/frame, all on the Neural Engine, same track as the Mac; XR 0.55–0.72 s/frame with GPU, same track, heats up** (below) |
+| 50 | Basketball: the 9:16 camera loses a long pass and the receiver (Victor's field clip `basket-app-1110-a`, the app's export of `basket-app-1108-a`): measure the app's camera on its export (`app_camera.py`), find the cause (`pass_diag.py`), sweep path and camera on the 32 labelled basketball clips (`pass_sweep.py`, people by `people_yolox.py`), compare (`pass_render.py`) | **cause: the path stays on a yellow SHIRT the detector scores 0.64 (the passer's) while the ball flies at 0.2–0.3, so the camera sees the ball only at the shot, 1.0 s later; camera speed alone is not the cause. Fix: a tall candidate (h >= 1.35 w) inside a person and bigger than 0.3 of the person's height scores x0.3, + the beach tennis camera speed (a 1, b 100): ball in crop 96.6 -> 98.0%, at passes 92.2 -> 96.4%, holder whole at passes 88.2 -> 92.8%; 1110-a 85 -> 100%. Waiting for Victor's eye** (below) |
 | 49 | The beach tennis camera: (a) aim between the ball and the player who hits it, (b) its speed, (c) lock the camera to the court of the main players, (d) Victor's reference reels (`cam_bt.py`, 19 labelled own clips + 6 app clips) | **blend 0.4 toward the hitter + faster smoothing (a 1, b 100) + court lock (ball points outside 5–95% of the main players' x ± 0.20 dropped): ball in crop 98.0 -> 97.9%, hitter whole 88.1 -> 93.6%, at the hits 82.1 -> 91.2% (arena B 78 -> 88%), a-10 no longer goes to the next court. The reels: same player size and pan, but they keep both near players in the frame (84–95% vs our 14–17%); keeping our pair together costs the ball or the hitter -> off. T49 into the app (beach tennis only)** (below) |
 | 48 | The beach tennis model for the app (public sets + BOTH arenas, every ball marked) and Seguir a Bola per sport in the app (`mac-train-bt.sh` on Victor's Mac, `mac-coreml-bt.sh`; ReplayCore `BallSport`) | **the 45b recipe, re-run (the .pth were lost with the cloud workspace): a run varies ~4 pts (public base on arena A 81.8 -> 78.0%; btplA2 93.8 -> 88.7% ceiling, cover 90 -> 85%), the fine-tune gain is the same (+12 / +11). On 5 labelled clips no beach tennis model saw (249 points): `btpl` = `btplB` (ceiling 85.1 vs 85.5%, cover 82 vs 82%, precision 94 vs 95%) -> `btpl` ships (more of the real arenas). App: the sport per recording (asked when the classifier says another sport), the beach tennis profile (tests 46-47), the verdict; basketball unchanged (parity fixtures identical, 285 Swift + 1,328 jest tests pass)** (below) |
 | 47 | Beach tennis: (a) when is Seguir a Bola worth applying to a clip (`ball_verdict.py`, signals the phone has, no labels; 30 bt clips + 16 basketball clips measured only), (b) a video screen at the venue (`ball_track.py` `screen`), (c) the ball near the players (`near`) | **(a) before: players < 10% of the 9:16 output height = too far, not offered; after: ball share >= 25%, ball >= 16 px in the output, camera pan >= 0.6 crop widths / 10 s, else today's Modo Foco. Off: bt-v-1029 (0.5x), bt-rz-1105-v, bt-wa-1028, yt1105-bt, bt-0AE39B33, bt-own-a-06; on: the other 24. Basketball: no verdict (today's behaviour). (b) a region that changes all at once: the LED screen found on the stream only (51 path frames on it -> 0), the 19 own clips unchanged. (c) no gain: the native crop changes nothing, the 9:16 one costs cover (90.6 -> 86.9%); off** (below) |
@@ -185,6 +186,71 @@ static-camera clips and against the same ground truth, the ways to make the fram
 | 12 | Foco na Bola in ONE EdgeTAM pass instead of two: crops guided by the players only (`roi.py --guide p`), or following the previous frame's ball as tracking goes (`single_pass.py`) | **done: no one-pass variant ties with the two passes on every clip; keep two passes** (below) |
 
 Run the Mac tests with `bash tools/lab/mac-tests.sh` (ball) or `bash tools/lab/mac-tests.sh person`.
+
+### Test 50 result (2026-11-10) — basketball: a long pass, the receiver lost for a second
+
+Victor (field clip, app export with Seguir a Bola, `refs/2026-11-10/basquete/`: `3C8A306D...` without it, `64230949...`
+with it): on a fast pass from one side to the other the camera loses the ball and is slow to reach the player who gets
+it, who usually shoots or drives at once. The clip is `basket-app-1108-a` exported again (same frames; its labels
+score it), added as `basket-app-1110-a` with the app's model on all tiles (`bgymall-n5`, as the phone runs it).
+
+**The app's camera** (`app_camera.py`: the 9:16 export matched against the export without it every 100 ms, match
+0.99–1.00, zoom 1.2): held at the left edge (centre 0.13) until 3.6 s, then a slow pan to 0.57 at 6.6 s. The lab's
+camera C on the same detections reproduces it (mean |dx| 0.003, max 0.008), so the port is exact and the lab can
+explain it. Labelled ball: 4.0 s x 0.16 (the pass leaves) -> 4.4 s 0.39 -> 4.8 s 0.56 (caught under the basket) ->
+shot at 5.8 s. The ball is outside the app's crop at 4.4–5.0 s (4 labelled points, 0.8 s) and the receiver from ~4.5 s
+to ~5.6 s.
+
+**Cause** (`pass_diag.py`): not the camera's speed. The detector sees the ball in flight weakly (4.2 s 0.32, 4.6 s
+0.31, 4.8 s 0.15: motion blur, 5 fps) and the passer's YELLOW SHIRT strongly (53x75 / 56x103 px boxes, 0.64, on
+4.4–4.6 s; the ball is 22–35 px there). The path (`dp=1`) keeps the shirt, so the trusted ball stays at x 0.16 until
+4.8 s and is next seen at 5.8 s (shot); the 10-frame bridge and camera C's smoothing turn that into a 3 s pan.
+Moving the path's costs does not help (`move_cost` 0.3–0.5, `s0` 0.1: 1110-a unchanged, others worse); a size
+consistency cost does (`size_cost`) but loses the real ball where it grows near the camera (basket-ext-1109-b 100 ->
+76%): the ball's size changes with depth.
+
+**Sweep** (`pass_sweep.py`, 32 labelled basketball clips: held-out folds for our gym, the app's model elsewhere;
+people boxes by YOLOX-Tiny COCO, `people_yolox.py`, as a stand-in for Vision's; "at passes" = labelled points from the
+end of a move >= 0.15 frame widths within 0.6 s to 0.8 s after it; "holder" = the person nearest to the ball wholly
+inside the crop; zoom per clip fixed across variants; clips without today's Modo Foco file use a centred fallback):
+
+| path | camera | ball in crop | at passes (309) | holder whole: all / at passes (279) | worst out-run mean / max | pan |
+|---|---|---|---|---|---|---|
+| today | C (a 3, b 300) | 96.6% | 92.2% | 95.1 / 88.2% | 0.20 / 1.0 s | 2.44 |
+| today | a 1, b 100 (beach tennis') | 97.3% | 93.9% | 96.1 / 89.2% | 0.17 / 1.0 s | 2.82 |
+| **shirt filter (x0.3)** | **a 1, b 100** | **98.0%** | **96.4%** | **96.7 / 92.8%** | **0.14 / 1.0 s** | **2.84** |
+| shirt filter (dropped) | a 1, b 100 | 97.7% | 96.4% | 96.2 / 92.8% | 0.17 / 1.0 s | 2.86 |
+| taller than 1.3x wide dropped (no people) | a 1, b 100 | 97.2% | 97.4% | 96.3 / 95.3% | 0.17 / 1.0 s | 2.84 |
+| shirt filter (dropped) + aim 0.4 toward the holder (`cam_bt.aim_x`) | a 1, b 100 | 97.6% | 96.1% | 96.6 / 93.5% | 0.17 / 1.0 s | 2.86 |
+
+Shirt filter (`ball_track.py` `person_ratio` 0.3, `person_asp` 1.35, `person_w` 0.3): a candidate at least 1.35x taller
+than wide, inside a person's box that the picture does not cut, and bigger than 0.3 of that person's height, has its
+score x0.3. Real balls matching a label are never taller than 1.25x inside a person in this set; shirts 1.4–2.1x
+(checked over all 32 clips). Vision's boxes (`person_vision=1`, the 4 clips that have them) flag the same
+candidates as YOLOX's (one more on 1107-d). The faster camera alone never makes a clip worse (8 better). With the
+filter, per clip vs today: 1108-a and 1110-a 85 -> 100%, 1107-a, 1107-c, 1108-c, 1109-g, yt1105-a/b, rp-1105-v-a
+better; 1108-d 96 -> 89% (the lab's centred fallback before the first ball; the app falls back to Modo Foco) and
+1109-b 100 -> 98% (one point) worse. "Taller than 1.3x dropped" with no people scores best at passes but drops 7% of the
+real ball's detections (vertical blur: dribbles, shots; 1108-a's shot at 6.2 s) and costs 1108-c (-13), 1109-b (-12).
+Dropping the shirt instead of x0.3 lets the path pick weaker clutter (1108-g 100 -> 90%). Aiming toward the holder
+adds little in basketball.
+
+1110-a with the filter + a 1, b 100: crop at 4.4 s [0.23–0.50], 4.8 s [0.35–0.61], 5.0 s [0.39–0.65]: the ball
+and the receiver are in from the pass to the shot (the receiver at the crop's right edge at ~4.7 s). Video
+`lab/tests/story/basket-app-1110-a.pass-compare-t50.mp4` (app today | faster camera only | faster camera + shirt
+filter; green ring = labelled ball, red border = labelled ball outside). Report `lab/tests/story/pass-sweep-t50.md`.
+
+For the app (after Victor's eye): `BallSport.basketball` gets `BallCameraParams` a 1, b 100 and the shirt filter in
+`BallPath` (the Modo Foco file's `people`, which BallAnalyzer today passes only to sports with `follow`), rules
+`ball-t50`, `ball_parity.py` fixtures with people. **Victor approved by eye (2026-11-10) -> in the app**:
+`BallPathParams.basketball` (`personRatio` 0.3, `personAsp` 1.35, `personW` 0.3, `BallPath.isShirt`),
+`BallCameraParams.basketball` (a 1, b 100), `BallAnalyzer` reads `people` for basketball, rules `ball-t50`;
+`ball_track.SPORT_P["basquete"]` now has the shirt rule (pass `person_ratio=0` for the path before it; `pass_sweep.py`
+and `pass_diag.py` do for "base"); `ball_parity.py --out` writes each case's person boxes (YOLOX's `people-yx`, top-left,
+6 decimals; the lab reads them back as the Swift port does) and adds `basket-app-1110-a` (no Modo Foco file: the
+centred crop, zoom 1.0); the four older cases: 1107-a unchanged, 1107-d 8 / 1109-b 18 / yt1105-a 2 path frames
+changed by the rule; beach tennis' fixture unchanged. The root cause is the detector: a retrain with yellow-shirt
+"not a ball" crops from our gym (test 32's recipe, Victor's Mac) would remove it at the source.
 
 ### Test 49 result (2026-11-10) — the beach tennis camera: aim between the ball and the player who hits it, court lock, reference reels
 
