@@ -50,8 +50,8 @@ import { ballForCut, readyBallFile } from '../../data/ballFile';
 import type { BallSportId } from '../../data/schema';
 import { readFocusFile } from '../../data/focusFile';
 import { removeFile, repo } from '../../data/mmkv';
-import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce } from '../../focus/appBallQueue';
-import { ballSportIdOf } from '../../focus/sportCheck';
+import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce, sportChecking } from '../../focus/appBallQueue';
+import { ballSportIdOf, ballSportOf, sportNeedsCheck } from '../../focus/sportCheck';
 import { focusQueue } from '../../focus/appFocusQueue';
 import { focusHold } from '../../focus/focusQueue';
 import { useFocusFraming } from '../../focus/useFocusFraming';
@@ -839,7 +839,15 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   let ballUi: BallUi = 'hidden';
   if (ballAvailable()) {
     if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
-    else if (ballSport === undefined) ballUi = 'soon';
+    else if (ballSport === undefined) {
+      // Test 51: no question unless this build cannot tell; another sport keeps Modo Foco ("EM BREVE")
+      const needs = sportNeedsCheck(session);
+      if (!needs && ballSportOf(session) === 'other') ballUi = 'soon';
+      else if (needs && session && (!session.ballSport || !session.ballSport.labels || sportChecking(session.id))) {
+        ballUi = 'checking';
+      }
+      else ballUi = 'ask';
+    }
     else ballUi = unsuitable !== undefined ? 'unsuitable' : 'off';
   }
   const ctx: ToolContext = {

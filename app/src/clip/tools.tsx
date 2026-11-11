@@ -21,7 +21,11 @@ export type FocusUi = 'on' | 'off' | 'preparing' | 'unavailable';
  * `unsuitable` when the analysis found it would not look good on this cut (test 47a), or `hidden` on a phone that
  * cannot run it.
  */
-export type BallUi = 'on' | 'analysing' | 'off' | 'soon' | 'unsuitable' | 'hidden';
+/**
+ * Seguir a Bola's row: `soon` = another sport (test 51: Modo Foco only, "EM BREVE", the player may still pick one);
+ * `checking` = the sport is being worked out (milliseconds); `ask` = a build that cannot work it out: the panel asks.
+ */
+export type BallUi = 'on' | 'analysing' | 'off' | 'soon' | 'checking' | 'ask' | 'unsuitable' | 'hidden';
 
 /** Everything a tool panel reads and does; the clip screen builds it. */
 export type ToolContext = {

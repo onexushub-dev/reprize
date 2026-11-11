@@ -321,6 +321,27 @@ field clip (`BallParityTests.testLongPassReachesTheReceiver`, `testShirtRule`). 
 `ball_tiny_gym` with more "not a ball" crops mined from every frame of the labelled clips (shirts, hands, the rim, the
 mural), kept only if it beats today's model on clips it has not seen.
 
+### Part 6: the sport with no question (2026-11-10, lab test 51)
+
+Victor: Seguir a Bola picks its model by itself; every sport other than basketball and beach tennis keeps Modo Foco
+only. Rule (`focus/sportCheck.ts` `autoSport`), on the 3 frames the scene classifier already reads (test 43):
+1. **Sand court -> beach tennis**: the native `SportFloor` (ReplayCore) measures the bottom 55% of each frame scaled
+   to 320 px: the sand-coloured share (OpenCV HSV hue 8-28, saturation 25-140, value >= 90) and the grain of those
+   pixels (median |grey - Gaussian blur σ 1.5|); medians over the frames come to JS as the labels `_floorSand` /
+   `_floorTex`. Sand >= 0.2 and grain >= 4.5 (wooden floors are sand-coloured but smooth).
+2. Otherwise **another sport for sure** (test 43: another sport's label >= 0.4, "basketball" < 0.1) -> Modo Foco only.
+3. Otherwise **basketball**.
+
+Lab (147 clips): basketball 79 of 79 right; beach tennis 39 of 43 (the 4 missed are a stream, two web clips and a
+vertical close-up; they go to rule 2 or 3); beach volleyball / futevôlei on sand become beach tennis in 5 of 10
+(Victor, accepted for now: beach tennis' verdict turns most down); the other sports are left to test 43's rule.
+`Session.ballSport.auto` keeps the answer; a recording looked at before test 51 is looked at again. The Foco panel no
+longer asks: "Verificando o esporte do vídeo…" while it works it out (milliseconds), the switch as before for the two
+sports, "EM BREVE" with "Por enquanto só no basquete e no beach tennis. Este vídeo fica com o Modo Foco." for another
+sport, with "É basquete ou beach tennis? Escolher" to correct it. A build without the floor measure still asks.
+Next: a racket detector (YOLOX-Tiny COCO, test on 2026-11-11) and a sport classifier trained on Victor's own clips
+of the other beach sports, to tell beach tennis from beach volleyball / futevôlei.
+
 ## 7. Open points
 
 - **Sport**: decided automatically (test 43, part 3 above); confirm in the field that no basketball recording gets
