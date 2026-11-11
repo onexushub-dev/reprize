@@ -21,6 +21,7 @@ enum ScreenEconomy {
   private static var observers: [NSObjectProtocol] = []
 
   static func set(_ value: Bool, brightness: CGFloat = ScreenEconomy.dimBrightness, pausePreview: Bool = true) {
+    observe()
     if value == on { return }
     on = value
     if value {
@@ -28,12 +29,10 @@ enum ScreenEconomy {
       previewPaused = pausePreview
       if pausePreview { ReplayCameraView.setPreviewEnabled(false) }
       dim()
-      observe()
     } else {
       if previewPaused { ReplayCameraView.setPreviewEnabled(true) }
       previewPaused = false
       restore()
-      stopObserving()
     }
   }
 
@@ -43,7 +42,10 @@ enum ScreenEconomy {
   }
 
   private static func dim() {
-    guard let screen = screen else { return }
+    // The brightness is the whole phone's, not the app's: only while the app is the one on screen (2026-11-10: a wait
+    // that ended with the app minimised dimmed the home screen and every other app, down to nothing). Asked while away,
+    // it waits for the app to come back (didBecomeActive).
+    guard UIApplication.shared.applicationState == .active, let screen = screen else { return }
     if saved == nil { saved = screen.brightness }
     // Never brighter than the player's own setting.
     screen.brightness = min(screen.brightness, level)
@@ -55,20 +57,19 @@ enum ScreenEconomy {
     screen?.brightness = value
   }
 
-  /// Leaving the app gives the brightness back (the player's own setting); coming back while still dark dims again.
+  /// Leaving the app (switcher, home, another app, closing it) gives the brightness back (the player's own setting);
+  /// coming back while still dark dims again. Installed on first use and kept: a restore must never be missed.
   private static func observe() {
     guard observers.isEmpty else { return }
     let center = NotificationCenter.default
-    observers.append(center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
-      MainActor.assumeIsolated { restore() }
-    })
+    for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification,
+                 UIApplication.willTerminateNotification] {
+      observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+        MainActor.assumeIsolated { restore() }
+      })
+    }
     observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
       MainActor.assumeIsolated { if on { dim() } }
     })
-  }
-
-  private static func stopObserving() {
-    observers.forEach { NotificationCenter.default.removeObserver($0) }
-    observers = []
   }
 }

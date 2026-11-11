@@ -1,10 +1,12 @@
+import { File } from 'expo-file-system';
 import { AppState } from 'react-native';
 
 import * as camera from '../../modules/replay-camera';
+import { focusPath } from '../data/focusFile';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBallQueue } from './ballQueue';
-import { ballSportOf, labelSummary, sportVerdict } from './sportCheck';
+import { ballSportIdOf, ballSportOf, labelSummary, sportVerdict } from './sportCheck';
 
 /** Seguir a Bola's speed rule (spec 2026-11-09 §4.7, Victor: per typical cut): up to 400 ms per 19-region frame. */
 export const BALL_PROBE_MAX_MS = 400;
@@ -15,14 +17,38 @@ export const ballQueue = createBallQueue({
   cancel: camera.cancelBall,
   supported: camera.isBallSupported,
   repo,
+  sportOf: (clip) => ballSportIdOf(repo.getSession(clip.sessionId)),
   now: () => Date.now(),
+  // Test 50: a Modo Foco file from before 2026-11-10 has no person boxes; made again (same range as the Modo Foco queue).
+  focusLacksPeople: (clip) => {
+    try {
+      const f = JSON.parse(new File(`file://${focusPath(clip.path)}`).textSync()) as Record<string, unknown>;
+      return f.v === 1 && f.people === undefined;
+    } catch {
+      return false; // no file (yet) or unreadable: the native side copes as before
+    }
+  },
+  refreshFocus: (clip) => {
+    const range = clip.bounds ? clip.bounds : { startMs: 0, endMs: clip.durationMs };
+    if (DIAGNOSTICS_ENABLED) diag('Seguir a Bola: Modo Foco refeito para ter as pessoas (arquivo antigo)');
+    return camera.analyzeFocus({
+      clipPath: clip.path,
+      startMs: range.startMs,
+      endMs: range.endMs,
+      outPath: focusPath(clip.path),
+    });
+  },
+  note: (e) => {
+    if (DIAGNOSTICS_ENABLED) diag(`Seguir a Bola: corte analisado de novo (regras ${e.from || 'antigas'} para ${e.to})`);
+  },
   // TEMP(diag-remote): the field test reads the analysis time on the Diagnóstico screen.
   measured: (clip, r) => {
     if (!DIAGNOSTICS_ENABLED) return;
     diag(
       `Seguir a Bola: corte de ${((clip.trim.endMs - clip.trim.startMs) / 1000).toFixed(1)} s ` +
         `analisado em ${(r.elapsedMs / 1000).toFixed(1)} s (${r.analysed} quadros, ${r.reused} do cache, ` +
-        `bola em ${Math.round(r.ballShare * 100)}%, zoom ${r.zoom})`,
+        `bola em ${Math.round(r.ballShare * 100)}%, zoom ${r.zoom}` +
+        `${r.status === 'unsuitable' ? `, sem aplicar: ${r.reason}` : ''})`,
     );
   },
 });

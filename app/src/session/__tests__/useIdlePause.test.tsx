@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 
 import { SETUP_IDLE_MS, SETUP_WARN_MS, useIdlePause } from '../useIdlePause';
 
@@ -86,4 +87,50 @@ test('a warning cut short by a sheet does not come back stale when the wait star
   expect(view.result.current.warning).toBeUndefined();
   await run(29_999);
   expect(view.result.current.warning).toBe(5);
+});
+
+describe('the app off screen (minimised, another app, closed)', () => {
+  const listeners: ((s: string) => void)[] = [];
+  let spy: jest.SpyInstance;
+  beforeEach(() => {
+    listeners.length = 0;
+    spy = jest
+      .spyOn(AppState, 'addEventListener')
+      .mockImplementation(((_: string, fn: (s: string) => void) => {
+        listeners.push(fn);
+        return { remove: jest.fn() };
+      }) as never);
+  });
+  afterEach(() => spy.mockRestore());
+  const appState = async (s: string) => {
+    await act(async () => listeners.forEach((fn) => fn(s)));
+  };
+
+  test('the wait does not count while away, and starts again from zero on coming back', async () => {
+    const onPause = jest.fn();
+    const view = await renderHook(() => useIdlePause(true, { onPause }));
+    await run(30_000);
+    await appState('background');
+    await run(60_000); // away longer than the wait: no pause
+    expect(view.result.current.paused).toBe(false);
+    expect(onPause).not.toHaveBeenCalled();
+    await appState('active');
+    await run(SETUP_IDLE_MS - 1); // the whole wait again, not the 5 s left before leaving
+    expect(view.result.current.paused).toBe(false);
+    await run(1);
+    expect(view.result.current.paused).toBe(true);
+  });
+
+  test('leaving a paused screen ends the pause (the brightness comes back), and coming back starts awake', async () => {
+    const onResume = jest.fn();
+    const view = await renderHook(() => useIdlePause(true, { onResume }));
+    await run(SETUP_IDLE_MS);
+    expect(view.result.current.paused).toBe(true);
+    await appState('inactive');
+    expect(view.result.current.paused).toBe(false);
+    expect(onResume).toHaveBeenCalledWith('fim');
+    await appState('active');
+    expect(view.result.current.paused).toBe(false);
+    expect(view.result.current.warning).toBeUndefined();
+  });
 });

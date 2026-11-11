@@ -7,11 +7,15 @@ import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import { SCRIM } from './IconButton';
 
-/** What the chip says: ready, waiting, analysing (with its progress), cooling the phone, or failed. */
+/**
+ * What the chip says: ready, waiting, analysing (with its progress), cooling the phone, failed, or not available on
+ * this video (test 47a: the clip went back to Modo Foco; the Foco panel says why).
+ */
 export type BallChipState =
   | { kind: 'ready'; sparse: boolean }
   | { kind: 'working'; progress: BallProgress | undefined }
-  | { kind: 'failed'; hot: boolean };
+  | { kind: 'failed'; hot: boolean }
+  | { kind: 'unsuitable' };
 
 type Props = {
   state: BallChipState;
@@ -49,6 +53,15 @@ export function BallChip({ state, onCancel, onRetry }: Props) {
       </View>
     );
   }
+  if (state.kind === 'unsuitable') {
+    return (
+      <View pointerEvents="none" style={styles.wrap}>
+        <View style={styles.chip}>
+          <Text style={styles.text}>{t('clip.ballUnsuitable')}</Text>
+        </View>
+      </View>
+    );
+  }
   if (state.kind === 'failed') {
     return (
       <View pointerEvents="box-none" style={styles.wrap}>
@@ -62,6 +75,8 @@ export function BallChip({ state, onCancel, onRetry }: Props) {
   let label = t('clip.ballWaiting');
   let fraction = 0;
   if (p && p.state === 'cooling') label = t('clip.ballCooling');
+  // started, before the first frames are counted (an older clip's Modo Foco file made again first, test 50)
+  else if (p && p.state === 'running' && p.total === 0) label = t('clip.ballPreparing');
   else if (p && p.state !== 'waiting' && p.total > 0) {
     const e = ballEstimate(p, now);
     label = t('clip.ballAnalysing', { percent: e.percent, seconds: e.secondsLeft });

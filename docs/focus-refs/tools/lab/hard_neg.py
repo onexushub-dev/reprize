@@ -62,8 +62,9 @@ def cmd_public(a):
             objs = by.get(im["id"], [])
             # upright people only: the dataset rotates a third of its images by 90 degrees, and on a rotated person the
             # top of the box is not the head
-            people = [b for c, b in objs if c == "person" and b[3] > 40 and b[3] > 1.3 * b[2]]
+            people = [b for c, b in objs if c == a.person and b[3] > 40 and b[3] > 1.3 * b[2]]
             balls = [b for c, b in objs if c == "ball"]
+            rackets = [b for c, b in objs if a.racket and c == a.racket]
             if not people:
                 continue
             img = cv2.imdecode(np.frombuffer(read(im["file_name"]), np.uint8), cv2.IMREAD_COLOR)
@@ -75,8 +76,17 @@ def cmd_public(a):
             # a head is ~1/7 of the person's height; a torso point at ~35% of it
             cxo = p[0] + p[2] / 2
             cyo = p[1] + p[3] * (0.07 if part < 0.6 else 0.35)
+            kind = "h" if part < 0.6 else "t"
+            if rackets and rng.random() < a.racket_share:  # test 45: racket heads (racket sports)
+                r = rng.choice(rackets)
+                cxo, cyo, kind = r[0] + r[2] / 2, r[1] + r[3] / 2, "r"
             head = p[3] / 7
-            s = min(max(rng.uniform(*bt.BALL_PX) / max(head, 1.0), 0.08), 2.0)
+            if a.ball_px:
+                # test 45: a small ball (beach tennis): scale so the BALL would be 8-32 px (heads come out bigger),
+                # --ball-px = the dataset's median ball at 1920 px wide
+                s = min(max(rng.uniform(*bt.BALL_PX) / (a.ball_px * W0 / 1920), 0.08), 2.0)
+            else:
+                s = min(max(rng.uniform(*bt.BALL_PX) / max(head, 1.0), 0.08), 2.0)
             big = cv2.resize(img, (max(1, int(W0 * s)), max(1, int(H0 * s))),
                              interpolation=cv2.INTER_AREA if s < 1 else cv2.INTER_LINEAR)
             x0 = int(cxo * s - rng.uniform(0.2, 0.8) * CROP)
@@ -92,7 +102,7 @@ def cmd_public(a):
                 bx, by_ = (b[0] + b[2] / 2) * s - x0, (b[1] + b[3] / 2) * s - y0
                 if 0 <= bx < CROP and 0 <= by_ < CROP and max(b[2], b[3]) * s >= 3:
                     boxes.append([bx, by_, max(b[2] * s, 3.0), max(b[3] * s, 3.0)])
-            fn = f"{len(items):06d}-{'h' if part < 0.6 else 't'}.jpg"
+            fn = f"{len(items):06d}-{kind}.jpg"
             cv2.imwrite(os.path.join(d, fn), crop, [cv2.IMWRITE_JPEG_QUALITY, 92])
             items.append({"file": fn, "boxes": boxes})
     json.dump({"clip": f"neg-{a.name}", "src": a.src, "items": items}, open(os.path.join(d, "items.json"), "w"))
@@ -214,6 +224,10 @@ def main():
     p.add_argument("--src", required=True)
     p.add_argument("--name", required=True)
     p.add_argument("--limit", type=int, default=5000)
+    p.add_argument("--person", default="person", help="test 45: the dataset's people class (beach tennis: player)")
+    p.add_argument("--racket", default=None, help="test 45: the dataset's racket class, for racket-head crops")
+    p.add_argument("--racket-share", type=float, default=0.4)
+    p.add_argument("--ball-px", type=float, default=0.0, help="test 45: scale by the ball (median px at 1920 wide)")
     p = sub.add_parser("mine")
     p.add_argument("--tag", required=True)
     p.add_argument("--min-score", type=float, default=0.2)

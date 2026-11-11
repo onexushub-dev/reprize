@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 
 import { sessionSummary } from '../../analytics';
 import { ECONOMY_IDLE_MS, ECONOMY_WARM_IDLE_MS, useScreenEconomy } from '../useScreenEconomy';
@@ -90,4 +91,31 @@ test('a wait of its own replaces both (the remote phone waits a minute, warm or 
   await act(async () => jest.advanceTimersByTime(1));
   expect(result.current.asleep).toBe(true);
   expect(setNative).toHaveBeenLastCalledWith(true);
+});
+
+test('away from the app (minimised, another app): no dark screen, the brightness given back, the wait from zero again', async () => {
+  const listeners: ((s: string) => void)[] = [];
+  const spy = jest
+    .spyOn(AppState, 'addEventListener')
+    .mockImplementation(((_: string, fn: (s: string) => void) => {
+      listeners.push(fn);
+      return { remove: jest.fn() };
+    }) as never);
+  const appState = async (s: string) => {
+    await act(async () => listeners.forEach((fn) => fn(s)));
+  };
+  const { result, setNative } = await setup({ active: true, thermal: 'nominal' });
+  await act(async () => jest.advanceTimersByTime(ECONOMY_IDLE_MS));
+  expect(result.current.asleep).toBe(true);
+  await appState('background');
+  expect(result.current.asleep).toBe(false);
+  expect(setNative).toHaveBeenLastCalledWith(false);
+  await act(async () => jest.advanceTimersByTime(ECONOMY_IDLE_MS * 3));
+  expect(result.current.asleep).toBe(false);
+  await appState('active');
+  await act(async () => jest.advanceTimersByTime(ECONOMY_IDLE_MS - 1));
+  expect(result.current.asleep).toBe(false);
+  await act(async () => jest.advanceTimersByTime(1));
+  expect(result.current.asleep).toBe(true);
+  spy.mockRestore();
 });

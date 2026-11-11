@@ -141,6 +141,17 @@ enum FocusAnalyzer {
       "landscape": rows(landscape ? mainRects : otherRects),
       "portrait": rows(landscape ? otherRects : mainRects),
     ]
+    // Test 47a: the players' median height (share of the frame height, every box of every frame), so Seguir a Bola can
+    // tell a recording made too far before analysing it. Read by BallAnalyzer only; the framing above is unchanged.
+    let heights = frames.flatMap { $0.boxes.map { $0.height } }.sorted()
+    if !heights.isEmpty {
+      let mid = heights.count / 2
+      file["playersHeight"] = r4(heights.count % 2 == 1 ? heights[mid] : (heights[mid - 1] + heights[mid]) / 2)
+    }
+    // Test 49: the person boxes per row (x, y, width, height, top-left), so Seguir a Bola can keep to the main players'
+    // court and aim toward the player hitting the ball (sports with `follow`). Read by BallAnalyzer only; the framing
+    // above is unchanged.
+    file["people"] = samples.map { s in s.boxes.map { [r4($0.x), r4($0.y), r4($0.width), r4($0.height)] } }
     if debug {
       file["samples"] = samples.map { s in [s.tMs, s.boxes.map { [r4($0.x), r4($0.y), r4($0.width), r4($0.height)] }] as [Any] }
     }

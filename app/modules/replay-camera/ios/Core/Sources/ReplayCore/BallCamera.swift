@@ -17,12 +17,30 @@ public struct BallCameraParams: Equatable {
   /// Gaps up to this many frames are bridged with a straight line.
   public var bridge = 10
   public init() {}
+
+  /// Basketball (test 50): the beach tennis speed — on a long pass the calmer camera C reached the receiver late; never
+  /// worse on the 32 labelled basketball clips (ball in crop 96.6 -> 97.3%, after passes 92.2 -> 93.9%).
+  public static var basketball: BallCameraParams {
+    var p = BallCameraParams()
+    p.smoothA = 1
+    p.smoothB = 100
+    return p
+  }
+
+  /// Beach tennis (test 49b): a faster camera (the ball crosses the court fast; a calmer one cuts the hitter more).
+  public static var beachTennis: BallCameraParams {
+    var p = BallCameraParams()
+    p.smoothA = 1
+    p.smoothB = 100
+    return p
+  }
 }
 
 public enum BallCamera {
   /// `ball`: trusted points; `today`: today's 9:16 Modo Foco rects (same frames); `width`, `height`: the upright video.
+  /// `aim`: the target x per frame instead of the ball's (test 49b: between the ball and the hitter; nil = the ball).
   public static func rects(ball: [BallXY?], today: [[Double]], width W: Double, height H: Double, zoom: Double,
-                           params P: BallCameraParams = BallCameraParams()) -> [[Double]] {
+                           params P: BallCameraParams = BallCameraParams(), aim: [Double?]? = nil) -> [[Double]] {
     let n = ball.count
     let wmax = min(1.0, (9.0 / 16.0) * H / W)
     let hmax = min(1.0, (16.0 / 9.0) * W / H)
@@ -31,7 +49,7 @@ public enum BallCamera {
     let cy0 = (0..<n).map { today[$0][1] + today[$0][3] / 2 }
     var cx: [Double]
     if w < 0.999 {
-      let tx = targetX(ball.map { $0.map { $0.x } }, fallback: cx0, bridge: P.bridge)
+      let tx = targetX(aim ?? ball.map { $0.map { $0.x } }, fallback: cx0, bridge: P.bridge)
       let wt = ball.map { $0 == nil ? P.weightNoBall : 1.0 }
       cx = bandPath(lo: tx.map { $0 - P.deadZone * w }, hi: tx.map { $0 + P.deadZone * w }, weight: wt,
                     anchor: cx0, anchorWeight: 0, a: P.smoothA, b: P.smoothB)

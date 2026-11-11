@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { FocusIcon, RotateIcon, SoundIcon, SpeedIcon, ZoomIcon } from '../components/icons';
+import type { BallSportId, BallUnsuitable } from '../data/schema';
 import type { MessageKey } from '../i18n';
 import type { Plan } from '../payments/types';
 import type { Edit } from '../share/editing';
@@ -16,9 +17,11 @@ export type FocusUi = 'on' | 'off' | 'preparing' | 'unavailable';
 
 /**
  * Seguir a Bola as the Foco panel shows it: on (ready), analysing (the switch is on, the progress is on the video), off,
- * `soon` ("EM BREVE") on a recording that looks like another sport (test 43), or `hidden` on a phone that cannot run it.
+ * `soon` on a recording that looks like another sport (test 43: the panel asks which sport it is, test 48),
+ * `unsuitable` when the analysis found it would not look good on this cut (test 47a), or `hidden` on a phone that
+ * cannot run it.
  */
-export type BallUi = 'on' | 'analysing' | 'off' | 'soon' | 'hidden';
+export type BallUi = 'on' | 'analysing' | 'off' | 'soon' | 'unsuitable' | 'hidden';
 
 /** Everything a tool panel reads and does; the clip screen builds it. */
 export type ToolContext = {
@@ -32,8 +35,12 @@ export type ToolContext = {
   toggleFocus(): void;
   ball: BallUi;
   toggleBall(): void;
-  /** "EM BREVE" was a mistake: the player says this recording is basketball. */
-  unlockBall(): void;
+  /** The sport Seguir a Bola analyses this recording as; undefined = not known (the panel asks). */
+  ballSport: BallSportId | undefined;
+  /** Test 47a: why Seguir a Bola is not applied to this cut (with `ball` `unsuitable`). */
+  ballReason: BallUnsuitable | undefined;
+  /** The player says which sport this recording is (test 48). */
+  chooseBallSport(sport: BallSportId): void;
   resetZoom(): void;
   turn(): void;
 };

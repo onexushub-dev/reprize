@@ -80,6 +80,13 @@ T.update(v_keep=0.0)
 # not zoom in; zoom_rate > 0 limits how fast the crop's size may change (zoom factor per second, both ways), the centre
 # unchanged. 0 = off (round 6).
 T.update(min_seg=0, zoom_rate=0.0)
+# Test 46 (2026-11-09, beach tennis with its own detector): the round-5 racket rules were made for SAM 2 / EdgeTAM masks
+# that slide onto a racket or a hand. A detector path (ball_track.py: every point carries the detector's score, 9
+# fields) does not slide; there the area-jump and slow-path rules dropped the real ball (13% of arena A's labelled
+# points: a detector box's size varies from frame to frame, and a ball that moves little for a second is often in play)
+# at the same precision. So they apply to a detector path only with r_det=1 (test 45's numbers). The app's BallTrust
+# has no racket rules either. EdgeTAM and fused tracks (points without a score) keep them.
+T.update(r_det=0)
 
 
 def gauss(values, sigma):
@@ -98,6 +105,13 @@ def gauss(values, sigma):
 RACKET_SPORTS = {"beachTennis", "tenis", "padel", "tenisMesa", "volei", "voleiPraia", "futevolei"}
 
 
+def detector_path(pred):
+    """True for a track made by ball_track.py from detector candidates: every point carries the detector's score (9
+    fields); EdgeTAM masks have 7-8 and fused tracks mix both."""
+    pts = [p for p in pred.values() if p is not None]
+    return bool(pts) and all(len(p) >= 9 for p in pts)
+
+
 def trusted(pred, n, size, sport=None):
     """Per frame: (x, y) when SAM 2's mask looks like the ball, else None.
 
@@ -112,6 +126,8 @@ def trusted(pred, n, size, sport=None):
     W, H = size
     L = max(W, H)
     racket = bool(T["racket"]) and sport in RACKET_SPORTS
+    if racket and not T["r_det"] and detector_path(pred):
+        racket = False
     aspect_max = T["r_aspect_max"] if racket else T["aspect_max"]
     raw, areas = [], []
     for i in range(n):

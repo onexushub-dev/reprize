@@ -47,10 +47,11 @@ import { sessionSummary, track as trackEvent } from '../../analytics';
 import { exportPlanOf } from '../../analytics/plans';
 import { askPhotos } from '../../share/askPhotos';
 import { ballForCut, readyBallFile } from '../../data/ballFile';
+import type { BallSportId } from '../../data/schema';
 import { readFocusFile } from '../../data/focusFile';
 import { removeFile, repo } from '../../data/mmkv';
 import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce } from '../../focus/appBallQueue';
-import { ballSportOf } from '../../focus/sportCheck';
+import { ballSportIdOf } from '../../focus/sportCheck';
 import { focusQueue } from '../../focus/appFocusQueue';
 import { focusHold } from '../../focus/focusQueue';
 import { useFocusFraming } from '../../focus/useFocusFraming';
@@ -280,11 +281,36 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const focusPreview = track !== undefined && edit.rotation === 0 && !handZoom && (edit.focus || (ballChosen && !ballOn));
   const ballProgress = useSyncExternalStore(ballQueue.subscribe, () => ballQueue.progress(id));
   const cutKey = clip ? `${clip.trim.startMs}:${clip.trim.endMs}` : '';
-  // On, with the cut changed or never analysed: the queue analyses it (the frames already found are reused).
+  // Test 48: the sport Seguir a Bola analyses this recording as (its model and rules); undefined = the panel asks.
+  const [, setSportTick] = useState(0);
+  const ballSport = ballSportIdOf(session);
+  // On, with the cut or the sport changed or never analysed: the queue analyses it (the frames already found are reused).
   useEffect(() => {
     if (!ballChosen || leaving) return;
     ballQueue.request(id);
-  }, [ballChosen, cutKey, id, leaving]);
+  }, [ballChosen, cutKey, ballSport, id, leaving]);
+  // Test 47a: judged not worth it on this cut and sport: back to Modo Foco, the chip says why for a few seconds.
+  const unsuitable =
+    clip && clip.ball && clip.ball.status === 'unsuitable' && ballSport && ballForCut(clip.ball, clip.trim, ballSport)
+      ? clip.ball.reason || 'still'
+      : undefined;
+  const unsuitableKey = unsuitable !== undefined ? `${cutKey}:${ballSport || ''}` : undefined;
+  // the cut and sport this screen just turned back to Modo Foco (the chip says so then, not on every visit)
+  const turnedBack = useRef<string | undefined>(undefined);
+  const [unsuitableSeen, setUnsuitableSeen] = useState<string>();
+  useEffect(() => {
+    if (!ballChosen || unsuitableKey === undefined) return;
+    turnedBack.current = unsuitableKey;
+    setEdit({ framing: 'focus' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ballChosen, unsuitableKey]);
+  useEffect(() => {
+    if (unsuitableKey === undefined) return;
+    const timer = setTimeout(() => setUnsuitableSeen(unsuitableKey), BALL_SPARSE_MS);
+    return () => clearTimeout(timer);
+  }, [unsuitableKey]);
+  const unsuitableNote =
+    unsuitableKey !== undefined && turnedBack.current === unsuitableKey && unsuitableSeen !== unsuitableKey;
   // "Bola pouco visível": once per cut, for a few seconds under the chip.
   const sparseKey =
     ballOn && clip && clip.ball && clip.ball.share !== undefined && clip.ball.share < BALL_SPARSE_SHARE ? cutKey : undefined;
@@ -301,6 +327,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     else if (clip.ball && clip.ball.status === 'failed' && ballForCut(clip.ball, clip.trim)) {
       ballChip = { kind: 'failed', hot: clip.ball.hot === true };
     } else ballChip = { kind: 'working', progress: ballProgress };
+  }
+  if (!ballChip && unsuitableNote && edit.rotation === 0 && !handZoom) {
+    ballChip = { kind: 'unsuitable' };
   }
   let focusChip: 'preparing' | 'on' | 'off' | undefined;
   if (edit.rotation === 0) {
@@ -810,7 +839,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   let ballUi: BallUi = 'hidden';
   if (ballAvailable()) {
     if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
-    else ballUi = ballSportOf(session) === 'other' ? 'soon' : 'off';
+    else if (ballSport === undefined) ballUi = 'soon';
+    else ballUi = unsuitable !== undefined ? 'unsuitable' : 'off';
   }
   const ctx: ToolContext = {
     edit,
@@ -821,8 +851,13 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     toggleFocus,
     ball: ballUi,
     toggleBall,
-    unlockBall: () => {
-      if (session) repo.setBallSport(session.id, { v: 1, verdict: 'allow', unlocked: true });
+    ballSport,
+    ballReason: unsuitable,
+    chooseBallSport: (sport: BallSportId) => {
+      if (!session) return;
+      const before = session.ballSport;
+      repo.setBallSport(session.id, { ...(before || { v: 1, verdict: 'other' as const }), v: 1, sport });
+      setSportTick((k) => k + 1);
     },
     resetZoom: () => {
       setEdit({ zoom: undefined });
