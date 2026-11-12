@@ -23,6 +23,35 @@ Pieces: `dump_inventory.py` (MMKV + ffprobe → inventory, clips.txt, the phone'
 Models per sport: beach tennis `ball_tiny_btpl`, basketball `ball_tiny_gym` (the app's). Lab times are the Mac / cloud
 CPU: compare today with the candidate there; the phone's own times come from the plan's step 8.
 
+## Test 53 (2026-11-12, lab only) — Bola with motion-gated tiles (`motion_tiles.py`)
+
+Made for `docs/superpowers/plans/2026-11-12-focus-pipeline-analysis-and-improvement-plan.md` (section 6 has the table).
+Idea: the camera is on a tripod, so a tile goes to the detector only when its picture changed (grey thumbnail, 3-frame
+difference, 20 grey levels, the tile also runs on the analysed frame after it moved); a tile that is not run keeps its
+last candidates (`--carry 1`), or the still-object filter stops recognising still objects. Offline simulation on the
+stored all-tiles detections (as test 19's `roi_tiles.py`), python3 + numpy + ffmpeg, no venv.
+
+- Regions per analysed frame 19 → 9.2–10.8; **detector ceiling unchanged on 39 labelled clips, 1,342 points**
+  (night 4K→1920 `btpl-4kplan-1920`, gym `bgym-n5`, arenas `btplA2-n5` / `btplB-n5`).
+- Path (ball_track.py, det_report.py; baseline `det-<det>-ref`): basketball identical on all 12 clips. Arenas A / B
+  equal as sets (cover −0.3 on B) but single clips move: precision 94 → 97% (a-01), 95 → 92% (a-03), cover 92 → 88%
+  (b-02), ball-mode share 78 → 100% (a-05), 90 → 71% (b-08), 86 → 94% (b-09). Night 4K precision 95.4 → 93.4%, cover
+  84.5 → 83.6%, from two clips: bt4k-1111-2fd3b0a7 (precision 91 → 77%, cover 62 → 59%, **gate "não" → "sim"**) and
+  bt4k-1111-c4bd28f7 (precision 100 → 98%, cover 97 → 94%).
+- Without `--carry`: beach tennis precision −1.7 to −3.2. Threshold 30 with no hold: ceiling 89.6 → 80.8% (too far).
+- Not on the phone yet; nothing in the app. Outputs `lab/tests/detect/<clip>.<det>-mt20c.json`, tracks
+  `det-<det>-mt20c`, reports `report.mt-{ref,mt20c}-<det>.md`, logs `lab/tests/motion/`.
+- Unlike tests 19 / 32 (tiles around the path: do not repeat), the tile choice does not depend on the path.
+- **53b, what the phone would have to compute** (`--thumb-w`, `--step`, `--dry 1`; detector ceiling / regions):
+  neighbours ±200 ms (`--step 2`, the analysed frames only, no extra frames) keep the ceiling on all four sets with
+  about one region more (night 11.3, gym 9.4, A 10.6, B 11.7), and the path reports for night and arena B
+  (`report.mt-mt20s2c-*`) equal the ±100 ms ones row for row. Thumbnail width: 480 px night 89.6 → 86.7%; 320 px
+  night → 81.5%, A 88.7 → 80.7%, B 95.2 → 89.9%, gym no loss; 160 px (the app's screen-rule thumbnail) night → 57.8%,
+  gym 90.2 → 89.8%. So one 640 px grey thumbnail per analysed frame, nothing smaller for beach tennis.
+- Sweep rerun (night, carry 1): thr 12 + hold → 12.1 regions, ceiling kept; thr 30 no hold → 8.7 regions, 89.6 → 82.1%.
+- Open: bt4k-1111-2fd3b0a7 moves the same way with both neighbour distances, so look at the carry-forward and at the
+  whole-frame-only candidates the simulation drops (`path_diag.py`) before anything else.
+
 ## Outcome (Victor, 2026-11-06) — read this first
 
 **Nothing from this lab went into the app. Production keeps today's Modo Foco (players only, Vision whole frame +
