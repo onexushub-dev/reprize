@@ -9,7 +9,7 @@ export function SpeedPanel({ ctx }: { ctx: ToolContext }) {
   const { t } = useT();
   return (
     <View style={{ gap: 10 }}>
-      <PanelHead title={t('clip.toolSpeed')} hint={t('clip.speedHint')} />
+      <PanelHead title={t('clip.toolSpeed')} />
       <View style={panelStyles.row}>
         {SPEEDS.map((speed) => (
           <Choice

@@ -560,8 +560,8 @@ describe('watch and edit', () => {
     (Image.getSize as jest.Mock).mockReturnValue(new Promise(() => {}));
     __setClip({ ...base, focus: { v: 1, status: 'ready', file: '/c1.focus.json' }, edit: { muted: false, framing: 'focus' } });
     await openEdit('Foco');
-    expect(screen.getByText('Rastreando os jogadores… você pode continuar editando.')).toBeTruthy();
-    expect(screen.queryByText('Jogadores indisponível para esse clipe.')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Jogadores, rastreando' })).toBeTruthy();
+    expect(screen.queryByText(/indisponível/)).toBeNull();
   });
 
   test('watching swipes between clips without zoom; editing zooms and does not swipe', async () => {
@@ -707,7 +707,7 @@ describe('Modo Foco', () => {
     await act(async () => fireEvent.press(screen.getByRole('tab', { name: /^Foco/ })));
     expect(screen.queryByRole('radio', { name: /^Jogadores/ })).toBeNull();
     expect(original().props.accessibilityState).toMatchObject({ checked: true });
-    expect(screen.getByText('Jogadores indisponível para esse clipe.')).toBeTruthy();
+    expect(screen.queryByText(/indisponível/)).toBeNull(); // no card, no message (2026-11-12)
   });
 
   test('no tag on a phone without the analysis', async () => {
@@ -1214,7 +1214,7 @@ describe('Seguir a Bola', () => {
     // in the editor the progress is on the Bola card only, nothing on the video (spec 2026-11-11, P1)
     expect(screen.queryByText('Rastreando a bola…')).toBeNull();
     expect(ballCard().props.accessibilityState).toMatchObject({ checked: true });
-    expect(screen.getByText('Rastreando a bola… você pode continuar editando.')).toBeTruthy();
+    expect(screen.queryByText(/Rastreando a bola… você pode/)).toBeNull();
     expect(video.last.follow).toBeDefined(); // the current picture (Modo Foco) meanwhile
     expect(video.last.content).toBeUndefined();
     await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Parar o rastreamento' })));
@@ -1242,7 +1242,7 @@ describe('Seguir a Bola', () => {
     await act(async () => fireEvent.press(ballCard()));
     await pressAction('Concluir');
     expect(screen.getByText('Rastreando a bola…')).toBeTruthy();
-    expect(screen.getByText('Salvar e Enviar ficam disponíveis quando o rastreamento terminar.')).toBeTruthy();
+    expect(screen.queryByText(/Salvar e Enviar ficam/)).toBeNull(); // the disabled buttons say it
     expect(screen.getByRole('button', { name: 'Salvar na galeria' }).props.accessibilityState).toMatchObject({ disabled: true });
     await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Parar o rastreamento da bola' })));
     expect(balls.ballQueue.cancel).toHaveBeenCalledWith('c1');
