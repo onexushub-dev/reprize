@@ -85,7 +85,13 @@ export const MAX_GAME_NAME = 40;
 /** A clip's label (its name): short, to tell at a glance who or what it is (2026-11-07 spec §6). */
 export const MAX_CLIP_NAME = 25;
 
-export type ClipFocus = { v: 1; status: 'pending' | 'ready' | 'none' | 'failed'; file?: string };
+export type ClipFocus = {
+  v: 1;
+  status: 'pending' | 'ready' | 'none' | 'failed';
+  file?: string;
+  /** TEMP(lab-4k): analysed one frame every `every` ms (absent = 100, today); another setting analyses again. */
+  every?: number;
+};
 
 /**
  * Seguir a Bola for one cut (spec 2026-11-09 §4.6): `pending` while queued or running, `ready` with the 9:16 framing
@@ -138,7 +144,7 @@ export type Clip = {
     rotation?: 0 | 90 | 180 | 270;
     /** Modo Foco for this clip; absent = on. Read only when `framing` is absent (clips from before Seguir a Bola). */
     focus?: boolean;
-    /** Modo Foco, Seguir a Bola or neither; absent = Modo Foco (or what `focus` says). */
+    /** Jogadores, Bola or neither; absent = what `focus` says for an older stored edit (on unless false), else neither. */
     framing?: 'focus' | 'ball' | 'none';
   };
   /**
@@ -193,6 +199,13 @@ export type Prefs = {
   prepareTipSeen?: boolean;
   /** The recording opened last: "Visto por último" in Minhas gravações. */
   lastOpenedSessionId?: string;
+  /**
+   * TEMP(lab-4k, plan 2026-11-12, Diagnóstico only): the speed test's variants. `labBallMaxWidth`: Bola's frames scaled
+   * down to this width first (absent / 0 = native size, today). `labFocusEveryMs`: Jogadores analyses one frame every
+   * this many ms (absent / 100 = today, 200 = 5 fps).
+   */
+  labBallMaxWidth?: number;
+  labFocusEveryMs?: number;
 };
 
 export const DEFAULT_PREFS: Prefs = {

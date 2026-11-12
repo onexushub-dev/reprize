@@ -29,6 +29,15 @@ function power(): string {
 /** TEMP(diag-remote): battery and heat when each analysis started (by clip file), for the line written at its end. */
 const powerAtStart = new Map<string, string>();
 
+/**
+ * Jogadores' frame interval: 200 ms (5 fps), Victor's decision after the 2026-11-12 speed test (same framing, ~1.85x
+ * faster). TEMP(lab-4k): Diagnóstico can still pick 100 ms (the previous 10 fps) to compare.
+ */
+export function focusEveryMs(): number {
+  const v = repo.getPrefs().labFocusEveryMs;
+  return v === 100 ? 100 : 200;
+}
+
 /** The app's one Modo Foco queue. */
 export const focusQueue = createFocusQueue({
   // Diagnostics off (store builds): no battery reads around each analysis.
@@ -41,6 +50,8 @@ export const focusQueue = createFocusQueue({
   cancel: camera.cancelFocus,
   supported: camera.isFocusSupported,
   repo,
+  // TEMP(lab-4k): the Diagnóstico speed test's Jogadores interval (100 = today)
+  every: () => focusEveryMs(),
   // TEMP(diag-remote): the Modo Foco v14 field test reads the analysis time on the Diagnóstico screen.
   measured: (clip, r, waitedMs) => {
     if (!DIAGNOSTICS_ENABLED) return;
@@ -48,7 +59,7 @@ export const focusQueue = createFocusQueue({
     powerAtStart.delete(clip.path);
     diag(
       `Modo Foco: clipe de ${((clip.bounds ? clip.bounds.endMs - clip.bounds.startMs : clip.durationMs) / 1000).toFixed(0)} s ` +
-        `${analysisTime(r.elapsedMs, Date.now())} (${r.frames} quadros, ${r.meanPeople.toFixed(1)} pessoas/quadro, ${r.status}, esperou ${(waitedMs / 1000).toFixed(1)} s na fila)` +
+        `${analysisTime(r.elapsedMs, Date.now())} (1 quadro a cada ${focusEveryMs()} ms, ${r.frames} quadros, ${r.meanPeople.toFixed(1)} pessoas/quadro, ${r.status}, esperou ${(waitedMs / 1000).toFixed(1)} s na fila)` +
         ` — antes: ${before !== undefined ? before : '?'} — depois: ${power()}`,
     );
   },
@@ -63,16 +74,8 @@ export const focusQueue = createFocusQueue({
 
 onFileRemoved((clipPath) => focusQueue.cancel(clipPath));
 
-/** After launch, once the first screen is up: the clips a closed app left pending are analysed in the background. */
-const RESTORE_AFTER_MS = 3000;
-
-function allClips() {
-  return repo.listSessions().flatMap(({ session }) => repo.listClips(session.id));
-}
-
 /**
- * For as long as the app runs (root layout): the queue follows the app to the front and back, and a few seconds after
- * launch takes up the clips a closed app left pending. Returns the stop.
+ * For as long as the app runs (root layout): the queue follows the app to the front and back. Returns the stop.
  */
 export function startFocusQueue(): () => void {
   const sub = AppState.addEventListener('change', (next) => {
@@ -85,15 +88,9 @@ export function startFocusQueue(): () => void {
       focusQueue.setForeground(false);
     }
   });
-  const timer = setTimeout(() => {
-    try {
-      focusQueue.restore(allClips());
-    } catch (e) {
-      console.warn('[Reprize] Modo Foco restore failed', e);
-    }
-  }, RESTORE_AFTER_MS);
+  // No restore of pending clips at launch: Jogadores runs only for the clip the player picked it on (2026-11-11), and
+  // that clip asks again when opened.
   return () => {
     sub.remove();
-    clearTimeout(timer);
   };
 }

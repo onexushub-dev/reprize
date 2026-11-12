@@ -44,7 +44,6 @@ import { freeLosses } from "../../share/exportOptions";
 import { useBatchActions } from "../../share/useBatchActions";
 import { useT } from "../../i18n/useT";
 import { useSession } from "../../session/SessionContext";
-import { focusQueue } from "../../focus/appFocusQueue";
 import { colors, fonts } from "../../theme/tokens";
 
 export default function SessionSummary() {
@@ -65,9 +64,10 @@ export default function SessionSummary() {
   );
 
   const plan = useViewPlan(id);
+  // The grid shows the newest clip first (2026-11-11); numbers stay the order they were saved in.
+  const newestFirst = useMemo(() => [...clips].reverse(), [clips]);
 
-  // Modo Foco analyses this recording's clips while its screen is open (and the camera is off), not before.
-  useEffect(() => focusQueue.openRecording(id), [id]);
+  // Jogadores and Bola are analysed only when the player picks them on a clip (2026-11-11): nothing runs from this list.
   // Minhas gravações marks the recording seen last; set before the first paint, so the list is right on the way back.
   useLayoutEffect(() => markOpened(id), [id]);
 
@@ -390,7 +390,7 @@ export default function SessionSummary() {
       />
 
       <FlatList
-        data={clips}
+        data={newestFirst}
         keyExtractor={(c) => c.id}
         numColumns={2}
         columnWrapperStyle={styles.gridRow}
@@ -403,10 +403,10 @@ export default function SessionSummary() {
           />
         }
         extraData={[selecting, picked, plan]}
-        renderItem={({ item, index }) => (
+        renderItem={({ item }) => (
           <ClipCard
             clip={item}
-            number={clipNumber(item, index)}
+            number={clipNumber(item, clips.indexOf(item))}
             selecting={selecting}
             selected={picked.includes(item.id)}
             onPress={() =>

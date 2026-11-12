@@ -111,13 +111,19 @@ def nms(c, iou=0.5):
     return keep
 
 
-def run_clip(det, name, tag, conf, use_tiles, limit=None, step=1, tile=640):
+def run_clip(det, name, tag, conf, use_tiles, limit=None, step=1, tile=640, max_width=None):
     meta = ev.clip_meta(name)
     video = os.path.join(ev.ROOT, meta["video"])
     W, H = upright(video)
+    # 2026-11-12 plan (candidate 1): a frame wider than max_width is scaled down to it before the tiles (4K -> 1920)
+    scale = ""
+    if max_width and max(W, H) > max_width:
+        f = max_width / max(W, H)
+        W, H = int(round(W * f / 2)) * 2, int(round(H * f / 2)) * 2
+        scale = f",scale={W}:{H}:flags=area"
     n = meta["count"] if limit is None else min(limit, meta["count"])
     dec = subprocess.Popen(["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{meta['startMs'] / 1000}", "-i", video, "-t",
-                            f"{meta['durMs'] / 1000}", "-vf", "fps=10:start_time=0", "-f", "rawvideo", "-pix_fmt",
+                            f"{meta['durMs'] / 1000}", "-vf", "fps=10:start_time=0" + scale, "-f", "rawvideo", "-pix_fmt",
                             "bgr24", "-"], stdout=subprocess.PIPE)
     fb = W * H * 3
     T = tiles(W, H, tile) if use_tiles else []
@@ -142,7 +148,7 @@ def run_clip(det, name, tag, conf, use_tiles, limit=None, step=1, tile=640):
     dec.kill()
     secs = time.time() - t0
     os.makedirs(OUT, exist_ok=True)
-    json.dump({"clip": name, "tag": tag, "size": [W, H], "tiles": len(T), "tile": tile, "model_size": det.size, "conf": conf, "seconds": round(secs, 1),
+    json.dump({"clip": name, "tag": tag, "size": [W, H], "max_width": max_width, "tiles": len(T), "tile": tile, "model_size": det.size, "conf": conf, "seconds": round(secs, 1),
                "step": step,
                "frames": frames}, open(os.path.join(OUT, f"{name}.{tag}.json"), "w"))
     return len(frames), secs
@@ -158,6 +164,7 @@ def main():
     ap.add_argument("--threads", type=int, default=2)
     ap.add_argument("--tile", type=int, default=640, help="tile side in video px (resized to the model's input)")
     ap.add_argument("--step", type=int, default=1, help="analyse every STEP-th 100 ms frame (2 = 5 fps)")
+    ap.add_argument("--max-width", type=int, default=None, help="scale frames wider than this down first (4K -> 1920)")
     ap.add_argument("clips", nargs="+")
     a = ap.parse_args()
     det = Yolox(a.model, a.threads)
@@ -165,7 +172,7 @@ def main():
         if os.path.exists(os.path.join(OUT, f"{name}.{a.tag}.json")) and a.limit is None:
             print(name, "done already", flush=True)
             continue
-        n, secs = run_clip(det, name, a.tag, a.conf, not a.no_tiles, a.limit, a.step, a.tile)
+        n, secs = run_clip(det, name, a.tag, a.conf, not a.no_tiles, a.limit, a.step, a.tile, a.max_width)
         print(f"{name}: {n} frames in {secs:.0f} s ({1000 * secs * a.step / max(n, 1):.0f} ms/analysed frame)", flush=True)
 
 

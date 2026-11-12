@@ -35,7 +35,8 @@ enum FocusAnalyzer {
     lock.lock(); cancelled.remove(clipPath); lock.unlock()
   }
 
-  static func analyze(clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Bool) async throws -> Outcome {
+  static func analyze(clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Bool,
+                      everyMs: Double = 100) async throws -> Outcome {
     let asset = AVURLAsset(url: URL(fileURLWithPath: clipPath))
     guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw Failure.noVideo }
     let transform = try await track.load(.preferredTransform)
@@ -45,7 +46,8 @@ enum FocusAnalyzer {
         defer { clearCancel(clipPath) }
         do {
           done.resume(returning: try run(asset: asset, track: track, transform: transform, natural: natural,
-                                         clipPath: clipPath, startMs: startMs, endMs: endMs, outPath: outPath, debug: debug))
+                                         clipPath: clipPath, startMs: startMs, endMs: endMs, outPath: outPath, debug: debug,
+                                         everyMs: everyMs))
         } catch {
           done.resume(throwing: error)
         }
@@ -54,7 +56,8 @@ enum FocusAnalyzer {
   }
 
   private static func run(asset: AVAsset, track: AVAssetTrack, transform: CGAffineTransform, natural: CGSize,
-                          clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Bool) throws -> Outcome {
+                          clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Bool,
+                          everyMs: Double = 100) throws -> Outcome {
     let started = Date()
     if isCancelled(clipPath) { throw Failure.cancelled }
     let orientation = Self.orientation(of: transform)
@@ -92,7 +95,8 @@ enum FocusAnalyzer {
       if isCancelled(clipPath) { reader.cancelReading(); throw Failure.cancelled }
       let t = CMSampleBufferGetPresentationTimeStamp(buffer).seconds * 1000
       if t + 0.5 < next { continue } // keep the first frame at or after each 100 ms tick
-      while next <= t + 0.5 { next += stepMs }
+      // TEMP(lab-4k): `everyMs` 200 = one frame every 200 ms (the 5 fps test); the rows stay every 100 ms
+      while next <= t + 0.5 { next += max(stepMs, everyMs) }
       guard let pixels = CMSampleBufferGetImageBuffer(buffer) else { continue }
       let boxes: [FocusBox]? = autoreleasepool {
         do {
@@ -125,7 +129,13 @@ enum FocusAnalyzer {
     // A few lost frames are covered by the grid; many mean Vision could not run (app in the background).
     if failures * 10 > (frames.count + failures) { throw Failure.interrupted }
     // Row k of the file is at startMs + k × 100 ms, whatever gaps the frames had.
-    let samples = FocusGrid.samples(from: frames, startMs: startMs, endMs: endMs > startMs ? endMs : .infinity, stepMs: stepMs)
+    var samples = FocusGrid.samples(from: frames, startMs: startMs, endMs: endMs > startMs ? endMs : .infinity, stepMs: stepMs)
+    // TEMP(lab-4k): at 5 fps the last analysed frame can be up to 200 ms before the end; its people are held to the end
+    // so the file has as many rows as at 10 fps (Seguir a Bola reads them row by row).
+    if everyMs > stepMs, endMs > startMs, let last = samples.last {
+      var tick = last.tMs + stepMs
+      while tick < endMs - 0.5 { samples.append(FocusSample(tMs: tick, boxes: last.boxes)); tick += stepMs }
+    }
 
     let landscape = width >= height
     let main: FocusAspect = landscape ? .landscape : .portrait

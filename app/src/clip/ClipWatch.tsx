@@ -21,7 +21,7 @@ type Props = {
   /** Jogadores on the clip: on, being tracked, or just found (spec 2026-11-11, P1). */
   focusTag: 'on' | 'preparing' | 'found' | undefined;
   onFocusTag: () => void;
-  /** Seguir a Bola's chip, in the Modo Foco tag's place. */
+  /** Bola's tag (Modo Foco: Bola), in the Jogadores tag's place at the top left. */
   ballTag?: ReactNode;
   notice?: string;
   position?: string;
@@ -82,7 +82,7 @@ export function ClipWatch(p: Props) {
           </IconButton>
         </View>
         {p.ballTag ? (
-          <View pointerEvents="box-none" style={styles.ballRow}>
+          <View pointerEvents="box-none" style={styles.tagRow}>
             {p.ballTag}
           </View>
         ) : null}
@@ -97,7 +97,7 @@ export function ClipWatch(p: Props) {
                 <View style={styles.dot} />
               )}
               <Text style={[styles.tagText, p.focusTag === 'found' ? styles.foundText : null]}>
-                {p.focusTag === 'preparing' ? t('clip.focusPreparingTag') : p.focusTag === 'found' ? t('clip.focusFound') : t('clip.focusMode')}
+                {p.focusTag === 'preparing' ? t('clip.focusPreparingTag') : p.focusTag === 'found' ? t('clip.focusFound') : t('clip.focusPlayersTag')}
               </Text>
             </Pressable>
           </View>
@@ -171,7 +171,6 @@ function Action({
 }
 
 const styles = StyleSheet.create({
-  ballRow: { height: 72 },
   foundText: { color: colors.accent },
   root: { flex: 1, backgroundColor: colors.ground },
   top: { position: 'absolute', left: 0, right: 0, top: 0, paddingHorizontal: 12 },

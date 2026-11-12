@@ -107,6 +107,11 @@ export function useReplaySession(deps: SessionDeps) {
   // The zoom the running camera was last given, so the same zoom is never sent twice (a repeat would cut a smooth ramp short).
   const zoomApplied = useRef<number | undefined>(undefined);
   const cameraOpening = useRef<Promise<Opened | undefined> | undefined>(undefined);
+  /**
+   * Bumped by every prepare and release: a release that waited for an opening camera only stops it when no prepare came
+   * after it (the setup screen may have come back meanwhile).
+   */
+  const cameraWish = useRef(0);
   const cameraError = useRef<ReplayErrorCode | undefined>(undefined);
   // The running game's clip length, fixed at its start by its plan (15 s at most on the free plan): applies to every saved clip.
   const cutSeconds = useRef(0);
@@ -284,6 +289,7 @@ export function useReplaySession(deps: SessionDeps) {
     (mode: ModeId, plan: Plan): Promise<boolean> => {
       const phase = stateRef.current.phase;
       if (phase === 'starting' || phase === 'recording' || phase === 'stopping') return Promise.resolve(true);
+      cameraWish.current += 1;
       return openCamera(mode, plan).then((opened) => opened !== undefined);
     },
     [openCamera]
@@ -421,6 +427,14 @@ export function useReplaySession(deps: SessionDeps) {
 
   /** Turns the camera off when no game is running (e.g. the setup screen is under another screen). */
   const release = useCallback(async () => {
+    cameraWish.current += 1;
+    const wish = cameraWish.current;
+    // A camera still opening (setup left right after it came back, e.g. a recording ended and Minhas gravações opened at
+    // once) is let finish, then stopped: before, the release found no camera yet and the one that opened stayed on under
+    // the clips, holding back Jogadores and Bola (2026-11-11 field test: "Rastreando a bola…" forever, green dot on).
+    const opening = cameraOpening.current;
+    if (cameraLens.current === undefined && opening !== undefined) await opening.catch(() => undefined);
+    if (cameraWish.current !== wish) return; // the setup screen asked for the camera again meanwhile
     const phase = stateRef.current.phase;
     if (cameraLens.current === undefined || phase === 'recording' || phase === 'starting' || phase === 'stopping') return;
     cameraLens.current = undefined;

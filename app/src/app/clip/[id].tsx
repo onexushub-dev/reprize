@@ -46,14 +46,14 @@ import { useReduceMotion } from '../../components/useReduceMotion';
 import { sessionSummary, track as trackEvent } from '../../analytics';
 import { exportPlanOf } from '../../analytics/plans';
 import { askPhotos } from '../../share/askPhotos';
-import { ballForCut, readyBallFile } from '../../data/ballFile';
+import { ballForCut, ballRulesCurrent, readyBallFile } from '../../data/ballFile';
 import type { RecordingSportId } from '../../data/schema';
 import { readFocusFile } from '../../data/focusFile';
 import { removeFile, repo } from '../../data/mmkv';
 import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce } from '../../focus/appBallQueue';
 import { ballEstimate } from '../../focus/ballQueue';
 import { ballSportIdOf, hasBallModel, recordingSportOf } from '../../focus/sportCheck';
-import { focusQueue } from '../../focus/appFocusQueue';
+import { focusEveryMs, focusQueue } from '../../focus/appFocusQueue';
 import { focusHold } from '../../focus/focusQueue';
 import { useFocusFraming } from '../../focus/useFocusFraming';
 import type { MessageKey } from '../../i18n';
@@ -191,6 +191,35 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const [trim, setTrim] = useState(() => (clip ? clip.trim : { startMs: 0, endMs: 0 }));
   // Speed, sound and Modo Foco work in the app for every plan; a free export drops them (see the notice in `run`).
   const edit = readEdit(clip?.edit);
+  // Nothing is analysed by itself when a clip opens (Victor, 2026-11-12): a framing kept from an earlier visit whose
+  // analysis is not done (never finished, reset, made with other rules or another frame rate) shows the Original until
+  // the player picks Jogadores or Bola again. A finished analysis is just shown: nothing runs for it.
+  const [staleAtOpen] = useState(() => {
+    const c = repo.getClip(id);
+    if (!c) return { focus: false, ball: false };
+    const e = readEdit(c.edit);
+    const f = c.focus;
+    const focusDone =
+      f !== undefined &&
+      (f.status === 'ready' || f.status === 'none') &&
+      // a result from before the 5 fps change (no `every`) is kept: only a deliberate switch analyses again
+      (f.every === undefined || f.every === focusEveryMs());
+    const sport = ballSportIdOf(repo.getSession(c.sessionId));
+    const b = c.ball;
+    const ballDone =
+      b !== undefined &&
+      sport !== undefined &&
+      ballForCut(b, c.trim, sport) &&
+      ballRulesCurrent(b) &&
+      (b.status === 'ready' || b.status === 'unsuitable');
+    return { focus: e.framing === 'focus' && !focusDone, ball: e.framing === 'ball' && !ballDone };
+  });
+  /** Cleared by the player's own pick (pickFraming): from then on the queues may run for this clip. */
+  const blockedAuto = useRef(staleAtOpen);
+  useEffect(() => {
+    if (staleAtOpen.focus || staleAtOpen.ball) setEdit({ framing: 'none' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the clip opens
+  }, []);
   const soundOff = edit.muted;
   const floor = clip?.contentStartMs ?? 0;
   // The track covers only what the clip was first saved with, so the cut can be shortened but never reach moments
@@ -295,7 +324,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const cutKey = clip ? `${clip.trim.startMs}:${clip.trim.endMs}` : '';
   // On, with the cut or the sport changed or never analysed: the queue analyses it (the frames already found are reused).
   useEffect(() => {
-    if (!ballChosen || leaving) return;
+    if (!ballChosen || leaving || blockedAuto.current.ball) return;
     ballQueue.request(id);
   }, [ballChosen, cutKey, ballSport, id, leaving]);
   // Test 47a: no ball in play on this cut and sport: back to the framing before the tap (spec 2026-11-11 decision 6),
@@ -381,11 +410,13 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   useEffect(() => {
     if (track) diagFramingShown(Date.now() - openedAt.current);
   }, [track]);
+  // Only once the player picked Jogadores (2026-11-11): opening a clip analyses nothing by itself.
+  const playersChosen = edit.framing === 'focus';
   useEffect(() => {
-    if (!sizeKnown) return;
+    if (!sizeKnown || !playersChosen || blockedAuto.current.focus) return;
     const current = repo.getClip(id);
     if (current && focusSupported) focusQueue.ensure(current);
-  }, [id, focusSupported, sizeKnown]);
+  }, [id, focusSupported, sizeKnown, playersChosen]);
   // The introduction, once ever: the framing grows out of the whole video with a caption.
   const reduceMotion = useReduceMotion();
   const [introDue] = useState(() => !repo.getPrefs().focusIntroSeen);
@@ -434,6 +465,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     const quick = videoShape(clipPath);
     if (quick) {
       rememberShape(clipPath, quick);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the shape is read from the file once per clip (Android)
       setVideoSize(quick);
       setSizeKnown(true);
       return;
@@ -603,6 +635,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
    * Seguir a Bola's analysis at once (what it found stays for later); Bola shows its first-use sheet first.
    */
   function pickFraming(framing: 'none' | 'focus' | 'ball') {
+    blockedAuto.current = { focus: false, ball: false }; // the player's own pick: analyses may run now
     if (framing === edit.framing) return;
     if (framing === 'ball') {
       if (ballSport === undefined) return;
@@ -1038,7 +1071,11 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           onBack={() => router.back()}
           onDelete={confirmDelete}
           focusTag={edit.framing !== 'focus' ? undefined : focusChip === 'on' ? (playersFound ? 'found' : 'on') : focusChip === 'preparing' ? 'preparing' : undefined}
-          ballTag={ballChip ? <BallChip state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} /> : undefined}
+          ballTag={
+            ballChip ? (
+              <BallChip inline state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} onPress={() => enterEdit('focus')} />
+            ) : undefined
+          }
           onFocusTag={() => enterEdit('focus')}
           notice={tracking ? t('clip.trackingWaitNote') : busy || !notice ? undefined : t(notice)}
           position={siblings.length > 1 ? t('clip.ofTotal', { number, total: siblings.length }) : undefined}

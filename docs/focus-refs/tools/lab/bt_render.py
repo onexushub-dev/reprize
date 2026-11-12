@@ -55,7 +55,7 @@ def main():
     rs = [rects_of(a.clip, spec, n) for _, spec in vs]
     PW, PH = 300, 534
     fps = 30
-    dec = subprocess.Popen(["ffmpeg", "-nostdin", "-v", "error", "-i", video, "-t", f"{n / 10}", "-vf", f"fps={fps}",
+    dec = subprocess.Popen(["ffmpeg", "-nostdin", "-v", "error", "-ss", f"{meta['startMs'] / 1000}", "-i", video, "-t", f"{n / 10}", "-vf", f"fps={fps}",
                             "-f", "rawvideo", "-pix_fmt", "bgr24", "-"], stdout=subprocess.PIPE)
     out = a.out or os.path.join(ev.ROOT, "lab", "tests", "story", f"{a.clip}.bt-compare-t52.mp4")
     enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24", "-s",

@@ -1,7 +1,7 @@
 import { applyEdit, storedEdit, clampZoom, contentFloor, cropRect, MAX_ZOOM, nextRotation, outputMs, panZoom, pinchZoom, raiseToFloor, readEdit, turnedSize } from '../editing';
 
 test('a clip with no edit plays at normal speed, with sound and no zoom', () => {
-  expect(readEdit(undefined)).toEqual({ speed: 1, muted: false, zoom: undefined, rotation: 0, framing: 'focus', focus: true });
+  expect(readEdit(undefined)).toEqual({ speed: 1, muted: false, zoom: undefined, rotation: 0, framing: 'none', focus: false });
 });
 
 test('clips saved with the old slow motion switch read as 0.5x', () => {
@@ -102,7 +102,8 @@ describe('the useful start of a clip', () => {
   });
 });
 
-test('Modo Foco is on unless the player turned it off for the clip', () => {
+test('a new clip starts on the Original; an older stored edit keeps Modo Foco unless it was turned off', () => {
+  expect(readEdit(undefined).focus).toBe(false);
   expect(readEdit({ muted: false }).focus).toBe(true);
   expect(readEdit({ muted: false, focus: false }).focus).toBe(false);
   expect(readEdit({ muted: false, focus: true }).focus).toBe(true);
@@ -110,14 +111,14 @@ test('Modo Foco is on unless the player turned it off for the clip', () => {
 
 describe('framing (Modo Foco, Seguir a Bola or neither)', () => {
   test('read from `framing`, else from the old Modo Foco switch', () => {
-    expect(readEdit(undefined).framing).toBe('focus');
+    expect(readEdit(undefined).framing).toBe('none');
     expect(readEdit({ muted: false, focus: false }).framing).toBe('none');
     expect(readEdit({ muted: false, framing: 'ball' })).toMatchObject({ framing: 'ball', focus: false });
     expect(readEdit({ muted: false, focus: false, framing: 'focus' })).toMatchObject({ framing: 'focus', focus: true });
   });
 
   test('the two modes never stay on together, and the old `focus` patch still works', () => {
-    const focus = readEdit(undefined);
+    const focus = readEdit({ muted: false, framing: 'focus' });
     expect(applyEdit(focus, { framing: 'ball' })).toMatchObject({ framing: 'ball', focus: false });
     expect(applyEdit(focus, { focus: false })).toMatchObject({ framing: 'none', focus: false });
     const ball = readEdit({ muted: false, framing: 'ball' });
@@ -126,8 +127,9 @@ describe('framing (Modo Foco, Seguir a Bola or neither)', () => {
     expect(applyEdit(ball, { focus: false }).framing).toBe('ball');
   });
 
-  test('stored without the defaults', () => {
-    expect(storedEdit(readEdit(undefined))).toEqual({ speed: 1, muted: false });
+  test('stored without the defaults, the framing always written', () => {
+    expect(storedEdit(readEdit(undefined))).toEqual({ speed: 1, muted: false, framing: 'none' });
+    expect(storedEdit(readEdit({ muted: false }))).toEqual({ speed: 1, muted: false, framing: 'focus' });
     expect(storedEdit(readEdit({ muted: true, framing: 'ball', rotation: 90 }))).toEqual({
       speed: 1,
       muted: true,

@@ -4,8 +4,9 @@ const track = { startMs: 0, stepMs: 100, rects: [[0.25, 0.25, 0.5, 0.5], [0, 0, 
 
 describe('openingZoom: what the picture shows when the clip starts playing', () => {
   test('Modo Foco on and ready: the framing at the start of the cut', () => {
-    expect(openingZoom(undefined, track, 0)).toEqual({ scale: 2, cx: 0.5, cy: 0.5 });
-    expect(openingZoom(undefined, track, 100)).toEqual({ scale: 2, cx: 0.25, cy: 0.25 });
+    const on = { muted: false, framing: 'focus' as const };
+    expect(openingZoom(on, track, 0)).toEqual({ scale: 2, cx: 0.5, cy: 0.5 });
+    expect(openingZoom(on, track, 100)).toEqual({ scale: 2, cx: 0.25, cy: 0.25 });
   });
 
   test('Modo Foco not ready yet: the whole video', () => {
