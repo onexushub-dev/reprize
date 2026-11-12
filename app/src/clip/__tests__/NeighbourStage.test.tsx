@@ -16,6 +16,8 @@ const clip = {
   path: '/n.mp4',
   trim: { startMs: 0, endMs: 9000 },
   focus: { v: 1 as const, status: 'ready' as const, file: '/n.focus.json' },
+  // Jogadores picked on it (since 2026-11-11 a clip starts on the Original)
+  edit: { muted: false, framing: 'focus' as const },
 };
 const transformOf = () => {
   const style = [screen.getByTestId('neighbour-picture').props.style].flat(Infinity).filter(Boolean);

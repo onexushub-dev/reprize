@@ -13,8 +13,8 @@ export const NO_ZOOM: Zoom = { scale: 1, cx: 0.5, cy: 0.5 };
 export type Rotation = 0 | 90 | 180 | 270;
 
 /**
- * How the clip is framed (spec 2026-11-09 §4.2): Modo Foco (the default), Seguir a Bola (9:16 following the ball) or
- * neither. One field, so the two modes can never be on together.
+ * How the clip is framed (spec 2026-11-09 §4.2): Modo Foco: Jogadores, Modo Foco: Bola (9:16 following the ball) or
+ * neither (the Original, the default since 2026-11-11). One field, so the two modes can never be on together.
  */
 export type Framing = 'focus' | 'ball' | 'none';
 
@@ -33,9 +33,11 @@ export type Edit = {
  * Seguir a Bola only have `focus` (false = neither).
  */
 export function readEdit(edit: Clip['edit']): Edit {
-  let framing: Framing = 'focus';
+  // Since 2026-11-11 a clip starts on the Original: Jogadores and Bola only on the player's tap. An edit stored before
+  // that without `framing` was made with Modo Foco on (then the default) unless it said `focus: false`.
+  let framing: Framing = 'none';
   if (edit !== undefined && edit.framing !== undefined) framing = edit.framing;
-  else if (edit !== undefined && edit.focus === false) framing = 'none';
+  else if (edit !== undefined) framing = edit.focus === false ? 'none' : 'focus';
   return {
     speed: edit?.speed ?? (edit?.slowmo ? 0.5 : 1),
     muted: edit?.muted ?? false,
@@ -60,14 +62,14 @@ export function applyEdit(edit: Edit, patch: Partial<Edit>): Edit {
   return { ...next, framing, focus: framing === 'focus' };
 }
 
-/** How an edit is stored: defaults left out (Modo Foco on, no turn, no zoom). */
+/** How an edit is stored: defaults left out (no turn, no zoom); the framing always written (its default changed). */
 export function storedEdit(edit: Edit): NonNullable<Clip['edit']> {
   return {
     speed: edit.speed,
     muted: edit.muted,
     ...(edit.zoom ? { zoom: edit.zoom } : {}),
     ...(edit.rotation ? { rotation: edit.rotation } : {}),
-    ...(edit.framing !== 'focus' ? { framing: edit.framing } : {}),
+    framing: edit.framing,
   };
 }
 

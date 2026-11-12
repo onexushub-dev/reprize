@@ -112,15 +112,11 @@ test('shows the game stats', async () => {
   expect(screen.getByLabelText('Nome da gravação').props.placeholder).toBe('Futevôlei · 17/10, 18:40');
 });
 
-test('the screen opens its recording for the Modo Foco queue, and closes it when it goes', async () => {
-  const close = jest.fn();
-  mockOpenRecording.mockReturnValueOnce(close);
+test('the screen starts no analysis: Jogadores and Bola run only when picked on a clip', async () => {
   repo.listClips.mockReturnValue([clip('a', 'gesture', 1)]);
   repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 1 });
-  const view = await render(<SessionSummary />);
-  expect(mockOpenRecording).toHaveBeenCalledWith('s1');
-  await view.unmount();
-  expect(close).toHaveBeenCalled();
+  await render(<SessionSummary />);
+  expect(mockOpenRecording).not.toHaveBeenCalled();
 });
 
 test('tapping a clipe opens it', async () => {

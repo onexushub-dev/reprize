@@ -1,5 +1,5 @@
 import type { AnalyzeBallOptions, BallAnalysis } from '../../modules/replay-camera/src/ReplayCamera.types';
-import { BALL_RULES, ballDetPath, ballForCut, ballPath, ballRulesCurrent } from '../data/ballFile';
+import { ballDetPath, ballForCut, ballPath, ballRules, ballRulesCurrent } from '../data/ballFile';
 import { focusPath } from '../data/focusFile';
 import type { Repo } from '../data/repo';
 import type { BallSportId, BallUnsuitable, Clip } from '../data/schema';
@@ -22,6 +22,11 @@ export type BallQueueDeps = {
    * rule (basketball) and the players' rules (beach tennis) read. Such a file is made again before the analysis.
    */
   focusLacksPeople?(clip: Clip): boolean;
+  /**
+   * Whether the app is in front right now. The native side also reports `BALL_INTERRUPTED` when Core ML keeps failing
+   * with the app in front (e.g. a camera left running): that is a failure to retry, not a wait for the app to come back.
+   */
+  appActive?(): boolean;
   /** Runs the clip's Modo Foco analysis again (same range and file as the Modo Foco queue). */
   refreshFocus?(clip: Clip): Promise<unknown>;
   /** For the Diagnóstico screen (field test): a cut already analysed is analysed again (older rules or no people). */
@@ -166,7 +171,7 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
               status: 'unsuitable',
               ...cut,
               sport,
-              rules: BALL_RULES[sport],
+              rules: ballRules(sport),
               share: result.ballShare,
               reason: reasonOf(result.reason),
             },
@@ -174,13 +179,14 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
           return;
         }
         deps.repo.updateClip(clip.id, {
-          ball: { v: 1, status: 'ready', ...cut, sport, rules: BALL_RULES[sport], file: outPath, share: result.ballShare },
+          ball: { v: 1, status: 'ready', ...cut, sport, rules: ballRules(sport), file: outPath, share: result.ballShare },
         });
       })
       .catch((e: unknown) => {
         const code = codeOf(e);
         if (code === 'CANCELLED') return; // the canceller decided what comes next
-        if (code === 'BALL_INTERRUPTED') {
+        const inFront = deps.appActive !== undefined && deps.appActive();
+        if (code === 'BALL_INTERRUPTED' && !inFront) {
           foreground = false; // the app went to the background: first in line when it is back
           waiting.unshift(clip.id);
           return;
@@ -188,7 +194,7 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         console.warn('[Reprize] Seguir a Bola analysis failed', clip.path, e);
         if (!wanted()) return;
         deps.repo.updateClip(clip.id, {
-          ball: { v: 1, status: 'failed', ...cut, sport, rules: BALL_RULES[sport], ...(code === 'BALL_HOT' ? { hot: true } : {}) },
+          ball: { v: 1, status: 'failed', ...cut, sport, rules: ballRules(sport), ...(code === 'BALL_HOT' ? { hot: true } : {}) },
         });
       })
       .finally(() => {
@@ -211,6 +217,8 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
     if (!clip) return;
     const sport = deps.sportOf(clip);
     if (!sport) return; // the player has not said which sport yet
+    // Asked for on screen: the app is in front (an earlier interruption must not keep it waiting until the next return).
+    foreground = true;
     const cut = cutOf(clip);
     if (clip.ball && ballForCut(clip.ball, clip.trim, sport) && clip.ball.status !== 'failed' && ballRulesCurrent(clip.ball)) {
       // ready or judged unsuitable for this cut, sport and rules, or already pending for them (a result made with older
@@ -223,9 +231,9 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
       if (waiting.includes(clipId)) return;
     }
     if (deps.note && clip.ball && clip.ball.status !== 'pending' && ballForCut(clip.ball, clip.trim, sport)) {
-      deps.note({ redo: true, from: clip.ball.rules, to: BALL_RULES[sport] });
+      deps.note({ redo: true, from: clip.ball.rules, to: ballRules(sport) });
     }
-    deps.repo.updateClip(clipId, { ball: { v: 1, status: 'pending', ...cut, sport, rules: BALL_RULES[sport] } });
+    deps.repo.updateClip(clipId, { ball: { v: 1, status: 'pending', ...cut, sport, rules: ballRules(sport) } });
     if (running && running.id === clipId) {
       // another cut is being analysed: stop it, then this one (the frames found so far are kept)
       restart = true;

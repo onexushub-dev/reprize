@@ -255,6 +255,8 @@ export type AnalyzeFocusOptions = {
   outPath: string;
   /** Also write the people found in each analysed frame (`samples`), for the test screen. */
   debug?: boolean;
+  /** TEMP(lab-4k): one frame every `everyMs` (100 = today, 200 = the 5 fps test); the file keeps 100 ms rows. */
+  everyMs?: number;
 };
 
 /**
@@ -273,6 +275,8 @@ export type AnalyzeBallOptions = {
   focusPath: string;
   /** The sport whose model and rules are used ('basquete' | 'beachTennis'); basketball when absent. */
   sport?: string;
+  /** TEMP(lab-4k): frames wider than this are scaled down before the ball search (0 / absent = native size). */
+  maxWidth?: number;
 };
 
 /**

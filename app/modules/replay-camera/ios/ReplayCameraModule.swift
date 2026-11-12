@@ -78,6 +78,8 @@ struct AnalyzeFocusOptions: Record {
   @Field var endMs: Double = 0
   @Field var outPath: String = ""
   @Field var debug: Bool = false
+  /// TEMP(lab-4k): analyse one frame every `everyMs` (100 = today, 200 = the 5 fps test); the file keeps 100 ms rows.
+  @Field var everyMs: Double = 100
 }
 
 /// Seguir a Bola (spec 2026-11-09 §4.3): the cut, the detections cache, the framing file and today's Modo Foco file.
@@ -90,6 +92,8 @@ struct AnalyzeBallOptions: Record {
   @Field var focusPath: String = ""
   /// The sport whose profile (`BallSport`: model, path, camera, zoom, verdict) is used; basketball by default.
   @Field var sport: String = "basquete"
+  /// TEMP(lab-4k): frames wider than this are scaled down before the tiles (0 = native size, today).
+  @Field var maxWidth: Int = 0
 }
 
 /// Seguir a Bola, kept out of `definition()` like the other do/catch helpers.
@@ -99,7 +103,8 @@ private func analyzeBallResult(_ o: AnalyzeBallOptions) async throws -> [String:
   }
   do {
     let r = try await BallAnalyzer.analyze(clipPath: o.clipPath, startMs: o.startMs, endMs: o.endMs, detPath: o.detPath,
-                                           outPath: o.outPath, focusPath: o.focusPath, sport: sport)
+                                           outPath: o.outPath, focusPath: o.focusPath, sport: sport,
+                                           maxWidth: o.maxWidth)
     // Test 47a: "unsuitable" = analysed (or judged before), but the mode would not look good: reason says why
     return ["status": r.verdict.isEmpty ? "ready" : "unsuitable", "reason": r.verdict, "analysed": r.analysed,
             "reused": r.reused, "ballFrames": r.ballFrames, "trustedFrames": r.trustedFrames,
@@ -317,7 +322,7 @@ public class ReplayCameraModule: Module {
     AsyncFunction("analyzeFocus") { (o: AnalyzeFocusOptions) async throws -> [String: Any] in
       do {
         let r = try await FocusAnalyzer.analyze(clipPath: o.clipPath, startMs: o.startMs, endMs: o.endMs,
-                                                outPath: o.outPath, debug: o.debug)
+                                                outPath: o.outPath, debug: o.debug, everyMs: o.everyMs)
         return ["status": r.ready ? "ready" : "none", "frames": r.frames, "framesWithPeople": r.framesWithPeople,
                 "meanPeople": r.meanPeople, "elapsedMs": r.elapsedMs]
       } catch FocusAnalyzer.Failure.cancelled {

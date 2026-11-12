@@ -1,4 +1,5 @@
 // TEMP(diag-remote): field-test diagnostics; this whole file goes with its commit.
+import { File } from 'expo-file-system';
 import { Redirect, router } from 'expo-router';
 import { shareAsync } from 'expo-sharing';
 import { useEffect, useState } from 'react';
@@ -9,12 +10,18 @@ import {
   DIAG_AREAS,
   type DiagArea,
   DIAGNOSTICS_ENABLED,
+  diag,
   diagClear,
   diagFileUri,
   diagSubscribe,
   diagText,
   parseLine,
 } from '../diag/diagLog';
+import { ballDetPath, ballPath } from '../data/ballFile';
+import { focusPath } from '../data/focusFile';
+import { repo } from '../data/mmkv';
+import { applyLabVariants, ballMaxWidth } from '../focus/appBallQueue';
+import { focusEveryMs } from '../focus/appFocusQueue';
 import { colors, fonts, radius } from '../theme/tokens';
 
 /** What the log shows: everything, only warnings, or one area (2026-11-08 spec §6). */
@@ -28,6 +35,80 @@ export default function Diag() {
   // Builds without REPRIZE_DIAGNOSTICS=1 have no such screen: a deep link lands on the home screen.
   if (!DIAGNOSTICS_ENABLED) return <Redirect href="/" />;
   return <DiagScreen />;
+}
+
+/**
+ * TEMP(lab-4k, plan docs/superpowers/plans/2026-11-12-4k-analysis-speed-test-plan.md, step 8): the speed test's
+ * variants. Switching one makes the next Jogadores / Bola of a clip run again with it (its own cache), and the analysis
+ * lines below say which variant ran. Nothing else in the app changes.
+ */
+function LabSwitches() {
+  const [ball, setBall] = useState(() => ballMaxWidth());
+  const [every, setEvery] = useState(() => focusEveryMs());
+  const pickBall = (v: number) => {
+    repo.setPrefs({ labBallMaxWidth: v });
+    applyLabVariants();
+    setBall(v);
+  };
+  const pickEvery = (v: number) => {
+    repo.setPrefs({ labFocusEveryMs: v });
+    setEvery(v);
+  };
+  const row = (label: string, options: [number, string][], value: number, pick: (v: number) => void) => (
+    <View style={styles.labRow}>
+      <Text style={styles.labLabel}>{label}</Text>
+      {options.map(([v, text]) => (
+        <Pressable
+          key={v}
+          accessibilityRole="button"
+          accessibilityState={{ selected: value === v }}
+          onPress={() => pick(v)}
+          hitSlop={{ top: 8, bottom: 8 }}
+          style={[styles.filter, value === v ? styles.filterOn : null]}>
+          <Text style={[styles.filterText, value === v ? styles.filterTextOn : null]}>{text}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+  // Every clip back to "never analysed" (the videos stay), so each variant is timed from scratch.
+  const resetAll = () =>
+    Alert.alert(
+      'Zerar as análises?',
+      'Jogadores e Bola de todos os clipes voltam a não analisados, sem os arquivos de análise. Os vídeos ficam.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Zerar',
+          style: 'destructive',
+          onPress: () => {
+            let count = 0;
+            for (const { session } of repo.listSessions()) {
+              for (const c of repo.listClips(session.id)) {
+                for (const path of [focusPath(c.path), ballPath(c.path), ballDetPath(c.path)]) {
+                  try {
+                    new File(`file://${path}`).delete();
+                  } catch {
+                    // never made
+                  }
+                }
+                repo.updateClip(c.id, { focus: undefined, ball: undefined });
+                count += 1;
+              }
+            }
+            diag(`Teste 4K: análises zeradas em ${count} clipes`);
+          },
+        },
+      ],
+    );
+  return (
+    <View style={styles.lab}>
+      {row('Bola', [[0, 'Quadro nativo (antes)'], [1920, 'Reduzido a 1920 (padrão)']], ball, pickBall)}
+      {row('Jogadores', [[100, '10 fps (antes)'], [200, '5 fps (padrão)']], every, pickEvery)}
+      <Pressable accessibilityRole="button" onPress={resetAll} hitSlop={8} style={styles.labReset}>
+        <Text style={styles.linkSoft}>Zerar análises de todos os clipes</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 function DiagScreen() {
@@ -81,6 +162,8 @@ function DiagScreen() {
             </Pressable>
           </View>
         </View>
+
+        <LabSwitches />
 
         <ScrollView
           horizontal
@@ -138,6 +221,10 @@ const styles = StyleSheet.create({
   filterText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.text },
   filterTextOn: { color: colors.ground },
   count: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
+  lab: { gap: 6, padding: 8, borderRadius: radius.card, borderWidth: 1, borderColor: colors.border },
+  labRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  labLabel: { width: 72, fontFamily: fonts.bodySemi, fontSize: 12, color: colors.text },
+  labReset: { minHeight: 32, justifyContent: 'center' },
   log: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.card },
   logBody: { padding: 10 },
   logText: { fontFamily: 'Menlo', fontSize: 10.5, lineHeight: 15, color: colors.text },

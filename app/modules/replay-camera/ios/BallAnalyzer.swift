@@ -60,7 +60,7 @@ enum BallAnalyzer {
   /// `detPath`: the detections cache; `outPath`: the framing file; `focusPath`: today's Modo Foco file for the same cut
   /// (its framing is the camera's fallback and gives today's zoom; a centred crop if it is missing).
   static func analyze(clipPath: String, startMs: Double, endMs: Double, detPath: String, outPath: String,
-                      focusPath: String, sport: BallSport = .basketball) async throws -> Outcome {
+                      focusPath: String, sport: BallSport = .basketball, maxWidth: Int = 0) async throws -> Outcome {
     let asset = AVURLAsset(url: URL(fileURLWithPath: clipPath))
     guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw Failure.noVideo }
     let transform = try await track.load(.preferredTransform)
@@ -73,7 +73,8 @@ enum BallAnalyzer {
           done.resume(returning: try run(asset: asset, track: track, transform: transform, natural: natural,
                                          clipPath: clipPath, startMs: startMs,
                                          endMs: endMs > startMs ? min(endMs, duration) : duration,
-                                         detPath: detPath, outPath: outPath, focusPath: focusPath, sport: sport))
+                                         detPath: detPath, outPath: outPath, focusPath: focusPath, sport: sport,
+                                         maxWidth: maxWidth))
         } catch {
           done.resume(throwing: error)
         }
@@ -83,7 +84,7 @@ enum BallAnalyzer {
 
   private static func run(asset: AVAsset, track: AVAssetTrack, transform: CGAffineTransform, natural: CGSize,
                           clipPath: String, startMs: Double, endMs: Double, detPath: String, outPath: String,
-                          focusPath: String, sport: BallSport) throws -> Outcome {
+                          focusPath: String, sport: BallSport, maxWidth: Int = 0) throws -> Outcome {
     let started = Date()
     let orientation = FocusAnalyzer.orientation(of: transform)
     let turned = orientation == .left || orientation == .right
@@ -97,8 +98,15 @@ enum BallAnalyzer {
                      elapsedMs: Date().timeIntervalSince(started) * 1000, verdict: early.rawValue)
     }
 
+    // TEMP(lab-4k, plan 2026-11-12 candidate 1): a frame wider than `maxWidth` is scaled down before the tiles (4K →
+    // 1920: 19 regions instead of 85, the ball at the size the model was trained on). Detections are kept normalized, so
+    // only the tiling and the cache key change (its own cache, so each variant is timed from scratch).
+    let scale = maxWidth > 0 && max(W, H) > maxWidth ? Double(maxWidth) / Double(max(W, H)) : 1.0
+    let DW = scale < 1 ? Int((Double(W) * scale / 2).rounded()) * 2 : W
+    let DH = scale < 1 ? Int((Double(H) * scale / 2).rounded()) * 2 : H
+    let detModel = scale < 1 ? "\(sport.modelId)@\(maxWidth)" : sport.modelId
     let cache = readJSON(detPath)
-    var dets = BallFraming.detections(fromJSON: cache, width: W, height: H, model: sport.modelId)
+    var dets = BallFraming.detections(fromJSON: cache, width: W, height: H, model: detModel)
     // Test 47b: video screens, from this run's thumbnails or kept from an earlier run of the same model
     var screens = dets.isEmpty ? [] : BallFraming.screens(fromJSON: cache)
     let phase = BallFraming.phase(startMs: startMs, endMs: endMs, cached: dets)
@@ -116,7 +124,7 @@ enum BallAnalyzer {
       defer {
         // whatever happened, keep what was found
         if !found.isEmpty {
-          writeJSON(BallFraming.detectionsJSON(dets + found, width: W, height: H, model: sport.modelId,
+          writeJSON(BallFraming.detectionsJSON(dets + found, width: W, height: H, model: detModel,
                                                screens: screens), to: detPath)
         }
       }
@@ -130,7 +138,7 @@ enum BallAnalyzer {
       reader.timeRange = CMTimeRange(start: CMTime(seconds: from / 1000, preferredTimescale: 600),
                                      end: CMTime(seconds: to / 1000, preferredTimescale: 600))
       guard reader.startReading() else { throw Failure.unreadable }
-      let regions = BallDetect.regions(width: W, height: H, side: modelSide, tile: tileSide)
+      let regions = BallDetect.regions(width: DW, height: DH, side: modelSide, tile: tileSide)
       var next = 0 // index in `missing`
       var failures = 0
       emit?(clipPath, reused, total, "running")
@@ -147,6 +155,9 @@ enum BallAnalyzer {
         let boxes: [BallDetect.Box]? = autoreleasepool {
           var image = CIImage(cvPixelBuffer: pixels).oriented(orientation)
           image = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
+          if scale < 1 {
+            image = image.transformed(by: CGAffineTransform(scaleX: CGFloat(DW) / CGFloat(W), y: CGFloat(DH) / CGFloat(H)))
+          }
           if sport.screens {
             let t = det.thumbnail(image)
             thumbs.append(t.pixels)
@@ -159,10 +170,10 @@ enum BallAnalyzer {
           if failures >= 5 && failures * 10 > found.count + failures { reader.cancelReading(); throw Failure.interrupted }
           continue
         }
-        found.append(BallFraming.Detection(tMs: t, candidates: BallDetect.frameCandidates(b, width: W, height: H)))
+        found.append(BallFraming.Detection(tMs: t, candidates: BallDetect.frameCandidates(b, width: DW, height: DH)))
         if found.count % 5 == 0 { emit?(clipPath, reused + found.count, total, "running") }
         if found.count % 25 == 0 {
-          writeJSON(BallFraming.detectionsJSON(dets + found, width: W, height: H, model: sport.modelId,
+          writeJSON(BallFraming.detectionsJSON(dets + found, width: W, height: H, model: detModel,
                                                screens: screens), to: detPath)
         }
       }

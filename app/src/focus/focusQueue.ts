@@ -12,6 +12,8 @@ export type FocusQueueDeps = {
   deleteFile(path: string): void;
   /** Every finished analysis with its numbers (field test: how long the Modo Foco takes on each phone). */
   measured?(clip: Clip, result: FocusAnalysis, waitedMs: number): void;
+  /** TEMP(lab-4k): the speed test's frame interval now (ms); a clip analysed with another one is analysed again. */
+  every?(): number;
 };
 
 export type FocusQueue = {
@@ -113,7 +115,13 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
     const waited = Date.now() - (queuedAt.get(clip.id) ?? Date.now());
     queuedAt.delete(clip.id);
     deps
-      .analyze({ clipPath: clip.path, startMs: range.startMs, endMs: range.endMs, outPath })
+      .analyze({
+        clipPath: clip.path,
+        startMs: range.startMs,
+        endMs: range.endMs,
+        outPath,
+        ...(deps.every !== undefined && deps.every() !== 100 ? { everyMs: deps.every() } : {}),
+      })
       .then((result) => {
         try {
           if (deps.measured) deps.measured(clip, result, waited);
@@ -121,7 +129,9 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
           // a measurement never breaks an analysis
         }
         // updateClip never brings back a deleted clip; the file it wrote is then left over.
-        if (!deps.repo.updateClip(clip.id, { focus: { v: 1, status: result.status, file: outPath } })) {
+        const every = deps.every !== undefined ? deps.every() : 100;
+        const focus = { v: 1 as const, status: result.status, file: outPath, ...(every !== 100 ? { every } : {}) };
+        if (!deps.repo.updateClip(clip.id, { focus })) {
           deps.deleteFile(outPath);
           return;
         }
@@ -160,7 +170,11 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
   return {
     enqueue,
     ensure(clip) {
-      if (clip.focus && clip.focus.status !== 'pending') return;
+      // A result made at another interval (Diagnóstico switch) is made again; one from before `every` existed is kept.
+      const stale =
+        deps.every !== undefined && clip.focus !== undefined && clip.focus.status === 'ready' &&
+        clip.focus.every !== undefined && clip.focus.every !== deps.every();
+      if (clip.focus && clip.focus.status !== 'pending' && !stale) return;
       if (!deps.supported()) return;
       if (running && running.id === clip.id) return;
       // Opened in the editor: it goes first, and may run during an `openedOnly` hold. The app is in front.

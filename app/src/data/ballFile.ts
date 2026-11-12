@@ -31,9 +31,21 @@ export function ballForCut(ball: Clip['ball'], trim: Clip['trim'], sport?: BallS
  */
 export const BALL_RULES: Record<BallSportId, string> = { basquete: 'ball-t50', beachTennis: 'ball-bt-t52' };
 
+/** TEMP(lab-4k): the speed test's Bola variant ('' = today), part of the rules so switching it analyses again. */
+let labVariant = '';
+
+export function setBallLabVariant(variant: string): void {
+  labVariant = variant;
+}
+
+/** The rules a sport's framing is made with now (BALL_RULES plus the speed test's variant, if any). */
+export function ballRules(sport: BallSportId): string {
+  return BALL_RULES[sport] + labVariant;
+}
+
 /** Whether the record was made with today's rules for its sport (a record without a sport is basketball's). */
 export function ballRulesCurrent(ball: NonNullable<Clip['ball']>): boolean {
-  return ball.rules === BALL_RULES[ball.sport || 'basquete'];
+  return ball.rules === ballRules(ball.sport || 'basquete');
 }
 
 /** The framing file of the clip's current cut, when it is ready. */

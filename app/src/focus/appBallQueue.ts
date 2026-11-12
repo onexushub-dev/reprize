@@ -2,41 +2,65 @@ import { File } from 'expo-file-system';
 import { AppState } from 'react-native';
 
 import * as camera from '../../modules/replay-camera';
+import { setBallLabVariant } from '../data/ballFile';
 import { focusPath } from '../data/focusFile';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
+import { focusEveryMs } from './appFocusQueue';
 import { createBallQueue } from './ballQueue';
 import { autoSport, ballSportIdOf, inheritedSport, labelSummary, sportNeedsCheck, sportVerdict } from './sportCheck';
 
 /** Seguir a Bola's speed rule (spec 2026-11-09 §4.7, Victor: per typical cut): up to 400 ms per 19-region frame. */
 export const BALL_PROBE_MAX_MS = 400;
 
+/**
+ * Bola's frames are scaled to 1920 wide before the ball search (4K only; Full HD is unchanged): Victor's decision after
+ * the 2026-11-12 speed test (~3.8x faster on 4K, fewer false balls). TEMP(lab-4k): Diagnóstico can still pick the
+ * native size (0) to compare.
+ */
+export function ballMaxWidth(): number {
+  const v = repo.getPrefs().labBallMaxWidth;
+  return v === 0 ? 0 : 1920;
+}
+
+/** TEMP(lab-4k): the variant is part of Bola's rules, so switching it in Diagnóstico analyses the clip again. */
+export function applyLabVariants(): void {
+  setBallLabVariant(ballMaxWidth() > 0 ? `@w${ballMaxWidth()}` : '');
+}
+applyLabVariants();
+
 /** The app's one Seguir a Bola queue. */
 export const ballQueue = createBallQueue({
-  analyze: camera.analyzeBall,
+  analyze: (o) => (ballMaxWidth() > 0 ? camera.analyzeBall({ ...o, maxWidth: ballMaxWidth() }) : camera.analyzeBall(o)),
   cancel: camera.cancelBall,
   supported: camera.isBallSupported,
   repo,
   sportOf: (clip) => ballSportIdOf(repo.getSession(clip.sessionId)),
   now: () => Date.now(),
-  // Test 50: a Modo Foco file from before 2026-11-10 has no person boxes; made again (same range as the Modo Foco queue).
+  appActive: () => AppState.currentState === 'active',
+  // The players' boxes (the Jogadores file) feed Bola's rules: the shirt rule (basketball), the head filter and "keep
+  // whole who hits" (beach tennis). Made first when missing (Jogadores is no longer analysed on save, 2026-11-11) or from
+  // before 2026-11-10 (test 50: no person boxes). A clip already analysed with no people is not tried again.
   focusLacksPeople: (clip) => {
     try {
       const f = JSON.parse(new File(`file://${focusPath(clip.path)}`).textSync()) as Record<string, unknown>;
       return f.v === 1 && f.people === undefined;
     } catch {
-      return false; // no file (yet) or unreadable: the native side copes as before
+      return clip.focus === undefined || clip.focus.status === 'pending';
     }
   },
   refreshFocus: (clip) => {
     const range = clip.bounds ? clip.bounds : { startMs: 0, endMs: clip.durationMs };
-    if (DIAGNOSTICS_ENABLED) diag('Seguir a Bola: Modo Foco refeito para ter as pessoas (arquivo antigo)');
-    return camera.analyzeFocus({
-      clipPath: clip.path,
-      startMs: range.startMs,
-      endMs: range.endMs,
-      outPath: focusPath(clip.path),
-    });
+    const outPath = focusPath(clip.path);
+    if (DIAGNOSTICS_ENABLED) diag('Seguir a Bola: jogadores analisados antes da bola (sem arquivo ou arquivo antigo)');
+    const every = focusEveryMs();
+    return camera
+      .analyzeFocus({ clipPath: clip.path, startMs: range.startMs, endMs: range.endMs, outPath, ...(every !== 100 ? { everyMs: every } : {}) })
+      .then((r) => {
+        // Reused by Jogadores: picking it afterwards is instant.
+        repo.updateClip(clip.id, { focus: { v: 1, status: r.status, file: outPath, ...(every !== 100 ? { every } : {}) } });
+        return r;
+      });
   },
   note: (e) => {
     if (DIAGNOSTICS_ENABLED) diag(`Seguir a Bola: corte analisado de novo (regras ${e.from || 'antigas'} para ${e.to})`);
@@ -47,7 +71,8 @@ export const ballQueue = createBallQueue({
     diag(
       `Seguir a Bola: corte de ${((clip.trim.endMs - clip.trim.startMs) / 1000).toFixed(1)} s ` +
         `analisado em ${(r.elapsedMs / 1000).toFixed(1)} s (${r.analysed} quadros, ${r.reused} do cache, ` +
-        `bola em ${Math.round(r.ballShare * 100)}%, zoom ${r.zoom}` +
+        `bola em ${Math.round(r.ballShare * 100)}%, zoom ${r.zoom}, ` +
+        `${ballMaxWidth() > 0 ? `quadro reduzido a ${ballMaxWidth()}` : 'quadro nativo'}, Jogadores 1 a cada ${focusEveryMs()} ms` +
         `${r.status === 'unsuitable' ? `, sem aplicar: ${r.reason}` : ''})`,
     );
   },

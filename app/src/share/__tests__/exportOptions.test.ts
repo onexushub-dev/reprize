@@ -76,8 +76,8 @@ test('a landscape clip gets the frame turned on its side, in both tiers', () => 
 describe('Modo Foco', () => {
   const ready = { path: '/c/1.focus.json', ready: true };
 
-  test('a ready framing follows the clip shape when Modo Foco is on (the default)', () => {
-    expect(exportOptions('pro', undefined, trim, true, ready).focus).toEqual({ path: '/c/1.focus.json', aspect: 'landscape' });
+  test('a ready framing follows the clip shape when Modo Foco is on (picked, or an older edit without framing)', () => {
+    expect(exportOptions('pro', { muted: false, framing: 'focus' }, trim, true, ready).focus).toEqual({ path: '/c/1.focus.json', aspect: 'landscape' });
     expect(exportOptions('pro', { muted: false }, trim, false, ready).focus).toEqual({ path: '/c/1.focus.json', aspect: 'portrait' });
   });
 

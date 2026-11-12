@@ -29,7 +29,7 @@ jest.mock('../../focus/appBallQueue', () => ({
   probeBallOnce: jest.fn(),
   checkSportOnce: jest.fn(),
 }));
-jest.mock('../../focus/appFocusQueue', () => ({ focusQueue: { ensure: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
+jest.mock('../../focus/appFocusQueue', () => ({ focusEveryMs: () => 200, focusQueue: { ensure: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
 jest.mock('../../session/SessionContext', () => ({ useSession: () => ({ reset: jest.fn(), state: {} }) }));
 jest.mock('../../data/mmkv', () => {
   const { createRepo } = jest.requireActual('../../data/repo');

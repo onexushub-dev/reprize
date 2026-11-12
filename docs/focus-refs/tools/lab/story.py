@@ -462,7 +462,10 @@ def blend(frame_bgr, ov):
 def encode(tmp, dst, crf):
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", tmp, "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf),
                     "-pix_fmt", "yuv420p", "-movflags", "+faststart", dst], check=True)
-    os.remove(tmp)
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass  # a folder without delete rights (Claude's workspace): the hidden temp file stays
 
 
 def cmd_compare(a):

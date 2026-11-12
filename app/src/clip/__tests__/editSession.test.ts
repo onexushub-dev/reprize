@@ -15,7 +15,7 @@ test('nothing changed means no changes', () => {
   const s = beginEdit(clip);
   expect(hasChanges(s, clip)).toBe(false);
   // Storing the defaults explicitly is not a change.
-  expect(hasChanges(s, { ...clip, edit: { speed: 1, muted: false } })).toBe(false);
+  expect(hasChanges(s, { ...clip, edit: { speed: 1, muted: false, framing: 'none' } })).toBe(false);
 });
 
 test.each([
@@ -24,7 +24,7 @@ test.each([
   ['the sound', { edit: { muted: true } }],
   ['the zoom', { edit: { muted: false, zoom: { scale: 2, cx: 0.5, cy: 0.5 } } }],
   ['the turn', { edit: { muted: false, rotation: 90 as const } }],
-  ['Modo Foco', { edit: { muted: false, focus: false } }],
+  ['Modo Foco', { edit: { muted: false, framing: 'focus' as const } }],
 ])('changing %s is a change', (_name, patch) => {
   expect(hasChanges(beginEdit(clip), { ...clip, ...patch })).toBe(true);
 });

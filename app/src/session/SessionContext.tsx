@@ -40,7 +40,7 @@ const appDeps: SessionDeps = {
   onClipSaved: (clipId) => {
     const clip = repo.getClip(clipId);
     diag(`clipe salvo (${clip ? clip.source : '?'})`); // TEMP(diag-remote)
-    focusQueue.enqueue(clipId);
+    // Jogadores is not analysed on save: only when the player picks it on the clip (2026-11-11).
   },
 };
 

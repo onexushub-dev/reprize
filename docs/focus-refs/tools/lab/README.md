@@ -1,5 +1,28 @@
 # Modo Foco lab (2026-11-03 to 2026-11-06)
 
+## 4K tests: how to run a new phone dump (2026-11-12, plan `docs/superpowers/plans/2026-11-12-4k-analysis-speed-test-plan.md`)
+
+Every field test is recorded in 4K **and** Full HD. For each one:
+
+1. **Dump** (iPhone on the cable, unlocked): from the repo root
+   `xcrun devicectl device copy from --device 00008140-001648513A42801C --domain-type appDataContainer
+   --domain-identifier com.victorhm.lance --source Documents --destination docs/focus-refs/raw-dump/<YYYY-MM-DD>-<what>`
+2. **Run** (Mac, `cd docs/focus-refs`):
+   `bash tools/lab/run_4k_test.sh raw-dump/<dump> --day <YYYY-MM-DD> [--after HH:MM --before HH:MM] [--sport beachTennis|basquete]`
+   (`--sport` only for recordings never opened in the app, so never classified; split the day with `--after/--before`
+   when it held two sports). It writes `lab/tests/4k/<dump>/inventory.md`, registers the clips in `clips.txt` as
+   `<bt|basket><4k|1080>-<MMDD>-<id8>`, runs today's ball analysis (frames at native size) and the candidate (frames
+   scaled to 1920 wide), the lab path and verdict, `report.<A>-vs-<B>.md` per sport and side-by-side videos
+   `lab/tests/story/<clip>.story-compare-4kplan.mp4` (Jogadores | Bola today | Bola candidate).
+3. **Label** a few clips per sport (`lab/.venv/bin/python tools/lab/server.py`), then re-run step 2 (detections are
+   skipped when done; the report adds precision / cover for the labelled clips).
+4. Tell Claude: the numbers go into the plan's results log and the gate table decides.
+
+Pieces: `dump_inventory.py` (MMKV + ffprobe → inventory, clips.txt, the phone's Jogadores file as
+`lab/tests/framing/<clip>.current.focus.json`), `ball_detect.py --max-width` (the candidate), `agree_4k.py` (report).
+Models per sport: beach tennis `ball_tiny_btpl`, basketball `ball_tiny_gym` (the app's). Lab times are the Mac / cloud
+CPU: compare today with the candidate there; the phone's own times come from the plan's step 8.
+
 ## Outcome (Victor, 2026-11-06) — read this first
 
 **Nothing from this lab went into the app. Production keeps today's Modo Foco (players only, Vision whole frame +
