@@ -1077,7 +1077,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
             ) : undefined
           }
           onFocusTag={() => enterEdit('focus')}
-          notice={tracking ? t('clip.trackingWaitNote') : busy || !notice ? undefined : t(notice)}
+          notice={tracking || busy || !notice ? undefined : t(notice)}
           position={siblings.length > 1 ? t('clip.ofTotal', { number, total: siblings.length }) : undefined}
           progress={
             <WatchProgress

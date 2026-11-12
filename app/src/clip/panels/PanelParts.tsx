@@ -5,7 +5,7 @@ import { LockIcon } from '../../components/icons';
 import { colors, fonts } from '../../theme/tokens';
 
 /**
- * A tool panel's name and its one plain sentence. `pro`: the "Pro" pill beside the title, on a tool a free export leaves
+ * A tool panel's name and, only where the panel cannot say it by itself (a gesture), one plain sentence. `pro`: the "Pro" pill beside the title, on a tool a free export leaves
  * out. `badge`: a plain pill for a new tool ("NOVO").
  */
 export function PanelHead({
@@ -16,7 +16,7 @@ export function PanelHead({
   badge,
 }: {
   title: string;
-  hint: string;
+  hint?: string;
   right?: ReactNode;
   pro?: string;
   badge?: string;
@@ -38,7 +38,7 @@ export function PanelHead({
             </View>
           ) : null}
         </View>
-        <Text style={styles.hint}>{hint}</Text>
+        {hint !== undefined ? <Text style={styles.hint}>{hint}</Text> : null}
       </View>
       {right}
     </View>

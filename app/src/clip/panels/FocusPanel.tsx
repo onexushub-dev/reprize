@@ -63,21 +63,9 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
     });
   }
 
-  let hint: string;
-  let warn = false;
-  if (playersWorking) hint = t('clip.framingHintPlayersWorking');
-  else if (ballWorking && ctx.ballCooling) hint = t('clip.framingHintBallCooling');
-  else if (ballWorking) hint = t('clip.framingHintBallWorking');
-  else if (framing === 'focus') hint = t('clip.framingHintPlayers');
-  else if (framing === 'ball') hint = t('clip.framingHintBall');
-  else if (ctx.ball === 'unsuitable') {
-    hint = t('clip.framingHintBallNotFound');
-    warn = true;
-  } else if (ctx.sport === undefined) hint = t('clip.framingHintUnsure');
-  else hint = t('clip.framingHintNone');
-  if (ctx.focus === 'unavailable' && framing === 'none' && ctx.ball !== 'unsuitable') {
-    hint = t('clip.framingPlayersUnavailable');
-  }
+  // The cards say what each framing is and show their own progress (Victor, 2026-11-12: no descriptions, no notes).
+  // The one line left answers a tap that changed nothing: Bola found no ball in play, so the clip stayed as it was.
+  const warn = framing === 'none' && ctx.ball === 'unsuitable' ? t('clip.framingHintBallNotFound') : undefined;
 
   const sportName = ctx.sport !== undefined ? t(SPORT_LABEL[ctx.sport]) : t('clip.sportChoose');
   const choose = (sport: RecordingSportId) => {
@@ -157,11 +145,7 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
           );
         })}
       </View>
-      <Text style={[styles.hint, warn ? styles.hintWarn : null]}>{hint}</Text>
-      {free && framing !== 'none' ? (
-        <Text style={styles.note}>{framing === 'ball' ? t('clip.ballPro') : t('clip.focusPro')}</Text>
-      ) : null}
-      <Text style={styles.note}>{t('clip.focusHold')}</Text>
+      {warn !== undefined ? <Text style={[styles.hint, styles.hintWarn]}>{warn}</Text> : null}
       <SportSheet
         visible={sheet}
         sport={ctx.sport}
@@ -232,7 +216,6 @@ const styles = StyleSheet.create({
   cardOn: { borderWidth: 2, borderColor: colors.accent },
   cardDimmed: { borderStyle: 'dashed' },
   cardText: { fontFamily: fonts.bodyBold, fontSize: 14 },
-  hint: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.muted, minHeight: 36 },
+  hint: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.muted },
   hintWarn: { color: colors.warning },
-  note: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
 });

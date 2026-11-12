@@ -38,11 +38,11 @@ test('the tools, in order, with their names', () => {
   ]);
 });
 
-test('Velocidade explains itself and stores the chosen speed', async () => {
+test('Velocidade has no description and stores the chosen speed', async () => {
   const c = ctx();
   const Panel = panel('speed');
   await render(<Panel ctx={c} />);
-  expect(screen.getByText('Escolha a velocidade de reprodução do clipe.')).toBeTruthy();
+  expect(screen.queryByText('Escolha a velocidade de reprodução do clipe.')).toBeNull();
   expect(screen.getByRole('button', { name: 'Velocidade 1x' }).props.accessibilityState).toMatchObject({ selected: true });
   await fireEvent.press(screen.getByRole('button', { name: 'Velocidade 2x' }));
   expect(c.setEdit).toHaveBeenCalledWith({ speed: 2 });
@@ -52,7 +52,7 @@ test('Som turns the sound off and on, and is off and locked at another speed', a
   const c = ctx();
   const Panel = panel('sound');
   const view = await render(<Panel ctx={c} />);
-  expect(screen.getByText('Ative ou desative o som do clipe.')).toBeTruthy();
+  expect(screen.queryByText('Ative ou desative o som do clipe.')).toBeNull();
   expect(screen.getByText('Com som')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Som' }));
   expect(c.setEdit).toHaveBeenCalledWith({ muted: true });
@@ -81,7 +81,7 @@ test('Girar turns the video', async () => {
   const c = ctx();
   const Panel = panel('rotate');
   await render(<Panel ctx={c} />);
-  expect(screen.getByText('Para um vídeo gravado de lado.')).toBeTruthy();
+  expect(screen.queryByText('Para um vídeo gravado de lado.')).toBeNull();
   await fireEvent.press(screen.getByRole('button', { name: 'Girar vídeo' }));
   expect(c.turn).toHaveBeenCalled();
 });
@@ -95,27 +95,28 @@ test('Foco: Original, Jogadores and Bola, Original by default, nothing applied u
   expect(card('Original').props.accessibilityState).toMatchObject({ checked: true });
   expect(card('Jogadores').props.accessibilityState).toMatchObject({ checked: false });
   expect(card('Bola').props.accessibilityState).toMatchObject({ checked: false });
-  expect(screen.getByText('O clipe como foi gravado. Escolha um enquadramento.')).toBeTruthy();
-  expect(screen.getByText('Mantenha o dedo pressionado no vídeo para ver o clipe original')).toBeTruthy();
+  // the cards say it all: no description, no note (2026-11-12)
+  expect(screen.queryByText(/Escolha um enquadramento|Mantenha o dedo/)).toBeNull();
   await fireEvent.press(card('Jogadores'));
   expect(c.pickFraming).toHaveBeenCalledWith('focus');
   await fireEvent.press(card('Bola'));
   expect(c.pickFraming).toHaveBeenCalledWith('ball');
 });
 
-test('Jogadores: preparing on its card, then its hint; no card where it cannot frame', async () => {
+test('Jogadores: preparing on its card, then no text; no card (and no message) where it cannot frame', async () => {
   const Panel = panel('focus');
   const focusEdit = { ...readEdit(undefined), framing: 'focus' as const, focus: true };
   const view = await render(<Panel ctx={ctx({ edit: focusEdit, focus: 'preparing' })} />);
   expect(card('Jogadores, rastreando').props.accessibilityState).toMatchObject({ checked: true });
-  expect(screen.getByText('Rastreando os jogadores… você pode continuar editando.')).toBeTruthy();
+  expect(screen.queryByText(/Rastreando os jogadores/)).toBeNull();
   await view.rerender(<Panel ctx={ctx({ edit: focusEdit, focus: 'on' })} />);
-  expect(screen.getByText('A câmera acompanha os jogadores, com zoom quando a jogada se concentra.')).toBeTruthy();
+  expect(screen.queryByText(/A câmera acompanha/)).toBeNull();
   await view.rerender(<Panel ctx={ctx({ focus: 'unavailable' })} />);
   expect(screen.queryByRole('radio', { name: 'Jogadores' })).toBeNull();
+  expect(screen.queryByText(/indisponível/)).toBeNull();
 });
 
-test('Bola: its percent on the card while it analyses, then its hint', async () => {
+test('Bola: its percent on the card while it analyses, and no text', async () => {
   const Panel = panel('focus');
   const ballEdit = { ...readEdit(undefined), framing: 'ball' as const, focus: false };
   const c = ctx({ edit: ballEdit, ball: 'analysing', ballPercent: 62 });
@@ -125,19 +126,19 @@ test('Bola: its percent on the card while it analyses, then its hint', async () 
   // ✕ on the card being tracked stops it
   await fireEvent.press(screen.getByRole('button', { name: 'Parar o rastreamento' }));
   expect(c.stopFraming).toHaveBeenCalled();
-  expect(screen.getByText('Rastreando a bola… você pode continuar editando.')).toBeTruthy();
+  expect(screen.queryByText(/Rastreando a bola/)).toBeNull();
   await view.rerender(<Panel ctx={ctx({ edit: ballEdit, ball: 'on' })} />);
-  expect(screen.getByText('A câmera segue a bola, na vertical 9:16 para Stories, Reels e TikTok.')).toBeTruthy();
+  expect(screen.queryByText(/A câmera segue a bola/)).toBeNull();
 });
 
-test('Bola waiting for the phone to cool down: "Aguardando", and why, instead of 0%', async () => {
+test('Bola waiting for the phone to cool down: "Aguardando" on its card instead of 0%', async () => {
   const Panel = panel('focus');
   const ballEdit = { ...readEdit(undefined), framing: 'ball' as const, focus: false };
   await render(<Panel ctx={ctx({ edit: ballEdit, ball: 'analysing', ballCooling: true })} />);
   expect(card('Bola, aguardando o celular esfriar')).toBeTruthy();
   expect(screen.getByText('Aguardando')).toBeTruthy();
   expect(screen.queryByText('0%')).toBeNull();
-  expect(screen.getByText(/O celular está quente/)).toBeTruthy();
+  expect(screen.queryByText(/O celular está quente/)).toBeNull();
 });
 
 test('a clip stored on Bola whose sport is not known shows as Original', async () => {
@@ -155,7 +156,7 @@ test('Bola: no card for a sport without a ball model, nor when the sport is not 
   await view.rerender(<Panel ctx={ctx({ ball: 'hidden', sport: undefined, sportHow: undefined })} />);
   expect(screen.queryByRole('radio', { name: 'Bola' })).toBeNull();
   expect(screen.getByText('Escolher esporte')).toBeTruthy();
-  expect(screen.getByText('Não identificamos o esporte. Toque em Escolher esporte para ver todos os enquadramentos.')).toBeTruthy();
+  expect(screen.queryByText(/Não identificamos o esporte/)).toBeNull();
 });
 
 test('Bola found no ball in this cut: dimmed, the clip stays as it was (test 47a)', async () => {
@@ -189,22 +190,22 @@ test('not known: the sheet opens with nothing marked', async () => {
   }
 });
 
-test('on a free recording the sound works, and the hint says it does not leave the app', async () => {
+test('on a free recording the sound works; the Pro pill (no sentence) says it does not leave the app', async () => {
   const c = ctx({ plan: 'free' });
   const Panel = panel('sound');
   await render(<Panel ctx={c} />);
-  expect(screen.getByText('O som toca aqui no app, mas só vai no clipe salvo ou enviado com o PRO.')).toBeTruthy();
+  expect(screen.queryByText(/O som toca aqui no app/)).toBeNull();
   expect(screen.getByLabelText('PRO')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Som' }));
   expect(c.setEdit).toHaveBeenCalledWith({ muted: true });
   expect(c.unlock).not.toHaveBeenCalled();
 });
 
-test('on a free recording Jogadores works, and the note says it does not leave the app', async () => {
+test('on a free recording Jogadores works; the Pro pill (no note) says it does not leave the app', async () => {
   const c = ctx({ focus: 'on', plan: 'free', edit: { ...readEdit(undefined), framing: 'focus', focus: true } });
   const Panel = panel('focus');
   await render(<Panel ctx={c} />);
-  expect(screen.getByText('O Modo Foco funciona aqui no app, mas só vai no clipe salvo ou enviado com o PRO.')).toBeTruthy();
+  expect(screen.queryByText(/funciona aqui no app/)).toBeNull();
   expect(screen.getByLabelText('PRO')).toBeTruthy();
   await fireEvent.press(card('Original'));
   expect(c.pickFraming).toHaveBeenCalledWith('none');
@@ -215,7 +216,7 @@ test('on a free recording the speed works and goes into the video: no Pro note, 
   const c = ctx({ plan: 'free' });
   const Panel = panel('speed');
   await render(<Panel ctx={c} />);
-  expect(screen.getByText('Escolha a velocidade de reprodução do clipe.')).toBeTruthy();
+  expect(screen.queryByText('Escolha a velocidade de reprodução do clipe.')).toBeNull();
   expect(screen.queryByLabelText('PRO')).toBeNull();
   await fireEvent.press(screen.getByRole('button', { name: 'Velocidade 2x' }));
   expect(c.setEdit).toHaveBeenCalledWith({ speed: 2 });
