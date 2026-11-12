@@ -5,6 +5,14 @@ export function focusPath(clipPath: string): string {
   return clipPath.replace(/\.[^./]+$/, '') + '.focus.json';
 }
 
+/**
+ * The people found in each analysed picture of the clip (.people.json, written by the native analysis): a stopped
+ * analysis goes on from there, and Bola's pass leaves them for Jogadores.
+ */
+export function peoplePath(clipPath: string): string {
+  return clipPath.replace(/\.[^./]+$/, '') + '.people.json';
+}
+
 export type FocusAspect = 'landscape' | 'portrait';
 
 /** One crop rect `[x, y, width, height]` (0..1 of the video, origin top-left) every `stepMs` from `startMs` (clip time). */

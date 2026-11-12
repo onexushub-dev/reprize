@@ -25,8 +25,31 @@ final class ReplayEngine {
 
   private struct PendingSave {
     let id: UUID
-    let run: (SegmentWriter) -> Void
+    let run: ([ClipSource]) -> Void
     let fail: (Failure) -> Void
+  }
+
+  /// Where a save reads from: a ring of segments and the init segment they belong to. `maxSeconds`: how much of it is
+  /// still inside the buffer's window (a kept buffer ages out, below).
+  struct ClipSource {
+    let ring: SegmentRing
+    let initSegment: URL
+    let width: Int
+    let height: Int
+    let maxSeconds: Double
+  }
+
+  /// Heat (plan 2026-11-12, I3c): when a step has to change the picture size, the camera and writer restart. The old
+  /// writer's buffer is kept (`kept`), readable, until it leaves the window, so a save right after the step still has
+  /// the play, joined with what came after it into one clip (Victor, 2026-11-12). On `capture.queue`.
+  private struct Previous {
+    let ring: SegmentRing
+    let initSegment: URL
+    let width: Int
+    let height: Int
+    let generation: Int
+    /// When its writer stopped (uptime): its last picture is that old.
+    var endedAt: TimeInterval
   }
 
   private let fileOps = LocalFileOps()
@@ -40,6 +63,11 @@ final class ReplayEngine {
   private var idle = false
   private var generation = 0
   private var pendingSaves: [PendingSave] = []
+  /// The buffers kept from heat restarts still inside the window, oldest first (4K → 1080p30, then → 720p30 within a
+  /// minute keeps both).
+  private var kept: [Previous] = []
+  /// Segments per ring, as set at `start` (a ring made after a heat restart gets the same).
+  private var ringCapacity = 60
   private var lens = "ultraWide"
   /// Steps the recording down as the phone heats up (1080p30 when `serious`, 720p30 when `critical`). Only touched on
   /// `thermalQueue`.
@@ -72,6 +100,9 @@ final class ReplayEngine {
     voice.onCommand = { [weak self] in
       self?.emit?("onTrigger", ["source": "voice", "at": Date().timeIntervalSince1970 * 1000])
     }
+    capture.onPressure = { [weak self] pressure in
+      self?.diag("câmera: pressão \(pressure) — \(Self.thermalLevel().name)") // TEMP(diag-remote), plan 2026-11-12 I3a
+    }
     gesture.onDebug = { [weak self] in self?.emit?("onGestureDebug", $0) }
     gesture.onTrace = { [weak self] in self?.emit?("onGestureTrace", $0) }
     gesture.optics = { [weak self] in
@@ -103,7 +134,8 @@ final class ReplayEngine {
     ReplayPaths.ensure(ReplayPaths.clips)
     ring.clear()
     windowSeconds = bufferSeconds > 0 ? bufferSeconds : 60
-    ring = SegmentRing(capacity: BufferPlan.segments(forSeconds: windowSeconds, segmentSeconds: SegmentWriter.segmentSeconds), fileOps: fileOps)
+    ringCapacity = BufferPlan.segments(forSeconds: windowSeconds, segmentSeconds: SegmentWriter.segmentSeconds)
+    ring = SegmentRing(capacity: ringCapacity, fileOps: fileOps)
     SegmentRing.purgeOrphans(dir: ReplayPaths.buffer, fileOps: fileOps)
 
     self.lens = lens
@@ -166,6 +198,7 @@ final class ReplayEngine {
     capture.stop()
     capture.queue.async {
       self.failPendingSaves(.noSession)
+      self.dropKept()
       self.finishWriter {
         SegmentRing.purgeOrphans(dir: ReplayPaths.buffer, fileOps: self.fileOps)
         completion()
@@ -181,13 +214,14 @@ final class ReplayEngine {
     let id = UUID()
     // The phone's position at the moment of the play, not the one the session started with.
     let rotation = gesture.currentUpright().videoRotationDegrees
-    let pending = PendingSave(id: id, run: { [weak self] writer in
+    let pending = PendingSave(id: id, run: { [weak self] sources in
       guard let self else { return }
-      self.saveQueue.async { completion(self.copyClip(using: writer, rotationDegrees: rotation, keepSeconds: keepSeconds)) }
+      self.saveQueue.async { completion(self.copyClip(from: sources, rotationDegrees: rotation, keepSeconds: keepSeconds)) }
     }, fail: { completion(.failure($0)) })
 
     capture.queue.async {
-      guard self.writer != nil else { return completion(.failure(.noSession)) }
+      // During a heat restart there is no writer for a moment, but the kept buffer and the new writer are coming.
+      guard self.writer != nil || !self.kept.isEmpty else { return completion(.failure(.noSession)) }
       self.pendingSaves.append(pending)
     }
     capture.queue.asyncAfter(deadline: .now() + Self.saveTimeout) {
@@ -196,24 +230,71 @@ final class ReplayEngine {
     }
   }
 
-  /// Runs on `saveQueue`; the ring pins the copied segments, so capture keeps going meanwhile.
-  private func copyClip(using writer: SegmentWriter, rotationDegrees: Int, keepSeconds: Double) -> SaveResult {
-    // Outside the buffer dir, so the buffer's disk size measures the ring alone.
-    let joined = FileManager.default.temporaryDirectory.appendingPathComponent("save-\(UUID().uuidString).mp4")
+  /// Runs on `saveQueue`; the rings pin the copied segments, so capture keeps going meanwhile. `sources`: oldest first
+  /// (a buffer kept from before a heat restart, then the current one). The newest source gives what it has of the
+  /// window, the older one the rest; parts of different sizes are joined at the smallest (`ClipConcat.join`).
+  private func copyClip(from sources: [ClipSource], rotationDegrees: Int, keepSeconds: Double) -> SaveResult {
     let dest = ReplayPaths.clips.appendingPathComponent("\(UUID().uuidString).mp4")
-    defer { try? FileManager.default.removeItem(at: joined) }
+    var temporary: [URL] = []
+    defer { temporary.forEach { try? FileManager.default.removeItem(at: $0) } }
     do {
       let lastSeconds = keepSeconds > 0 ? min(keepSeconds, self.windowSeconds) : self.windowSeconds
-      let seconds = try ring.copyClip(lastSeconds: lastSeconds, to: joined) { segments, joined in
-        try ClipConcat.concat(initSegment: writer.initSegmentURL, segments: segments, to: joined)
+      var remaining = lastSeconds
+      var parts: [ClipConcat.Part] = []
+      for source in sources.reversed() {
+        let want = min(remaining, source.maxSeconds)
+        guard want > 0.05, !source.ring.snapshot(lastSeconds: want).isEmpty else { continue }
+        // Outside the buffer dir, so the buffer's disk size measures the ring alone.
+        let joined = FileManager.default.temporaryDirectory.appendingPathComponent("save-\(UUID().uuidString).mp4")
+        let part = FileManager.default.temporaryDirectory.appendingPathComponent("part-\(UUID().uuidString).mp4")
+        temporary += [joined, part]
+        let seconds: Double
+        do {
+          seconds = try source.ring.copyClip(lastSeconds: want, to: joined) { segments, joined in
+            // a kept buffer dropped between the check above and here: nothing of it to copy
+            guard !segments.isEmpty else { throw Skip.empty }
+            try ClipConcat.concat(initSegment: source.initSegment, segments: segments, to: joined)
+          }
+        } catch Skip.empty {
+          continue
+        }
+        try ClipConcat.normalize(joined, to: part, rotationDegrees: rotationDegrees)
+        parts.insert(ClipConcat.Part(url: part, shortSide: min(source.width, source.height), seconds: seconds), at: 0)
+        remaining -= seconds
       }
-      try ClipConcat.normalize(joined, to: dest, rotationDegrees: rotationDegrees)
-      return .success((dest.path, Int(seconds * 1000), min(writer.width, writer.height)))
+      guard !parts.isEmpty else { return .failure(.noSession) }
+      let shortSide = try ClipConcat.join(parts, to: dest)
+      return .success((dest.path, Int(parts.reduce(0) { $0 + $1.seconds } * 1000), shortSide))
     } catch {
       try? FileManager.default.removeItem(at: dest)
       return .failure(.encoder(error))
     }
   }
+
+  /// Must run on `capture.queue`. What a save made now reads from (`copyClip`).
+  private func sources() -> [ClipSource] {
+    var out: [ClipSource] = []
+    for p in kept {
+      // the window counts from now: a kept buffer's last picture is `now - endedAt` old
+      let left = windowSeconds - (Self.uptime() - p.endedAt)
+      if left > 0.5 {
+        out.append(ClipSource(ring: p.ring, initSegment: p.initSegment, width: p.width, height: p.height, maxSeconds: left))
+      }
+    }
+    if let w = writer {
+      out.append(ClipSource(ring: ring, initSegment: w.initSegmentURL, width: w.width, height: w.height,
+                            maxSeconds: .infinity))
+    }
+    return out
+  }
+
+  /// Must run on `capture.queue`. Deletes the buffers kept from heat restarts (only that writer's with `generation`).
+  private func dropKept(generation: Int? = nil) {
+    for p in kept where generation == nil || p.generation == generation { p.ring.clear() }
+    kept.removeAll { generation == nil || $0.generation == generation }
+  }
+
+  private enum Skip: Error { case empty }
 
   /// Must run on `capture.queue`.
   private func startWriter() {
@@ -223,14 +304,17 @@ final class ReplayEngine {
     writer.onSegment = { [weak self] segment, generation in
       guard let self else { return }
       self.capture.queue.async {
-        // A late segment from a replaced writer belongs to another init segment: drop it.
-        guard generation == self.generation, let current = self.writer else {
+        guard generation == self.generation, self.writer != nil else {
+          // The last segment of a writer replaced by a heat restart goes to the buffer kept from it (I3c); any other
+          // late segment belongs to an init segment nobody reads any more: drop it.
+          if let k = self.kept.first(where: { $0.generation == generation }) { return k.ring.append(segment) }
           return self.fileOps.delete(segment.url)
         }
         self.ring.append(segment)
         let saves = self.pendingSaves
         self.pendingSaves.removeAll()
-        saves.forEach { $0.run(current) }
+        let sources = self.sources()
+        saves.forEach { $0.run(sources) }
       }
     }
     writer.rotationDegrees = { [weak self] in self?.gesture.currentUpright().videoRotationDegrees ?? 0 }
@@ -333,7 +417,17 @@ final class ReplayEngine {
     }
     let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled ? ", pouca energia LIGADO" : ""
     let thermal = (ThermalLevel(rawValue: ProcessInfo.processInfo.thermalState.rawValue) ?? .nominal).name
-    return "bateria \(percent)% (\(state)\(lowPower)), calor \(thermal)"
+    return "bateria \(percent)% (\(state)\(lowPower)), calor \(thermal)" + shared.energyConfig()
+  }
+
+  /// Plan 2026-11-12, I3a / I3d (energy test): the camera's own pressure and what is running, so each minute's line
+  /// says which configuration the battery and the heat belong to. Empty with no camera open.
+  private func energyConfig() -> String {
+    guard running else { return "" }
+    let info = capture.diagInfo
+    let on = { (b: Bool) in b ? "ligado" : "desligado" }
+    return ", pressão \(info.pressure) — config: \(info.format), gesto \(on(gesture.enabled)), voz \(on(voice.isEnabled)), " +
+      "prévia \(on(EnergyDiag.previewOn))"
   }
 
   /// The audio session as the volume remote depends on it: the remote is read through `outputVolume`.
@@ -397,7 +491,10 @@ final class ReplayEngine {
       self.gesture.degraded = state.slowsGesture || degraded
       NSLog("[replay] thermal %@: recording %@ (asked %@)", state.name, quality, self.ladder.requested)
 
+      self.diag("calor: \(state.name), gravando \(quality) — pressão \(self.capture.diagInfo.pressure)") // TEMP(diag-remote)
       switch action {
+      case .throttle(let next):
+        self.throttleCapture(quality: next)
       case .reconfigure(let next):
         self.restartCapture(quality: next)
       case .none:
@@ -418,7 +515,20 @@ final class ReplayEngine {
     }
   }
 
-  /// Closes the writer and reopens the camera at `quality`; saves waiting on the old writer fail (the UI says so).
+  /// Heat, same picture size (1080p60 → 1080p30; plan 2026-11-12, I3b): the running camera only slows down. Nothing
+  /// restarts: the writer, the ring and the play in it stay, and the microphone is not touched.
+  private func throttleCapture(quality: String) {
+    let fps = Int(CaptureController.target(for: quality).fps)
+    capture.queue.async {
+      self.capture.lowerRecordingRate(to: fps)
+      self.capture.setRate(self.buffering ? .recording : (self.idle ? .idle : .preview))
+      self.diag("câmera: \(quality) sem reiniciar (calor) — buffer mantido") // TEMP(diag-remote)
+    }
+  }
+
+  /// Heat, another picture size: closes the writer and reopens the camera at `quality`. The old writer's buffer is kept
+  /// readable (I3c): saves waiting on it are answered from it once its last segment is in, and a save in the next
+  /// window joins it with what comes after.
   private func restartCapture(quality: String) {
     // Before the camera stops: its audio restarts with it and moves the volume the remote reads (a false press at 10:19
     // in the 2026-10-31 log). JS stops reading volume changes as presses until it has settled.
@@ -426,18 +536,48 @@ final class ReplayEngine {
     diag("câmera: reiniciando em \(quality) (calor) — \(Self.audioState())") // TEMP(diag-remote)
     capture.stop()
     capture.queue.async {
-      self.failPendingSaves(.noSession)
-      self.finishWriter {
-        do {
-          try self.capture.configure(lens: self.lens, maxQuality: quality)
-        } catch {
-          return self.fail(code: "CAMERA_UNAVAILABLE", "\(error)")
-        }
-        // A camera restarted on the setup screen stays a preview.
-        if self.buffering { self.startWriter() } else { self.capture.setRate(self.idle ? .idle : .preview) }
-        self.capture.start()
-        self.diag("câmera: reiniciada em \(quality) — \(Self.audioState())") // TEMP(diag-remote)
+      let old = self.writer
+      self.writer = nil
+      self.generation += 1
+      if let old, self.buffering {
+        self.kept.append(Previous(ring: self.ring, initSegment: old.initSegmentURL, width: old.width, height: old.height,
+                                  generation: old.generation, endedAt: Self.uptime()))
+        self.ring = SegmentRing(capacity: self.ringCapacity, fileOps: self.fileOps)
+        self.expirePrevious(generation: old.generation)
+      } else {
+        self.ring.clear()
       }
+      let reopen = {
+        self.capture.queue.async {
+          if let old, let i = self.kept.firstIndex(where: { $0.generation == old.generation }) {
+            self.kept[i].endedAt = Self.uptime()
+            // the saves that were waiting for the old writer's segment: it is in the kept buffer now
+            let saves = self.pendingSaves
+            self.pendingSaves.removeAll()
+            let sources = self.sources()
+            saves.forEach { $0.run(sources) }
+          } else {
+            self.failPendingSaves(.noSession)
+          }
+          do {
+            try self.capture.configure(lens: self.lens, maxQuality: quality)
+          } catch {
+            return self.fail(code: "CAMERA_UNAVAILABLE", "\(error)")
+          }
+          // A camera restarted on the setup screen stays a preview.
+          if self.buffering { self.startWriter() } else { self.capture.setRate(self.idle ? .idle : .preview) }
+          self.capture.start()
+          self.diag("câmera: reiniciada em \(quality), buffer anterior mantido — \(Self.audioState())") // TEMP(diag-remote)
+        }
+      }
+      if let old { old.finish(completion: reopen) } else { reopen() }
+    }
+  }
+
+  /// The kept buffer goes once nothing of it is left in the window (a little after, so a save at the edge finishes).
+  private func expirePrevious(generation: Int) {
+    capture.queue.asyncAfter(deadline: .now() + windowSeconds + 5) {
+      self.dropKept(generation: generation)
     }
   }
 }

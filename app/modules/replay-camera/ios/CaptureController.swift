@@ -19,6 +19,9 @@ final class CaptureController: NSObject, AVCaptureVideoDataOutputSampleBufferDel
   /// The zoom the player wants (0.5 = ultra-wide, 1 = wide, above 1 a digital crop); nil = no zoom, the lens decides.
   /// Kept here, not only in the engine, so every reconfiguration (the thermal fallback) puts it back.
   var wantedZoom: Double?
+  /// The camera's own pressure reading changed (plan 2026-11-12, I3a): its level and factors, for Diagnóstico.
+  var onPressure: ((String) -> Void)?
+  private var pressureObservation: NSKeyValueObservation?
 
   enum Failure: Error { case noCamera, cannotAddInput, cannotAddOutput }
 
@@ -31,6 +34,12 @@ final class CaptureController: NSObject, AVCaptureVideoDataOutputSampleBufferDel
 
     guard let camera = Self.camera(lens: lens, continuousZoom: wantedZoom != nil) else { throw Failure.noCamera }
     self.camera = camera
+    setDiag(pressure: Self.pressure(camera.systemPressureState))
+    pressureObservation = camera.observe(\.systemPressureState, options: [.new]) { [weak self] device, _ in
+      let text = Self.pressure(device.systemPressureState)
+      self?.setDiag(pressure: text)
+      self?.onPressure?(text)
+    }
     let input = try AVCaptureDeviceInput(device: camera)
     guard session.canAddInput(input) else { throw Failure.cannotAddInput }
     session.addInput(input)
@@ -88,6 +97,41 @@ final class CaptureController: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     camera.activeVideoMinFrameDuration = duration
     camera.activeVideoMaxFrameDuration = duration
     camera.unlockForConfiguration()
+  }
+
+  /// Heat (plan 2026-11-12, I3b): the recording's rate goes down to `newFps` on the running camera, with no restart, so
+  /// the writer, the ring and the play in it stay. Same format and size; `setRate` applies it. Must run on `queue`.
+  func lowerRecordingRate(to newFps: Int) {
+    fps = min(fps, newFps)
+    setDiag(format: "\(min(dimensions.width, dimensions.height))p\(fps)")
+  }
+
+  /// The camera's pressure as one short text: "nominal", or "serious (temperatura, pico de energia)".
+  static func pressure(_ state: AVCaptureDevice.SystemPressureState) -> String {
+    var factors: [String] = []
+    if state.factors.contains(.systemTemperature) { factors.append("temperatura") }
+    if state.factors.contains(.peakPower) { factors.append("pico de energia") }
+    if state.factors.contains(.depthModuleTemperature) { factors.append("módulo de profundidade") }
+    if #available(iOS 17.0, *), state.factors.contains(.cameraTemperature) { factors.append("câmera") }
+    return factors.isEmpty ? state.level.rawValue : "\(state.level.rawValue) (\(factors.joined(separator: ", ")))"
+  }
+
+  /// Diagnóstico's view of the camera (format as "1080p60", pressure), readable from any thread: written on the
+  /// queues that change them, read from JS (energy test, plan 2026-11-12 I3d).
+  var diagInfo: (format: String, pressure: String) {
+    infoLock.lock()
+    defer { infoLock.unlock() }
+    return (formatText, pressureText)
+  }
+  private let infoLock = NSLock()
+  private var formatText = "?"
+  private var pressureText = "?"
+
+  private func setDiag(format: String? = nil, pressure: String? = nil) {
+    infoLock.lock()
+    if let format { formatText = format }
+    if let pressure { pressureText = pressure }
+    infoLock.unlock()
   }
 
   func start() { queue.async { self.session.startRunning() } }
@@ -199,5 +243,6 @@ final class CaptureController: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     let d = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
     dimensions = (Int(d.width), Int(d.height))
     fps = frameRate
+    setDiag(format: "\(min(dimensions.width, dimensions.height))p\(fps)")
   }
 }

@@ -3,6 +3,7 @@ import { AppState } from 'react-native';
 
 import * as camera from '../../modules/replay-camera';
 import { onFileRemoved, repo } from '../data/mmkv';
+import { stagesText } from '../diag/clipTimings';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBackgroundClock } from './backgroundTime';
 import { createFocusQueue } from './focusQueue';
@@ -59,8 +60,9 @@ export const focusQueue = createFocusQueue({
     powerAtStart.delete(clip.path);
     diag(
       `Modo Foco: clipe de ${((clip.bounds ? clip.bounds.endMs - clip.bounds.startMs : clip.durationMs) / 1000).toFixed(0)} s ` +
-        `${analysisTime(r.elapsedMs, Date.now())} (1 quadro a cada ${focusEveryMs()} ms, ${r.frames} quadros, ${r.meanPeople.toFixed(1)} pessoas/quadro, ${r.status}, esperou ${(waitedMs / 1000).toFixed(1)} s na fila)` +
-        ` — antes: ${before !== undefined ? before : '?'} — depois: ${power()}`,
+        `${analysisTime(r.elapsedMs, Date.now())} (1 quadro a cada ${focusEveryMs()} ms, ${r.frames} quadros, ${r.reused !== undefined ? r.reused : 0} do cache, ${r.meanPeople.toFixed(1)} pessoas/quadro, ${r.status}, esperou ${(waitedMs / 1000).toFixed(1)} s na fila)` +
+        ` — antes: ${before !== undefined ? before : '?'} — depois: ${power()}` +
+        stagesText(r),
     );
   },
   deleteFile: (path) => {

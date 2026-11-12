@@ -185,10 +185,9 @@ def track(det, P):
     elif (P.get("person_ratio") or P.get("head_top")) and det.get("clip"):
         people = vision_rows(det["clip"], n) if P.get("person_vision") else people_rows(det["clip"])
     # 1. shape and score
-    cand = {}
-    for k in an:
+    def shaped(k, items):
         cs = []
-        for cx, cy, w, h, s in frames[k]:
+        for cx, cy, w, h, s in items:
             if people is not None and k < len(people) and people[k] and P.get("head_top"):
                 # test 52: a head, not the ball (a player's head is the size of the ball at the back of the court)
                 if any(abs(cx - b[0]) <= b[2] / 2 and b[1] - b[3] / 2 <= cy <= b[1] - b[3] / 2 + P["head_top"] * b[3]
@@ -215,16 +214,28 @@ def track(det, P):
                     continue
                 s = s * P["near_w"]
             cs.append((cx, cy, w, h, s))
-        cand[k] = cs
+        return cs
+    cand = {k: shaped(k, frames[k]) for k in an}
+    # test 54 (motion-gated tiles): what a tile held the last time it was looked at, for the frames it is not. Evidence
+    # for the still-object filter only (the lamp is still there), never a point of the path.
+    stale = {k: shaped(k, det["carried"][k] or []) for k in an} if det.get("carried") else {}
     # 2. still things
     def d(a, b):
         return math.hypot((a[0] - b[0]) * W, (a[1] - b[1]) * H) / L
+    # test 54, variant "seen": the tiles each frame looked at; a frame counts for a candidate only if it looked there
+    ran = det.get("ran")
+    tl, ts = det.get("ran_tiles"), det.get("tile", 416)
+
+    def looked(q, c):
+        px, py = c[0] * W, c[1] * H
+        return any(tl[i][0] <= px < tl[i][0] + ts and tl[i][1] <= py < tl[i][1] + ts for i in ran[q])
     moving = {}
     for k in an:
-        near = [q for q in an if q != k and abs(q - k) <= P["still_win"]]
+        near_all = [q for q in an if q != k and abs(q - k) <= P["still_win"]]
         keep = []
         for c in cand[k]:
-            hits = sum(1 for q in near if any(d(c, o) <= P["still_r"] for o in cand[q]))
+            near = [q for q in near_all if looked(q, c)] if ran else near_all
+            hits = sum(1 for q in near if any(d(c, o) <= P["still_r"] for o in cand[q] + stale.get(q, [])))
             if near and hits >= P["still_share"] * len(near):
                 continue
             keep.append(c)

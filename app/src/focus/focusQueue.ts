@@ -1,5 +1,5 @@
 import type { AnalyzeFocusOptions, FocusAnalysis } from '../../modules/replay-camera/src/ReplayCamera.types';
-import { focusPath } from '../data/focusFile';
+import { focusPath, peoplePath } from '../data/focusFile';
 import type { Repo } from '../data/repo';
 import type { Clip } from '../data/schema';
 
@@ -120,6 +120,7 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
         startMs: range.startMs,
         endMs: range.endMs,
         outPath,
+        peoplePath: peoplePath(clip.path),
         ...(deps.every !== undefined && deps.every() !== 100 ? { everyMs: deps.every() } : {}),
       })
       .then((result) => {

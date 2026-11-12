@@ -3,7 +3,8 @@
 Date: 2026-11-12. Decisions: Victor. Analysis: Claude. Stage 1 = analysis and plan only; no app code was changed.
 Checked once by a reviewer with fresh context against the request, the code, the logs and the sources; its findings
 are applied (export time, TennisCut facts, per-clip results and thumbnail size for motion gating, ranges on estimates).
-Stage 2 (Victor picks what to build) starts from section 0.
+Stage 2 (Victor picked I1, I2, I3, with I5 first) is built: section 9 has what was done and the before / after
+numbers, section 10 the phone protocol, section 11 the answer on the ball-detection approach.
 
 How to read the evidence tags used everywhere below:
 
@@ -717,6 +718,10 @@ in section 2.2.
 30. Apple Technical Note TN2445, "Handling Frame Drops with AVCaptureVideoDataOutput" — https://developer.apple.com/library/archive/technotes/tn2445/_index.html
 31. Apple, "Responding to power notifications" (thermal states) — https://developer.apple.com/documentation/xcode/responding-to-power-notifications
 32. Apple, coremltools optimization overview — https://apple.github.io/coremltools/docs-guides/source/opt-overview.html
+33. Tarashima et al., "Widely Applicable Strong Baseline for Sports Ball Detection and Tracking" (WASB), BMVC 2023 — https://arxiv.org/pdf/2311.05237
+34. Raj, Wang, Gedeon, "TrackNetV4: Enhancing Fast Sports Object Tracking with Motion Attention Maps" — https://arxiv.org/pdf/2409.14543
+35. Apple, "Detecting moving objects in a video" (`VNDetectTrajectoriesRequest`) — https://developer.apple.com/documentation/vision/detecting-moving-objects-in-a-video
+36. Roboflow, RF-DETR (Apache 2.0) — https://blog.roboflow.com/rf-detr-nano-small-medium/ and https://blog.roboflow.com/rf-detr-is-free-to-use-commercially/
 
 ---
 
@@ -730,3 +735,135 @@ in section 2.2.
    clip, or should it stay as it was?
 4. The export takes ~10 s for a 15 s 4K clip. Is that wait a complaint in the field tests? It decides whether I8 goes
    ahead of I3.
+
+Victor's answers (2026-11-12): 1. It fits, as long as battery and heat do not get worse. 2. One joined clip.
+3. It stays as it was, no re-analysis (the variant built keeps it "not applied", section 9). 4. Not answered yet.
+
+---
+
+## 9. Stage 2: what was built, and the results (2026-11-12)
+
+Victor agreed to I1, I2 and I3; I5 went first as step 0. Checks run for all of it: `npx tsc --noEmit`, `npx expo lint`
+(0 errors; 13 old warnings in test files), `npm test` (114 suites, 1,363 tests), ReplayCore `swift test` (329 tests)
+and an unsigned Release `xcodebuild` of the app (BUILD SUCCEEDED) — all passing on 2026-11-12. Nothing below was run
+on a phone: every time, heat and battery effect is still to be measured (section 10). The lab outputs cited here live
+under `docs/focus-refs/lab/tests/`, which git ignores; the tables that matter are copied into the lab README (Stage 2
+gates, test 54) and below.
+
+Where the "quality did not drop" gate stands, item by item:
+- **I5, I3 a, I3 d**: no analysis input or rule changes; nothing to measure on clips.
+- **I1**: met by input parity, not by a re-run. A Python copy of the old and new frame-picking rules gives the same
+  pictures on 278 app recordings; the detectors, `FocusPath` and `BallFraming` are unchanged and their Swift parity
+  tests pass. The Swift `ClipScan` itself was not run on the labelled clips (that needs the phone or a Mac harness),
+  and Jogadores has no labelled quality number of its own, only this input parity.
+- **I2**: **not strictly met**. Basketball and arena A are identical; arena B cover 90.1 → 89.8 and night precision
+  95.4 → 95.0, cover 84.5 → 83.9; per clip, b-08's ball-mode share falls 90 → 71 (others rise). That is why it ships
+  off, behind a Diagnóstico switch, until Victor compares the clips on the phone (section 10, step 3).
+- **I3 b, c**: **open**. They change the recording, not the analysis rules, but a clip slowed to 30 fps mid-way, or
+  joined from a scaled-down part, was never analysed on labelled clips: the labelled clips' videos are not in the
+  repository, only their extracted frames. What the lab shows is narrower: across 278 different recordings, a 30 fps
+  recording fills every 200 ms analysis tick just as a 60 fps one does.
+
+| Item | What the app does now | Lab before → after (labelled clips) | Default |
+|---|---|---|---|
+| I5 | Each Jogadores / Bola line in Diagnóstico ends with the stages (decode, people, tiles, model, path, regions per frame) and the camera's movement (pan p95, turns per 10 s) | No analysis input changes: nothing to compare | On (diagnostics builds) |
+| I1 | One pass over the clip (`ClipScan`) serves both detectors: Bola on a clip with no Jogadores file finds the people in the same decode and writes it; people kept per tick in `<clip>.people.json`, so a stopped Jogadores resumes and a later Jogadores is instant; people and ball detectors side by side on a shared frame (Diagnóstico "Passe" times one after the other) | Same pictures to the detectors on 278 app recordings (41,985 Jogadores, 56,057 Bola, 0 differ; Python copy of both rules), so Jogadores and Bola are expected to give what they gave — inferred, not re-run. Bola's reference on 39 labelled clips, 1,342 points: precision 94.4 / 94.8 / 99.0 / 95.4, cover 83.7 / 83.9 / 90.1 / 84.5 (gym / arena A / arena B / night) | On |
+| I1, not taken | Jogadores over the cut + margin | G4 failed: framing inside the cut moves up to 11% (2 s margin) / 8.4% (4 s) of the frame | Jogadores keeps the clip's range |
+| I2 | Bola sends to the model only the tiles where the picture changed (640 px grey thumbnails, ±100 ms); what a skipped tile held stays as evidence for the still-object filter only (test 54, `mt20e`) | Regions 19 → 9.2–10.8 per frame; detector ceiling unchanged; precision 94.4 / 94.8 / 99.0 / 95.4 → 94.4 / 94.8 / 99.0 / 95.0; cover 83.7 / 83.9 / 90.1 / 84.5 → 83.7 / 83.9 / 89.8 / 83.9; no verdict changes (2fd3b0a7 stays as it was); 6 of 39 clips move, both ways, the largest b-08's ball-mode share 90 → 71 (lab README, test 54) | Off: Diagnóstico "Recortes: Só com movimento" until the phone shows the saving |
+| I3 a | The camera's own pressure (`systemPressureState`, level and factors) in Diagnóstico: a line when it changes, and in every heat and battery line | — | On (diagnostics builds) |
+| I3 b | First heat step from 1080p60: the running camera goes to 30 fps; writer, buffer and microphone untouched (`ThermalLadder.throttle`) | Gate open (above). Across 278 recordings, the 30 fps ones fill every 200 ms analysis tick (13,424 of 13,429; the 5 are a gap in one source file) as the 60 fps ones do (28,561 of 28,561) | On |
+| I3 c | A step that changes the size (4K → 1080p, any → 720p at `critical`) keeps the old buffer readable for its 60 s (two steps in a minute keep both); a save in that time joins the old parts (scaled down to the newest size) and the new one into **one clip** (Victor's answer 2); saves waiting during the restart are answered from the old buffer instead of failing | Gate open (above); no unit test of the join (it needs AVFoundation on a device) | On |
+| I3 d | Energy test: each minute's line during a recording carries the configuration (format, gesture, voice, preview); Diagnóstico groups the minutes by configuration and shows battery per hour, worst heat and worst pressure per block | — | On (diagnostics builds) |
+
+Not built: I3 e (a cheaper gesture sample) waits for the energy test's numbers, as planned.
+
+Known limits of what was built:
+- I3 c re-encodes the older part of a joined save (`AVAssetExportPreset1920x1080` / `1280x720`) on a phone that is
+  already hot; it only happens when a save in the 60 s after a size change reaches back before the change. Saves run
+  one at a time, so a long re-encode also delays the saves right after it. Both are phone measurements (section 10,
+  step 5b).
+- After I3 b the writer keeps the 60 fps bit-rate target at 30 fps, so those minutes are written at about twice the
+  bits per frame; the file size per second does not grow. To look at in the same run.
+- I2 adds a 640 px thumbnail and two neighbour frames per analysed frame; whether that costs less than the ~9 tiles
+  it saves is the phone's answer.
+
+## 10. Phone protocol for Stage 2 (Victor)
+
+Build (Mac, iPhone on the cable): `cd app && REPRIZE_DIAGNOSTICS=1 REPRIZE_FIELD_TEST_UNLOCK=1 npx expo run:ios
+--configuration Release --device`. Before each round: phone off the charger, cool (`nominal` in Diagnóstico), Low Power
+Mode off, Diagnóstico "Limpar". Share the Diagnóstico after each round.
+
+What iOS tells the app about heat is a level (`nominal`, `fair`, `serious`, `critical`), not degrees: the "calor"
+in each line is `thermalState`, "pressão" the camera's own reading. For a temperature, note what the back of the phone
+feels like (cool / warm / hot) at the start and end of each round, or use an infrared thermometer if there is one.
+Every Jogadores and Seguir a Bola line now carries battery and heat before and after the analysis.
+
+"Before" for I1 is the 2026-11-12 speed-test reading on the old code: a 15 s 4K cut took 5.1 s of Jogadores plus
+5.4 s of Bola, one after the other (section 0). Use 15 s cuts of 4K clips in steps 1–3 so the numbers compare.
+
+1. **Bola on fresh clips (I1 + I5).** 6 4K clips never analysed (3 basketball, 3 beach tennis), each cut to 15 s.
+   Diagnóstico: "Zerar análises", "Passe: Lado a lado", "Recortes: Todos". Open each clip, turn Seguir a Bola on,
+   wait for it. Write down for each: the seconds in the "Seguir a Bola: corte ... analisado em X s" line, the stages
+   at its end, "jogadores no mesmo passe", battery and "calor" before and after, and the stopwatch time from turning
+   Seguir a Bola on to the ball camera showing. Then pick Jogadores on the same clip: it must be ready
+   at once (no wait).
+2. **Side by side against one after the other (I1).** Same 6 clips after "Zerar análises", "Passe: Um após o
+   outro". Write down the same numbers. The faster one becomes the default.
+3. **Motion-gated tiles (I2).** Same 6 clips after "Zerar análises", "Passe" at the winner of step 2, "Recortes: Só
+   com movimento". Write down seconds, "recortes/quadro" (expect about 9–11 instead of 19), "bola em N%" and whether
+   the clip was applied. Watch each Seguir a Bola clip next to step 1's: anything worse, note the clip and the second.
+4. **Ten clips in a row (heat).** With the variant that won, analyse 10 fresh 15 s cuts back to back. Write down the
+   heat state and battery before the first and after the last, and the seconds of the first and the last clip.
+5. **Heat step during a recording (I3 b, c).** Phone on the cable, Xcode → Window → Devices and Simulators → the
+   iPhone → Device Conditions → Thermal State (Fair / Serious / Critical), with a recording running at 1080p60:
+   a. `serious` for more than 2 minutes: Diagnóstico must show "câmera: 1080p30 sem reiniciar (calor) — buffer
+      mantido" and **no** "reiniciando". Save a clip right after: it must contain the play from before the step, with
+      sound, and play smoothly.
+   b. At 4K30 (Pro), `serious` for 2 minutes: "reiniciando em 1080p30 ... buffer anterior mantido". Save within 10 s:
+      the clip must be **one** clip covering before and after the step (the first part a bit softer: scaled down),
+      and its length must match. Note how long the save took; then save twice in a row and time both (saves wait
+      for each other). Before Stage 2 this step restarted the camera and the clip had only what came after it.
+   c. `critical`: same as b, to 720p30. Then `critical` again within a minute of b: the clip must still be one,
+      covering both steps.
+   The Xcode condition moves `thermalState` only: "pressão" will not react to it. It reacts to real heat (step 7).
+6. **Energy test (I3 d).** Same place, phone on a tripod, 1080p60, recording for 4 blocks of 15 minutes with one
+   thing changed per block: (1) gesture on, voice off, screen economy on; (2) gesture off; (3) voice on; (4) screen
+   economy off. Then one block at 4K30 with (1)'s settings. Read the "Teste de energia" box in Diagnóstico: battery
+   per hour, worst heat and pressure for each block. Battery comes in 1% steps, so 15-minute blocks are the minimum;
+   for finer numbers run the same blocks with Xcode's Energy gauge attached.
+7. **In the sun (I3).** One recording of 30+ minutes at 1080p60 in direct sun, phone on its usual mount: write down
+   when "calor" reaches `fair` and `serious`, whether the 30 fps step came, and whether "pressão" went down after it.
+
+What to send back: the Diagnóstico files of each round and the clips from step 3 and 5 that looked wrong.
+
+## 11. Ball detection: is today's approach the best one available?
+
+Today: a single-frame detector (YOLOX-Tiny, one class, 416 px tiles, Apache 2.0) on every analysed frame, then an
+offline path (dynamic programming over the candidates) with per-sport rules. On the labelled sets the detector finds
+the ball on 88.7–95.2% of labelled frames (its ceiling) and the path follows it on 83.7–90.1% of the labelled frames at 94–99% precision
+(section 1.8, test 54). The gap that matters is the ceiling: the path cannot follow a ball the detector never saw,
+and the frames it misses are the hard ones for a single picture (blur, a small ball at night, a ball against a
+busy background). So the next gain in % comes from the detector seeing more, not from the path.
+
+What the field does for exactly this problem:
+- **Several frames as the model's input.** WASB (BMVC 2023) feeds consecutive frames to a high-resolution network and
+  beat six earlier ball trackers on five datasets from different sports [33]; TrackNetV4 adds frame-difference "motion
+  attention" to the TrackNet family and improves tennis and shuttlecock tracking [34]. The lab's test 27 ran
+  TrackNetV3 without retraining and it did not work on basketball; nobody has trained one of these on our labels.
+  The licenses of WASB's and TrackNetV4's code were not verified from here (check before any use).
+- **Newer single-frame detectors.** RF-DETR (Apache 2.0, 2025) reports better accuracy than YOLO11 at similar
+  latency [36]. A better single-frame model may raise the ceiling a little; it cannot use motion, and its Core ML /
+  Neural Engine behaviour is unknown.
+- **Apple's trajectory request.** `VNDetectTrajectoriesRequest` finds objects moving on a parabola, needs a fixed
+  camera [35], and comes with iOS: no model to ship. Arcs fit beach tennis and volleyball better than a dribble.
+
+Recommendation, in order, all lab-only first (each needs Victor's ok before any model is trained or swapped):
+1. **Motion as an input channel of today's detector**: add the frame difference (already computed for I2) as an extra
+   input to YOLOX-Tiny and retrain on the same data. Cheapest test of the multi-frame idea; same app pipeline.
+2. **A multi-frame model trained on our labels** (TrackNetV4-style or WASB) for beach tennis, where the ball is
+   smallest: compare its ceiling on the night set (89.6% today) and its cost in FocusBench.
+3. **`VNDetectTrajectoriesRequest` as extra candidates** on the Mac, on the labelled beach tennis clips: free to try,
+   no training.
+4. **RF-DETR-Nano** trained on the same data, as an A/B of the single-frame detector.
+More labelled clips of the hard cases (night, far court, ball against the crowd) help every one of these.
+

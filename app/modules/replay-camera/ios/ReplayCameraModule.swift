@@ -77,6 +77,8 @@ struct AnalyzeFocusOptions: Record {
   @Field var startMs: Double = 0
   @Field var endMs: Double = 0
   @Field var outPath: String = ""
+  /// Where the people of each analysed picture are kept, so a stopped analysis goes on from there ("" = not kept).
+  @Field var peoplePath: String = ""
   @Field var debug: Bool = false
   /// TEMP(lab-4k): analyse one frame every `everyMs` (100 = today, 200 = the 5 fps test); the file keeps 100 ms rows.
   @Field var everyMs: Double = 100
@@ -94,6 +96,16 @@ struct AnalyzeBallOptions: Record {
   @Field var sport: String = "basquete"
   /// TEMP(lab-4k): frames wider than this are scaled down before the tiles (0 = native size, today).
   @Field var maxWidth: Int = 0
+  /// The range, interval and people file of the clip's Jogadores analysis: when `focusPath` is missing or has no person
+  /// boxes, Bola finds the people in its own pass and writes that file (plan 2026-11-12, I1). No range = never.
+  @Field var focusStartMs: Double = 0
+  @Field var focusEndMs: Double = 0
+  @Field var focusEveryMs: Double = 100
+  @Field var peoplePath: String = ""
+  /// TEMP(lab-pass): the people and ball detectors one after the other on each frame, to time against side by side.
+  @Field var sequential: Bool = false
+  /// TEMP(lab-motion): only the tiles where the picture changed go to the ball model (lab tests 53 and 54).
+  @Field var motionTiles: Bool = false
 }
 
 /// Seguir a Bola, kept out of `definition()` like the other do/catch helpers.
@@ -102,13 +114,17 @@ private func analyzeBallResult(_ o: AnalyzeBallOptions) async throws -> [String:
     throw ReplayException("BALL_FAILED", "No Seguir a Bola for the sport \(o.sport)")
   }
   do {
+    let players = BallAnalyzer.Players(startMs: o.focusStartMs, endMs: o.focusEndMs, everyMs: o.focusEveryMs,
+                                       peoplePath: o.peoplePath)
     let r = try await BallAnalyzer.analyze(clipPath: o.clipPath, startMs: o.startMs, endMs: o.endMs, detPath: o.detPath,
                                            outPath: o.outPath, focusPath: o.focusPath, sport: sport,
-                                           maxWidth: o.maxWidth)
+                                           maxWidth: o.maxWidth, players: players, sideBySide: !o.sequential,
+                                           motionTiles: o.motionTiles)
     // Test 47a: "unsuitable" = analysed (or judged before), but the mode would not look good: reason says why
     return ["status": r.verdict.isEmpty ? "ready" : "unsuitable", "reason": r.verdict, "analysed": r.analysed,
             "reused": r.reused, "ballFrames": r.ballFrames, "trustedFrames": r.trustedFrames,
-            "ballShare": r.ballShare, "zoom": r.zoom, "elapsedMs": r.elapsedMs]
+            "ballShare": r.ballShare, "zoom": r.zoom, "elapsedMs": r.elapsedMs, "focus": r.focus,
+            "stages": r.stages.json, "panP95": r.panP95, "turnsPer10s": r.turnsPer10s]
   } catch BallAnalyzer.Failure.cancelled {
     throw ReplayException("CANCELLED", "Ball analysis cancelled")
   } catch BallAnalyzer.Failure.interrupted {
@@ -322,9 +338,11 @@ public class ReplayCameraModule: Module {
     AsyncFunction("analyzeFocus") { (o: AnalyzeFocusOptions) async throws -> [String: Any] in
       do {
         let r = try await FocusAnalyzer.analyze(clipPath: o.clipPath, startMs: o.startMs, endMs: o.endMs,
-                                                outPath: o.outPath, debug: o.debug, everyMs: o.everyMs)
-        return ["status": r.ready ? "ready" : "none", "frames": r.frames, "framesWithPeople": r.framesWithPeople,
-                "meanPeople": r.meanPeople, "elapsedMs": r.elapsedMs]
+                                                outPath: o.outPath, peoplePath: o.peoplePath, debug: o.debug,
+                                                everyMs: o.everyMs)
+        return ["status": r.ready ? "ready" : "none", "frames": r.frames, "reused": r.reused,
+                "framesWithPeople": r.framesWithPeople, "meanPeople": r.meanPeople, "elapsedMs": r.elapsedMs,
+                "stages": r.stages.json, "panP95": r.panP95, "turnsPer10s": r.turnsPer10s]
       } catch FocusAnalyzer.Failure.cancelled {
         throw ReplayException("CANCELLED", "Focus analysis cancelled")
       } catch FocusAnalyzer.Failure.interrupted {

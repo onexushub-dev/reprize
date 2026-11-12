@@ -42,7 +42,14 @@ test('a saved clip is marked pending and analysed over its own part of the file'
   const clip = addClip('/c/1.mp4');
   queue.enqueue(clip.id);
   expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'pending' });
-  expect(runs[0].opts).toEqual({ clipPath: '/c/1.mp4', startMs: 30000, endMs: 60000, outPath: '/c/1.focus.json' });
+  expect(runs[0].opts).toEqual({
+    clipPath: '/c/1.mp4',
+    startMs: 30000,
+    endMs: 60000,
+    outPath: '/c/1.focus.json',
+    // the people of each analysed picture are kept: a stopped analysis goes on from there
+    peoplePath: '/c/1.people.json',
+  });
 });
 
 test('analyses run one at a time, in order', async () => {

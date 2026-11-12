@@ -206,6 +206,16 @@ export type Prefs = {
    */
   labBallMaxWidth?: number;
   labFocusEveryMs?: number;
+  /**
+   * TEMP(lab-pass, plan 2026-11-12 Stage 2, Diagnóstico only): on a frame both Jogadores and Bola want, the two
+   * detectors run one after the other instead of side by side (absent / false = side by side, the default).
+   */
+  labScanSequential?: boolean;
+  /**
+   * TEMP(lab-motion, plan 2026-11-12 Stage 2, Diagnóstico only): Bola sends to the model only the tiles where the
+   * picture changed (lab tests 53 and 54). Absent / false = every tile, the default.
+   */
+  labBallMotionTiles?: boolean;
 };
 
 export const DEFAULT_PREFS: Prefs = {

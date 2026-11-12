@@ -23,6 +23,61 @@ Pieces: `dump_inventory.py` (MMKV + ffprobe → inventory, clips.txt, the phone'
 Models per sport: beach tennis `ball_tiny_btpl`, basketball `ball_tiny_gym` (the app's). Lab times are the Mac / cloud
 CPU: compare today with the candidate there; the phone's own times come from the plan's step 8.
 
+## Stage 2 gates (2026-11-12) — what was built from plan `2026-11-12-focus-pipeline-analysis-and-improvement-plan.md`
+
+Before / after on the labelled clips for each item built (section 9 of the plan has the summary and the phone protocol).
+
+**I1, one pass for Jogadores and Bola (`scan_parity.py`).** The shared pass (`ClipScan` + `ScanTicks.Cursor`) must hand
+the people and ball detectors the same pictures the two analyzers did on main `c19cbf2`. Frame times read from the
+sample tables of **278 app recordings** (`raw-dump/**`, `clips/`; 30 and 60 fps), each rule copied line for line:
+Jogadores over the whole clip at 200 ms **41,985 pictures, 0 differ**; Bola over the whole clip and an off-grid
+middle-third cut **56,057 pictures, 0 differ**. Same pictures, same detectors (`PeopleDetector` is the old code moved),
+same `FocusPath` / `BallFraming`: Jogadores and Bola are expected to give what they gave before on every labelled
+clip (Bola: the `det-<det>-ref` rows below; the Swift parity fixtures `BallParity*`, `FocusPath*` pass, 329 tests).
+This is inferred from identical inputs (a Python copy of both rules), not from re-running the Swift pass on the
+labelled clips; Jogadores has no labelled quality number of its own. Report:
+`lab/tests/focusfps/scan-parity.md`. Not adopted: Jogadores over the cut + a margin instead of the clip's range (gate
+G4, `focus_cut.py`): with 2 s the framing inside the cut moves up to 11% of the frame (15 of 114 clips over 5%), with 4 s
+up to 8.4% (5 clips) — `lab/tests/focusfps/cut-m2000.md`, `cut-m4000.md`. Jogadores keeps the clip's range; the gain
+it keeps is one decode for both and the people kept per tick (`.people.json`: a stopped analysis resumes).
+
+**I3, recording slowed to 30 fps under heat.** The analyses pick one picture per 200 ms tick inside a 100 ms window.
+Across the 278 recordings (different recordings, grouped by their own rate) every Bola tick gets a picture at 30 fps (13,424 / 13,429; the 5 missing are one recording's own 0.8 s with no frames, basket-h-side-low-unavailable-03 at 4.2–5.0 s)
+as at 60 fps (28,561 / 28,561), so the grid is filled at either rate. Not measured: a clip that changes rate mid-way, or Bola / Jogadores quality at
+30 against 60 fps on the same play (the labelled clips' videos are not in the repository); the gate stays open.
+
+**I5 (per-stage timers) and the rest of I3** touch no analysis input or rule: nothing to measure in the lab; the
+timers and the energy lines are read on the phone.
+
+## Test 54 (2026-11-12, lab only) — motion-gated tiles, carried candidates as evidence only (`motion_tiles.py --carry 2`)
+
+Test 53's open point: carrying a tile's last candidates into the frames it is not run on (`--carry 1`) lets them
+become points of the path, which moved bt4k-1111-2fd3b0a7 from "not applied" to "applied" at lower precision. Here the
+carried candidates are kept apart (`carried` in the detections file) and `ball_track.py` uses them **only in the
+still-object filter** (the lamp is still there), never as a point. Variants, all at threshold 20, 2 pixels, hold 1
+(tags: `mt20c` = test 53; `e` = evidence only; `s2` = neighbours ±200 ms instead of ±100 ms; `o` = evidence counted
+only on frames that looked at that tile):
+
+| Set (clips, points) | baseline prec / cover | `mt20c` | **`mt20e` (in the app)** | `mt20s2e` | `mt20s2o` |
+|---|---|---|---|---|---|
+| gym `bgym-n5` (12, 325) | 94.4 / 83.7 | = | **=** | = | = |
+| arena A `btplA2-n5` (10, 373) | 94.8 / 83.9 | 94.8 / 83.9 | **94.8 / 83.9** | 93.3 / 83.1, 1 gate flip | 93.3 / 83.1, 1 flip |
+| arena B `btplB-n5` (9, 336) | 99.0 / 90.1 | 99.0 / 89.8 | **99.0 / 89.8** | 99.0 / 89.8 | 98.6 / 90.1 |
+| night 4K→1920 `btpl-4kplan-1920` (8, 308) | 95.4 / 84.5 | 93.4 / 83.6, 1 flip | **95.0 / 83.9, 0 flips** | 95.0 / 83.9 | 95.0 / 83.9 |
+
+(precision / cover weighted by labelled points; "flip" = the ball gate changes its verdict.) Regions per analysed
+frame 19 → 9.2 (gym), 9.5 (A), 10.8 (B), 10.3 (night); detector ceiling unchanged on all 1,342 points. `mt20e` per
+clip, the only rows that move: a-01 precision 94 → 97, ball-mode share 83 → 81; a-03 precision 95 → 92; b-02 cover
+92 → 88; b-08 ball-mode share 90 → 71; b-09 ball-mode share 86 → 94; bt4k-1111-c4bd28f7 precision 100 → 98, cover
+97 → 94. bt4k-1111-2fd3b0a7 stays "not applied", as Victor asked (2026-11-12). The ±200 ms neighbours (no extra
+frames to decode) lose a gate on a-07 (`s2e`, `s2o`), so the app uses ±100 ms.
+
+`mt20e` is what the app's `BallMotion` / `BallPath(stale:)` port does (fixture `ball-motion.json` from
+`motion_parity.py`, checked by `BallMotionTests`). In the app behind Diagnóstico's "Recortes: Só com movimento"
+switch, off by default, until the phone run (plan section 9) shows the time it saves and the clips look the same.
+Outputs: `lab/tests/detect/<clip>.<det>-mt20{e,s2e,s2o,s2c}.json`, reports `report.mt-<tag>-<det>.md`, logs
+`lab/tests/motion/`.
+
 ## Test 53 (2026-11-12, lab only) — Bola with motion-gated tiles (`motion_tiles.py`)
 
 Made for `docs/superpowers/plans/2026-11-12-focus-pipeline-analysis-and-improvement-plan.md` (section 6 has the table).

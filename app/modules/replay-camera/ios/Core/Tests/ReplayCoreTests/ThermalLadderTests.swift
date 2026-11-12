@@ -20,12 +20,27 @@ final class ThermalLadderTests: XCTestCase {
     XCTAssertFalse(ladder.degraded)
   }
 
-  func test_seriousForTwoMinutesHalvesTheFrameRateAndKeepsFullHD() {
+  func test_seriousForTwoMinutesHalvesTheFrameRateWithNoRestart() {
+    // Full HD 60 → Full HD 30 is the same picture size: the camera only slows down, the buffer stays (plan
+    // 2026-11-12, I3)
     var ladder = ThermalLadder(requested: "1080p60", state: .nominal, now: 0)
     _ = ladder.update(state: .serious, now: 100)
-    XCTAssertEqual(ladder.update(state: .serious, now: 100 + hold), .reconfigure("1080p30"))
+    XCTAssertEqual(ladder.update(state: .serious, now: 100 + hold), .throttle("1080p30"))
     XCTAssertEqual(ladder.quality, "1080p30")
     XCTAssertTrue(ladder.degraded)
+  }
+
+  func test_aStepThatChangesThePictureSizeStillRestartsTheCamera() {
+    var ladder = ThermalLadder(requested: "1080p60", state: .nominal, now: 0)
+    _ = ladder.update(state: .serious, now: 100)
+    _ = ladder.update(state: .serious, now: 100 + hold) // throttled to 1080p30
+    XCTAssertEqual(ladder.update(state: .critical, now: 200 + hold), .reconfigure("720p30"))
+  }
+
+  func test_sameSizeReadsTheQualityNames() {
+    XCTAssertTrue(ThermalLadder.sameSize("1080p60", "1080p30"))
+    XCTAssertFalse(ThermalLadder.sameSize("2160p30", "1080p30"))
+    XCTAssertFalse(ThermalLadder.sameSize("1080p30", "720p30"))
   }
 
   func test_coolingDownBeforeTheWaitEndsStartsItAgain() {
@@ -34,7 +49,7 @@ final class ThermalLadderTests: XCTestCase {
     XCTAssertEqual(ladder.update(state: .fair, now: 150), .none)
     XCTAssertEqual(ladder.update(state: .serious, now: 200), .none)
     XCTAssertEqual(ladder.update(state: .serious, now: 100 + hold), .none) // the first stretch no longer counts
-    XCTAssertEqual(ladder.update(state: .serious, now: 200 + hold), .reconfigure("1080p30"))
+    XCTAssertEqual(ladder.update(state: .serious, now: 200 + hold), .throttle("1080p30"))
   }
 
   func test_neverBelowFullHDHoweverLongItStaysSerious() {

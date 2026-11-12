@@ -15,7 +15,12 @@ public enum BallFraming {
   public struct Detection: Equatable {
     public var tMs: Double
     public var candidates: [BallCandidate]
-    public init(tMs: Double, candidates: [BallCandidate]) { self.tMs = tMs; self.candidates = candidates }
+    /// Motion-gated tiles (test 54): what the tiles that were not looked at on this picture held the last time they
+    /// were. Evidence for the path's still-object filter only.
+    public var stale: [BallCandidate]
+    public init(tMs: Double, candidates: [BallCandidate], stale: [BallCandidate] = []) {
+      self.tMs = tMs; self.candidates = candidates; self.stale = stale
+    }
   }
 
   /// The cut's grid: row k at `startMs + k × 100`, for every tick before `endMs`.
@@ -58,13 +63,22 @@ public enum BallFraming {
 
   /// The grid the path reads: candidates on the analysed frames that have a picture, nil elsewhere.
   public static func grid(startMs: Double, endMs: Double, phase: Int, detections: [Detection]) -> [[BallCandidate]?] {
+    grids(startMs: startMs, endMs: endMs, phase: phase, detections: detections).candidates
+  }
+
+  /// The grid with, next to each frame's candidates, the evidence held for it (`Detection.stale`).
+  public static func grids(startMs: Double, endMs: Double, phase: Int,
+                           detections: [Detection]) -> (candidates: [[BallCandidate]?], stale: [[BallCandidate]?]) {
     let n = rows(startMs: startMs, endMs: endMs)
     let sorted = detections.sorted { $0.tMs < $1.tMs }
     var out = [[BallCandidate]?](repeating: nil, count: n)
+    var held = [[BallCandidate]?](repeating: nil, count: n)
     for k in stride(from: phase, to: n, by: step) {
-      out[k] = detection(at: startMs + Double(k) * stepMs, in: sorted)?.candidates
+      let d = detection(at: startMs + Double(k) * stepMs, in: sorted)
+      out[k] = d?.candidates
+      held[k] = d?.stale
     }
-    return out
+    return (out, held)
   }
 
   public struct Result: Equatable {
@@ -84,14 +98,17 @@ public enum BallFraming {
   /// `screens`: video screens found in the clip (`BallScreen`, sports with `screens`); `players`: the players' median
   /// height from today's analysis, for the verdict; `people`: today's person boxes per row of the cut (sports with
   /// `follow`: the court lock and the aim toward the hitter; sports with the path's shirt rule, test 50; none = the
-  /// ball alone, no shirt rule).
+  /// ball alone, no shirt rule). `stale`: the evidence held per row with motion-gated tiles (`grids`); none = all
+  /// tiles were looked at.
   public static func compute(grid: [[BallCandidate]?], width W: Double, height H: Double, today: [[Double]],
                              native: [[Double]], sport: BallSport = .basketball, screens: [[Double]] = [],
-                             players: Double? = nil, people: [[[Double]]] = []) -> Result {
+                             players: Double? = nil, people: [[[Double]]] = [],
+                             stale: [[BallCandidate]?] = []) -> Result {
     let n = grid.count
     let path = BallPath.track(frames: grid, width: W, height: H, step: step, params: sport.path,
                               screens: sport.screens ? screens : [],
-                              people: sport.path.personRatio > 0 || sport.path.headTop > 0 ? people : [])
+                              people: sport.path.personRatio > 0 || sport.path.headTop > 0 ? people : [],
+                              stale: stale)
     let trusted = BallTrust.trusted(path, width: W, height: H)
     var followed = BallRuns.keep(trusted, minRun: sport.minRun, gap: sport.runGap)
     var main: [[[Double]]] = []
@@ -159,8 +176,10 @@ public enum BallFraming {
     var f: [String: Any] = [
       "v": 1, "model": model, "size": [width, height],
       "frames": dets.sorted { $0.tMs < $1.tMs }.map { d -> [String: Any] in
-        ["t": BallPath.roundTo(d.tMs, 3),
-         "c": d.candidates.map { [$0.cx, $0.cy, $0.width, $0.height, $0.score] }]
+        var fr: [String: Any] = ["t": BallPath.roundTo(d.tMs, 3),
+                                 "c": d.candidates.map { [$0.cx, $0.cy, $0.width, $0.height, $0.score] }]
+        if !d.stale.isEmpty { fr["s"] = d.stale.map { [$0.cx, $0.cy, $0.width, $0.height, $0.score] } }
+        return fr
       },
     ]
     if !screens.isEmpty { f["screens"] = screens }
@@ -181,10 +200,12 @@ public enum BallFraming {
           let frames = f["frames"] as? [[String: Any]] else { return [] }
     return frames.compactMap { fr -> Detection? in
       guard let t = (fr["t"] as? NSNumber)?.doubleValue, let c = fr["c"] as? [[NSNumber]] else { return nil }
-      return Detection(tMs: t, candidates: c.compactMap { v in
+      let candidate = { (v: [NSNumber]) -> BallCandidate? in
         v.count == 5 ? BallCandidate(cx: v[0].doubleValue, cy: v[1].doubleValue, width: v[2].doubleValue,
                                      height: v[3].doubleValue, score: v[4].doubleValue) : nil
-      })
+      }
+      return Detection(tMs: t, candidates: c.compactMap(candidate),
+                       stale: (fr["s"] as? [[NSNumber]] ?? []).compactMap(candidate))
     }
   }
 

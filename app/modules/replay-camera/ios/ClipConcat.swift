@@ -16,6 +16,63 @@ enum ClipConcat {
 
   enum Failure: Error { case noVideo, export(Error?) }
 
+  /// One normalized piece of a save (`normalize` already ran on it) and the short side it was recorded at.
+  struct Part {
+    let url: URL
+    let shortSide: Int
+    let seconds: Double
+  }
+
+  /// Puts the parts of one save into `dest` as one clip and returns its short side. One part: moved as it is. Parts of
+  /// different sizes (a heat step changed the format in the middle; plan 2026-11-12, I3c): the larger ones are
+  /// re-encoded down to the smallest size, then all are joined (`VideoConcat`, passthrough first). Blocks the calling
+  /// (utility) thread.
+  static func join(_ parts: [Part], to dest: URL) throws -> Int {
+    guard let first = parts.first else { throw Failure.noVideo }
+    if parts.count == 1 {
+      try FileManager.default.moveItem(at: first.url, to: dest)
+      return first.shortSide
+    }
+    let target = parts.map(\.shortSide).min() ?? first.shortSide
+    var paths: [String] = []
+    var scaled: [URL] = []
+    defer { scaled.forEach { try? FileManager.default.removeItem(at: $0) } }
+    for part in parts {
+      if part.shortSide <= target {
+        paths.append(part.url.path)
+        continue
+      }
+      let out = FileManager.default.temporaryDirectory.appendingPathComponent("scaled-\(UUID().uuidString).mp4")
+      scaled.append(out)
+      try scale(part.url, to: out, shortSide: target)
+      paths.append(out.path)
+    }
+    let done = DispatchSemaphore(value: 0)
+    let box = JoinResult()
+    let inputs = paths
+    Task {
+      do { _ = try await VideoConcat.concat(paths: inputs, outPath: dest.path) } catch { box.error = error }
+      done.signal()
+    }
+    done.wait()
+    if let error = box.error { throw error }
+    return target
+  }
+
+  /// Re-encodes `source` at `shortSide` (1080 → Full HD, otherwise 720p), keeping its rotation and sound.
+  private static func scale(_ source: URL, to dest: URL, shortSide: Int) throws {
+    let preset = shortSide >= 1080 ? AVAssetExportPreset1920x1080 : AVAssetExportPreset1280x720
+    guard let export = AVAssetExportSession(asset: AVURLAsset(url: source), presetName: preset) else {
+      throw Failure.noVideo
+    }
+    export.outputURL = dest
+    export.outputFileType = .mp4
+    let done = DispatchSemaphore(value: 0)
+    export.exportAsynchronously { done.signal() }
+    done.wait()
+    guard export.status == .completed else { throw Failure.export(export.error) }
+  }
+
   /// Blocks the calling (utility) thread until the remux ends.
   /// `rotationDegrees` is the phone's position when the clip was saved (see `DeviceUpright.videoRotationDegrees`).
   /// The writer stamps the position it saw at its first frame on the whole session, so a phone started upright and
@@ -51,4 +108,9 @@ enum ClipConcat {
     done.wait()
     guard export.status == .completed else { throw Failure.export(export.error) }
   }
+}
+
+/// The join's error, handed from the async join back to the waiting save thread (written once, read after the wait).
+private final class JoinResult: @unchecked Sendable {
+  var error: Error?
 }

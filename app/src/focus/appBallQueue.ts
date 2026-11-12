@@ -5,6 +5,7 @@ import * as camera from '../../modules/replay-camera';
 import { setBallLabVariant } from '../data/ballFile';
 import { focusPath } from '../data/focusFile';
 import { onFileRemoved, repo } from '../data/mmkv';
+import { stagesText } from '../diag/clipTimings';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { focusEveryMs } from './appFocusQueue';
 import { createBallQueue } from './ballQueue';
@@ -23,15 +24,45 @@ export function ballMaxWidth(): number {
   return v === 0 ? 0 : 1920;
 }
 
-/** TEMP(lab-4k): the variant is part of Bola's rules, so switching it in Diagnóstico analyses the clip again. */
+/** TEMP(lab-motion): Diagnóstico can send to the ball model only the tiles where the picture changed. */
+export function ballMotionTiles(): boolean {
+  return repo.getPrefs().labBallMotionTiles === true;
+}
+
+/** TEMP(lab-4k, lab-motion): the variants are part of Bola's rules, so switching one in Diagnóstico analyses the clip again. */
 export function applyLabVariants(): void {
-  setBallLabVariant(ballMaxWidth() > 0 ? `@w${ballMaxWidth()}` : '');
+  setBallLabVariant((ballMaxWidth() > 0 ? `@w${ballMaxWidth()}` : '') + (ballMotionTiles() ? '+mt' : ''));
 }
 applyLabVariants();
 
+/** TEMP(lab-pass): Diagnóstico can run the people and ball detectors one after the other, to time against side by side. */
+export function scanSequential(): boolean {
+  return repo.getPrefs().labScanSequential === true;
+}
+
+/** TEMP(diag-remote): battery and heat in one line; never throws (module mocks, older builds). */
+function power(): string {
+  try {
+    return camera.diagPower();
+  } catch {
+    return '';
+  }
+}
+
+/** TEMP(diag-remote): battery and heat when each Bola analysis started (by clip file), for its line (plan 2026-11-12). */
+const powerAtStart = new Map<string, string>();
+
 /** The app's one Seguir a Bola queue. */
 export const ballQueue = createBallQueue({
-  analyze: (o) => (ballMaxWidth() > 0 ? camera.analyzeBall({ ...o, maxWidth: ballMaxWidth() }) : camera.analyzeBall(o)),
+  analyze: (o) => {
+    if (DIAGNOSTICS_ENABLED) powerAtStart.set(o.clipPath, power());
+    return camera.analyzeBall({
+      ...o,
+      ...(ballMaxWidth() > 0 ? { maxWidth: ballMaxWidth() } : {}),
+      ...(scanSequential() ? { sequential: true } : {}),
+      ...(ballMotionTiles() ? { motionTiles: true } : {}),
+    });
+  },
   cancel: camera.cancelBall,
   supported: camera.isBallSupported,
   repo,
@@ -39,8 +70,9 @@ export const ballQueue = createBallQueue({
   now: () => Date.now(),
   appActive: () => AppState.currentState === 'active',
   // The players' boxes (the Jogadores file) feed Bola's rules: the shirt rule (basketball), the head filter and "keep
-  // whole who hits" (beach tennis). Made first when missing (Jogadores is no longer analysed on save, 2026-11-11) or from
-  // before 2026-11-10 (test 50: no person boxes). A clip already analysed with no people is not tried again.
+  // whole who hits" (beach tennis). When the file is missing (Jogadores runs only when picked, 2026-11-11) or from
+  // before 2026-11-10 (test 50: no person boxes), the native analysis finds the people in the same pass as the ball and
+  // writes it. A clip already analysed with no people is not tried again.
   focusLacksPeople: (clip) => {
     try {
       const f = JSON.parse(new File(`file://${focusPath(clip.path)}`).textSync()) as Record<string, unknown>;
@@ -49,19 +81,7 @@ export const ballQueue = createBallQueue({
       return clip.focus === undefined || clip.focus.status === 'pending';
     }
   },
-  refreshFocus: (clip) => {
-    const range = clip.bounds ? clip.bounds : { startMs: 0, endMs: clip.durationMs };
-    const outPath = focusPath(clip.path);
-    if (DIAGNOSTICS_ENABLED) diag('Seguir a Bola: jogadores analisados antes da bola (sem arquivo ou arquivo antigo)');
-    const every = focusEveryMs();
-    return camera
-      .analyzeFocus({ clipPath: clip.path, startMs: range.startMs, endMs: range.endMs, outPath, ...(every !== 100 ? { everyMs: every } : {}) })
-      .then((r) => {
-        // Reused by Jogadores: picking it afterwards is instant.
-        repo.updateClip(clip.id, { focus: { v: 1, status: r.status, file: outPath, ...(every !== 100 ? { every } : {}) } });
-        return r;
-      });
-  },
+  focusEvery: () => focusEveryMs(),
   note: (e) => {
     if (DIAGNOSTICS_ENABLED) diag(`Seguir a Bola: corte analisado de novo (regras ${e.from || 'antigas'} para ${e.to})`);
   },
@@ -72,9 +92,14 @@ export const ballQueue = createBallQueue({
       `Seguir a Bola: corte de ${((clip.trim.endMs - clip.trim.startMs) / 1000).toFixed(1)} s ` +
         `analisado em ${(r.elapsedMs / 1000).toFixed(1)} s (${r.analysed} quadros, ${r.reused} do cache, ` +
         `bola em ${Math.round(r.ballShare * 100)}%, zoom ${r.zoom}, ` +
-        `${ballMaxWidth() > 0 ? `quadro reduzido a ${ballMaxWidth()}` : 'quadro nativo'}, Jogadores 1 a cada ${focusEveryMs()} ms` +
-        `${r.status === 'unsuitable' ? `, sem aplicar: ${r.reason}` : ''})`,
+        `${ballMaxWidth() > 0 ? `quadro reduzido a ${ballMaxWidth()}` : 'quadro nativo'}, ` +
+        `${ballMotionTiles() ? 'recortes com movimento' : 'todos os recortes'}, Jogadores 1 a cada ${focusEveryMs()} ms` +
+        `${r.focus === 'ready' || r.focus === 'none' ? `, jogadores no mesmo passe${scanSequential() ? ' (em sequencia)' : ' (lado a lado)'}` : ''}` +
+        `${r.status === 'unsuitable' ? `, sem aplicar: ${r.reason}` : ''})` +
+        ` — antes: ${powerAtStart.has(clip.path) ? powerAtStart.get(clip.path) : '?'} — depois: ${power()}` +
+        stagesText(r),
     );
+    powerAtStart.delete(clip.path);
   },
 });
 

@@ -85,20 +85,39 @@ public enum BallPath {
   /// `height`: the upright video in pixels (only their ratio matters). `screens`: video screens at the venue (x0, y0,
   /// x1, y1, 0..1; `BallScreen`), whose candidates are left out (test 47b). `people`: person boxes per frame (x, y,
   /// width, height, 0..1, top-left origin; today's Modo Foco file), for the shirt rule (`personRatio`, test 50); none =
-  /// the rule is off. Returns one entry per frame.
+  /// the rule is off. `stale` (motion-gated tiles, test 54): per frame, what the tiles that were not looked at held the
+  /// last time they were: evidence for the still-object filter only, never a point of the path. Returns one entry per
+  /// frame.
   public static func track(frames: [[BallCandidate]?], width: Double, height: Double, step: Int,
                            params P: BallPathParams = .basketball, screens: [[Double]] = [],
-                           people: [[[Double]]] = []) -> [BallPoint?] {
+                           people: [[[Double]]] = [], stale: [[BallCandidate]?] = []) -> [BallPoint?] {
+    let n = frames.count
+    let W = width, H = height, L = max(width, height)
+    let an = (0..<n).filter { frames[$0] != nil }
+    let moving = Self.moving(frames: frames, stale: stale, width: width, height: height, params: P, screens: screens,
+                             people: people)
+    func dist(_ a: BallCandidate, _ b: BallCandidate) -> Double {
+      ((a.cx - b.cx) * W).hypot((a.cy - b.cy) * H) / L
+    }
+    // 3. the path
+    let chosen = viterbi(an: an, moving: moving, dist: dist, step: step, P: P)
+    return points(chosen: chosen, an: an, count: n, step: step)
+  }
+
+  /// Steps 0 to 2 of `track`: per analysed frame, the candidates that pass the shape and score filter and are not
+  /// still things.
+  static func moving(frames: [[BallCandidate]?], stale: [[BallCandidate]?], width: Double, height: Double,
+                     params P: BallPathParams, screens: [[Double]] = [],
+                     people: [[[Double]]] = []) -> [Int: [BallCandidate]] {
     let n = frames.count
     let W = width, H = height, L = max(width, height)
     let an = (0..<n).filter { frames[$0] != nil }
     // 0. shirts (test 50): their score lowered before the shape and score filter, as `ball_track.track`
     let usePeople = (P.personRatio > 0 || P.headTop > 0) && people.contains { !$0.isEmpty }
     // 1. shape and score
-    var cand: [Int: [BallCandidate]] = [:]
-    for k in an {
+    func shaped(_ k: Int, _ items: [BallCandidate]) -> [BallCandidate] {
       let rows = usePeople && k < people.count ? people[k] : []
-      let weighed: [BallCandidate] = (frames[k] ?? []).compactMap { c0 in
+      let weighed: [BallCandidate] = items.compactMap { c0 in
         var c = c0
         // test 52: a head (before the shirt rule, as `ball_track.track`)
         if !rows.isEmpty && P.headTop > 0 && isHead(c, boxes: rows, P: P) {
@@ -111,12 +130,20 @@ public enum BallPath {
         c.score = c.score * P.personW
         return c
       }
-      cand[k] = weighed.filter { c in
+      return weighed.filter { c in
         let wp = c.width * W, hp = c.height * H
         if c.score < P.conf || max(wp, hp) > P.boxMax * L { return false }
         if max(wp, hp) / max(1e-6, min(wp, hp)) > P.aspectMax { return false }
         return !screens.contains { $0[0] <= c.cx && c.cx <= $0[2] && $0[1] <= c.cy && c.cy <= $0[3] }
       }
+    }
+    var cand: [Int: [BallCandidate]] = [:]
+    // what each frame's still filter may count as "seen there": its candidates and the evidence held for it
+    var seen: [Int: [BallCandidate]] = [:]
+    for k in an {
+      let own = shaped(k, frames[k] ?? [])
+      cand[k] = own
+      seen[k] = k < stale.count ? own + shaped(k, stale[k] ?? []) : own
     }
     func dist(_ a: BallCandidate, _ b: BallCandidate) -> Double {
       ((a.cx - b.cx) * W).hypot((a.cy - b.cy) * H) / L
@@ -126,12 +153,15 @@ public enum BallPath {
     for k in an {
       let near = an.filter { $0 != k && abs($0 - k) <= P.stillWin }
       moving[k] = (cand[k] ?? []).filter { c in
-        let hits = near.filter { q in (cand[q] ?? []).contains { dist(c, $0) <= P.stillR } }.count
+        let hits = near.filter { q in (seen[q] ?? []).contains { dist(c, $0) <= P.stillR } }.count
         return !(!near.isEmpty && Double(hits) >= P.stillShare * Double(near.count))
       }
     }
-    // 3. the path
-    let chosen = viterbi(an: an, moving: moving, dist: dist, step: step, P: P)
+    return moving
+  }
+
+  /// The chosen candidate per analysed frame as the path's points, on every 100 ms frame (`low_fps.upsample`).
+  private static func points(chosen: [Int: BallCandidate], an: [Int], count n: Int, step: Int) -> [BallPoint?] {
     var pred: [Int: BallPoint?] = [:]
     for k in an {
       if let c = chosen[k] {

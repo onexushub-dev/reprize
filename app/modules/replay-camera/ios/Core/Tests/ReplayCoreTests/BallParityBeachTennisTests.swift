@@ -163,11 +163,13 @@ final class BallParityBeachTennisTests: XCTestCase {
   }
 
   /// The court locks and the top exit drop the next court's ball where the lab does (a-10: 10 points, f-01: 12,
-  /// b-04: 12, bt-app-1110-f: 20; the stream: 8 after a ball out at the top), and nowhere else; our ball found among
-  /// the candidates meanwhile (b-04: 1, bt-app-1110-f: 3, the stream: 2).
+  /// b-04: 10, bt-app-1110-f: 17; the stream: 8 after a ball out at the top), and nowhere else; our ball found among
+  /// the candidates meanwhile (bt-app-1110-f: 2, the stream: 2). The counts are the fixture's own: b-04 and
+  /// bt-app-1110-f changed when test 52's head rule regenerated it (12 → 10 and 1 → 0; 20 → 17 and 3 → 2), and this
+  /// test was left behind (found failing on main, 2026-11-12).
   func testCourtLockDrops() throws {
-    let want = ["bt-own-a-10": 10, "bt-own-f-01": 12, "bt-own-b-04": 12, "bt-app-1110-f": 20, "yt-bt-stream-1110": 8]
-    let found = ["bt-own-b-04": 1, "bt-app-1110-f": 3, "yt-bt-stream-1110": 2]
+    let want = ["bt-own-a-10": 10, "bt-own-f-01": 12, "bt-own-b-04": 10, "bt-app-1110-f": 17, "yt-bt-stream-1110": 8]
+    let found = ["bt-app-1110-f": 2, "yt-bt-stream-1110": 2]
     for c in try load() {
       let dropped = zip(c.expect.runs, c.expect.followed).filter { $0.0 != nil && $0.1 == nil }.count
       XCTAssertEqual(dropped, want[c.clip] ?? 0, c.clip)

@@ -86,7 +86,7 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
     rects = [(int(x * sx), int(y * sy), int(np.ceil(min(x + T, W) * sx)), int(np.ceil(min(y + T, H) * sy))) for x, y in TL]
     truth = ev.load_truth(name) if os.path.exists(os.path.join(ev.LABELS, f"{name}.ball.json")) else None
     R = ev.radius_px(truth["size"]) if truth else 0
-    frames, used = [], []
+    frames, used, carried, ran = [], [], [], []
     prev_active = set()
     last = {}  # tile index -> the candidates it held the last time it was run (carry)
     lab = lab_in = ceil_full = ceil_kept = cand_full = cand_kept = 0
@@ -94,6 +94,8 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
         fr = full["frames"][k]
         if fr is None:
             frames.append(None)
+            carried.append(None)
+            ran.append(None)
             continue
         a = box3(np.abs(F[k] - F[max(k - step, 0)])) > thr
         b = box3(np.abs(F[k] - F[min(k + step, n - 1)])) > thr
@@ -107,6 +109,7 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
         active = now | prev_active if hold else now
         prev_active = now
         used.append(1 + len(active))
+        ran.append(sorted(active))
 
         def run(cx, cy):
             px, py = cx * W, cy * H
@@ -122,13 +125,20 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
             for i in active:
                 last[i] = [c for c in fr if inside(c, i)]
             seen = {tuple(c) for c in kept}
+            old = []
             for i in range(len(TL)):
                 if i in active:
                     continue
                 for c in last.get(i, []):
                     if tuple(c) not in seen and not run(c[0], c[1]):
-                        kept.append(c)
+                        old.append(c)
                         seen.add(tuple(c))
+            if carry == 1:
+                kept = kept + old  # test 53: carried candidates are candidates like the others
+            else:
+                carried.append(old)  # test 54: evidence for the still filter only (ball_track.py "carried")
+        if len(carried) < len(frames) + 1:
+            carried.append([])
         frames.append(kept)
         cand_full += len(fr)
         cand_kept += len(kept)
@@ -139,7 +149,8 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
                 lab_in += 1 if run(g[0], g[1]) else 0
                 ceil_full += 1 if any(ev._dist_px(c[:2], g, truth["size"]) <= R for c in fr) else 0
                 ceil_kept += 1 if any(ev._dist_px(c[:2], g, truth["size"]) <= R for c in kept) else 0
-    out = dict(full, tag=out_tag, frames=frames, inferences=used,
+    out = dict(full, tag=out_tag, frames=frames, inferences=used, **({"carried": carried} if carry == 2 else {}),
+               **({"ran": ran, "ran_tiles": TL} if carry == 3 else {}),
                motion=dict(src=det_tag, thr=thr, min_px=min_px, hold=hold, mode=mode, carry=carry, thumb=[tw, th], step=step))
     if not dry:
         json.dump(out, open(os.path.join(DET, f"{name}.{out_tag}.json"), "w"), separators=(",", ":"))
@@ -157,7 +168,8 @@ def main():
     ap.add_argument("--hold", type=int, default=1, help="1: a tile also runs on the analysed frame after it moved")
     ap.add_argument("--mode", default="or", choices=["or", "and"], help="3-frame difference: either / both neighbours")
     ap.add_argument("--carry", type=int, default=0,
-                    help="1: a tile that is not run keeps the candidates of the last time it was (still objects stay seen)")
+                    help="1: a tile that is not run keeps the candidates of the last time it was (still objects stay seen); "
+                         "2: kept apart, as evidence for the still-object filter only (test 54)")
     ap.add_argument("--thumb-w", type=int, default=THUMB_W, help="thumbnail width (640 = test 53; 160 = the app's screen-rule thumbnail)")
     ap.add_argument("--step", type=int, default=1, help="neighbours this many 100 ms steps away (2 = the analysed frames at 5 fps)")
     ap.add_argument("--dry", type=int, default=0, help="1: numbers only, no detections file")

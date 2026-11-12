@@ -39,7 +39,7 @@ function setup() {
   return { repo, deps, queue, runs, addClip, done, flush, cancelled, tick, sport };
 }
 
-test('the switch asks for the current cut; the analysis gets the cut, the cache, the output and Modo Foco file', () => {
+test('the switch asks for the current cut; the analysis gets the cut, the cache, the output and the Jogadores file with its range and people file', () => {
   const { repo, queue, runs, addClip } = setup();
   const clip = addClip('/c/1.mp4');
   queue.request(clip.id);
@@ -59,7 +59,19 @@ test('the switch asks for the current cut; the analysis gets the cut, the cache,
     outPath: '/c/1.ball.json',
     focusPath: '/c/1.focus.json',
     sport: 'basquete',
+    // the range Jogadores itself analyses (the cut the clip was saved with): Bola finds its people in the same pass
+    focusStartMs: 50000,
+    focusEndMs: 60000,
+    peoplePath: '/c/1.people.json',
   });
+});
+
+test('the Jogadores interval in use goes with the request', () => {
+  const { deps, queue, runs, addClip } = setup();
+  deps.focusEvery = () => 200;
+  const clip = addClip('/c/1.mp4');
+  queue.request(clip.id);
+  expect(runs[0].opts.focusEveryMs).toBe(200);
 });
 
 test('ready for that cut; asking again for the same cut does nothing', async () => {
@@ -302,56 +314,52 @@ test('the rules here are the native ones (ReplayCore/BallSport.swift)', () => {
   }
 });
 
-test('test 50: a Modo Foco file without person boxes is made again first, then the ball is analysed', async () => {
+test('the pass that made the Jogadores file leaves it on record, so picking Jogadores afterwards is instant', async () => {
   const { repo, deps, queue, runs, addClip, done, flush } = setup();
-  let finishFocus: () => void = () => {};
-  const refreshFocus = jest.fn(() => new Promise<void>((r) => (finishFocus = r)));
-  deps.focusLacksPeople = () => true;
-  deps.refreshFocus = refreshFocus;
+  deps.focusEvery = () => 200;
   const clip = addClip('/c/1.mp4');
   queue.request(clip.id);
-  expect(refreshFocus).toHaveBeenCalledTimes(1);
-  expect(runs).toHaveLength(0); // the ball waits for the people
-  finishFocus();
+  runs[0].resolve({ ...done(), focus: 'ready' });
   await flush();
-  expect(runs).toHaveLength(1);
-  runs[0].resolve(done());
-  await flush();
-  expect(repo.getClip(clip.id)!.ball).toMatchObject({ status: 'ready', rules: 'ball-t50' });
+  expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'ready', file: '/c/1.focus.json', every: 200 });
+  expect(repo.getClip(clip.id)!.ball).toMatchObject({ status: 'ready' });
 });
 
-test('test 50: cancelled while the Modo Foco file is made again: the ball does not run', async () => {
-  const { deps, queue, runs, addClip, flush } = setup();
-  let finishFocus: () => void = () => {};
-  deps.focusLacksPeople = () => true;
-  deps.refreshFocus = () => new Promise<void>((r) => (finishFocus = r));
+test('a pass that found too few people for a framing says so on the Jogadores record', async () => {
+  const { repo, queue, runs, addClip, done, flush } = setup();
   const clip = addClip('/c/1.mp4');
   queue.request(clip.id);
-  queue.cancel(clip.id);
-  finishFocus();
+  runs[0].resolve({ ...done(), focus: 'none' });
   await flush();
-  expect(runs).toHaveLength(0);
-  expect(queue.progress(clip.id)).toBeUndefined();
+  expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'none', file: '/c/1.focus.json' });
+});
+
+test('a pass that did not make the Jogadores file leaves its record alone', async () => {
+  const { repo, queue, runs, addClip, done, flush } = setup();
+  const clip = addClip('/c/1.mp4');
+  repo.updateClip(clip.id, { focus: { v: 1, status: 'ready', file: '/c/1.focus.json' } });
+  queue.request(clip.id);
+  runs[0].resolve({ ...done(), focus: '' });
+  await flush();
+  expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'ready', file: '/c/1.focus.json' });
 });
 
 test('test 50: a result already made with today\'s rules but before the Modo Foco file had people is made again', async () => {
   const { repo, deps, queue, runs, addClip, done, flush } = setup();
   let people = false;
   deps.focusLacksPeople = () => !people;
-  deps.refreshFocus = jest.fn(async () => {
-    people = true;
-  });
   deps.note = jest.fn();
   const clip = addClip('/c/1.mp4');
   repo.updateClip(clip.id, {
     ball: { v: 1, status: 'ready', startMs: 50000, endMs: 60000, sport: 'basquete', rules: 'ball-t50', file: '/c/1.ball.json' },
   });
   queue.request(clip.id);
-  expect(deps.refreshFocus).toHaveBeenCalledTimes(1);
   expect(deps.note).toHaveBeenCalledTimes(1);
   await flush();
   expect(runs).toHaveLength(1);
-  runs[0].resolve(done());
+  // the same pass makes the Jogadores file, with the people
+  people = true;
+  runs[0].resolve({ ...done(), focus: 'ready' });
   await flush();
   // the people are there now: not again
   queue.request(clip.id);

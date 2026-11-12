@@ -22,6 +22,9 @@ public enum ThermalLevel: Int, Comparable {
 
 /// How a recording steps down when the phone heats up (2026-11-07 spec §4). Keep the quality as long as possible:
 /// - `serious` held for `holdBeforeNextStep` → 1080p30 (anything above becomes 1080p30). A short hot spell costs nothing.
+///   From 1080p60 that is the same picture size at half the rate: the running camera is slowed down (`throttle`), with
+///   no restart, so the buffer and the play in it stay (plan 2026-11-12, I3). Any other step changes the size and
+///   restarts the writer (`reconfigure`).
 /// - Already `serious` when the camera opens → 1080p30 from the first second: no minutes at 60 fps followed by a restart
 ///   (each restart empties the buffer and drops the microphone for a moment).
 /// - `critical` → 720p30 at once (`emergency`). The app never stops a recording for heat: only iOS taking the camera
@@ -35,6 +38,9 @@ public struct ThermalLadder {
 
   public enum Action: Equatable {
     case none
+    /// Same picture size, lower frame rate: change the rate of the running camera.
+    case throttle(String)
+    /// Another picture size: the camera and the writer restart at this quality.
     case reconfigure(String)
   }
 
@@ -73,9 +79,16 @@ public struct ThermalLadder {
       return .none
     }
     guard now - since >= Self.holdBeforeNextStep, let lower = Self.step(below: quality) else { return .none }
+    let action: Action = Self.sameSize(quality, lower) ? .throttle(lower) : .reconfigure(lower)
     quality = lower
     seriousSince = now
-    return .reconfigure(lower)
+    return action
+  }
+
+  /// Whether two qualities ("1080p60", "1080p30", "2160p30", "720p30") have the same picture size.
+  public static func sameSize(_ a: String, _ b: String) -> Bool {
+    let size = { (q: String) in q.split(separator: "p").first.map(String.init) ?? q }
+    return size(a) == size(b)
   }
 
   /// The next quality down while `serious`, or nil at the Full HD floor (1080p30, and anything already below it).
