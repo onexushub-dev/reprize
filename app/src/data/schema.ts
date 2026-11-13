@@ -89,6 +89,13 @@ export type ClipFocus = {
   v: 1;
   status: 'pending' | 'ready' | 'none' | 'failed';
   file?: string;
+  /**
+   * The part of the clip the analysis covered (lab test 56: the cut ± 2 s, inside `bounds`); a cut that leaves it is
+   * analysed again (only the new seconds: the people are kept per picture). Absent on records from before 2026-11-13:
+   * those covered the clip's whole `bounds`.
+   */
+  startMs?: number;
+  endMs?: number;
   /** TEMP(lab-4k): analysed one frame every `every` ms (absent = 100, today); another setting analyses again. */
   every?: number;
 };
@@ -206,6 +213,16 @@ export type Prefs = {
    */
   labBallMaxWidth?: number;
   labFocusEveryMs?: number;
+  /**
+   * TEMP(lab-pass, plan 2026-11-12 Stage 2, Diagnóstico only): on a frame both Jogadores and Bola want, the two
+   * detectors run one after the other instead of side by side (absent / false = side by side, the default).
+   */
+  labScanSequential?: boolean;
+  /**
+   * TEMP(lab-motion, plan 2026-11-12 Stage 2, Diagnóstico only): Bola sends to the model only the tiles where the
+   * picture changed (lab tests 53 and 54). Absent / false = every tile, the default.
+   */
+  labBallMotionTiles?: boolean;
 };
 
 export const DEFAULT_PREFS: Prefs = {

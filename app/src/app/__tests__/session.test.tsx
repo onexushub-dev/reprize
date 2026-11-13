@@ -231,6 +231,14 @@ test('Nova gravação from a past game goes back to the existing setup without t
   expect(router.dismissTo).toHaveBeenCalledWith('/setup');
 });
 
+test('the clips show in the order they were saved, the first on top (Victor, 2026-11-13)', async () => {
+  repo.listClips.mockReturnValue([clip('a', 'gesture', 1), clip('b', 'screen', 2), clip('c', 'screen', 3)]);
+  repo.sessionStats.mockReturnValue({ clips: 3, bytes: 1, recordedMs: 1 });
+  await render(<SessionSummary />);
+  const names = screen.getAllByRole('button', { name: /^Clipe \d/ }).map((b) => String(b.props.accessibilityLabel).slice(0, 7));
+  expect(names).toEqual(['Clipe 1', 'Clipe 2', 'Clipe 3']);
+});
+
 test('a named clip is identified by its name in the recording', async () => {
   repo.listClips.mockReturnValue([{ ...clip('a', 'gesture', 1), name: 'Ace no fundo' }, clip('b', 'screen', 2)]);
   repo.sessionStats.mockReturnValue({ clips: 2, bytes: 1, recordedMs: 1 });

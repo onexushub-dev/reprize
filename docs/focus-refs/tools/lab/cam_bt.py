@@ -44,12 +44,33 @@ T49 = dict(blend=0.4, a=1.0, b=100.0, courtp=0.2, court=0.25, pair=1.0, pairpad=
 # Test 52 as shipped (Victor, 2026-11-11): T49f + a faster camera and the player about to hit kept whole (the path's
 # head rule is ball_track.SPORT_P["beachTennis"]).
 T52 = dict(T49, a=0.3, b=30.0, hitbox=2.0, horizon=10.0, hitpad=0.02)
+# Test 59 (2026-11-13, Victor's field clips: between points the camera held on car lights or an empty spot): T52 + the
+# near pair where the ball is missing for more than 1 s (near_fallback).
+T59 = dict(T52, nearfb=10.0)
+# Test 60 (2026-11-13): T59 + only the runs that look like play are followed (keep_play).
+T60 = dict(T59, play=1.0, playv=0.007, playp=0.6)
 BASE = dict(dz=0.10, a=3.0, b=300.0, lead=0, blend=0.0, near=0.25, court=0.0, courtp=0.0, pair=0.0, pairpad=0.03, exit=0.0,
             back=0.2, dx=0.25, own=0.0, smin=0.5, step=0.08, hitall=0.0,
             pairnear=0.0, glide=0.0,
             # test 52: hitbox 1 = keep the next hitter whole where the ball allows, 2 = even if the ball leaves; horizon
             # frames ahead; hitpad crop widths around the player
-            hitbox=0.0, horizon=10.0, hitpad=0.02)
+            hitbox=0.0, horizon=10.0, hitpad=0.02,
+            # 2026-11-12 (field clips by an avenue): flat = window in frames over which a run that slides at one height
+            # (y range < flatdy, x moving >= flatdx frame widths / s one way) is dropped as car lights, 0 = off; players = 1: the
+            # camera follows today's Jogadores 9:16 crop and the ball only pulls it, by at most `hint` crop widths
+            flat=0.0, flatdy=0.04, flatdx=0.04, players=0.0, hint=0.0,
+            # 2026-11-13 (Victor, field clips: between points the camera held on car lights or an empty spot): nearfb = a
+            # gap in the ball longer than this many frames, and before the first / after the last ball, frames the near
+            # pair (the two tallest main players) instead of holding the last x; 0 = off
+            nearfb=0.0,
+            # 2026-11-13 (Victor: "cada trecho seguido precisa parecer jogo"): play = 1 drops the followed runs that are
+            # not a ball in play: median speed under playv long sides per 100 ms (a ball held, lying, bounced in place) or
+            # playp or more of the points on a person (a ball in a hand, carried); 0 = off
+            play=0.0, playv=0.007, playp=0.6,
+            # playl = a stretch of this many points or more (no gap over 1 frame) beyond the main players' x range (their
+            # box centres' 5-95%), within 0.03 in y and going one way in x, is car lights, not a ball (shorter than the
+            # path's flat rule sees); 0 = off
+            playl=0.0)
 
 
 def runs_of(tr, gap=4):
@@ -139,6 +160,60 @@ def keep_exits(tr, top, back=0.2, dx=0.25, cands=None, step=0.08, lost=4, aspect
                     state, gx, own = "gone", c[0], None
                 else:
                     own = (k, c)
+    return out
+
+
+def drop_flat(tr, length, dy, dx):
+    """2026-11-12 (Victor's field clips by an avenue): car lights behind the fence slide across the picture at one
+    height, while a beach tennis ball climbs and falls. Every window of `length` frames, at least 70% of them with a
+    point, whose points span less than `dy` in y while x moves at `dx` frame widths per second or more, mostly one way (at
+    most 35% of the steps
+    back, none back by 0.04 or more), is dropped. 0 = off."""
+    L = int(length)
+    if L <= 0:
+        return tr
+    out = list(tr)
+    for s0 in range(len(tr) - L + 1):
+        pts = [p for p in tr[s0:s0 + L] if p is not None]
+        if len(pts) < 0.7 * L:
+            continue
+        ys, xs = [p[1] for p in pts], [p[0] for p in pts]
+        if max(ys) - min(ys) >= dy or abs(xs[-1] - xs[0]) < dx * L / 10:
+            continue
+        # one way: most steps go with the travel, and no step goes back far (the 5 fps points are noisy)
+        d = np.diff(xs) * (1 if xs[-1] >= xs[0] else -1)
+        if np.mean(d < 0) <= 0.35 and (-d).max() < 0.04:
+            for k in range(s0, s0 + L):
+                out[k] = None
+    # a dropped stretch also takes the neighbouring points that go on sliding the same way at the same height (the
+    # first or last few points of the lights, too few for a window, would otherwise hold the camera there); it stops
+    # at a point off that height or going the other way, so a ball after the lights stays
+    marked = [k for k in range(len(tr)) if tr[k] is not None and out[k] is None]
+    for seg in _segments(marked):
+        ym = float(np.mean([tr[k][1] for k in seg]))
+        way = 1.0 if tr[seg[-1]][0] >= tr[seg[0]][0] else -1.0
+        for step in (-1, 1):
+            k, last, miss = (seg[0], tr[seg[0]], 0) if step < 0 else (seg[-1], tr[seg[-1]], 0)
+            while 0 <= k + step < len(tr) and miss <= 3:
+                k += step
+                p = tr[k]
+                if p is None:
+                    miss += 1
+                    continue
+                if abs(p[1] - ym) > dy or (p[0] - last[0]) * way * step < -0.04:
+                    break
+                out[k], last, miss = None, p, 0
+    return out
+
+
+def _segments(ks, gap=3):
+    """Consecutive runs of frame indices (a gap of up to `gap` frames inside a run)."""
+    out = []
+    for k in ks:
+        if out and k - out[-1][-1] <= gap:
+            out[-1].append(k)
+        else:
+            out.append([k])
     return out
 
 
@@ -354,6 +429,9 @@ def camera(name, track, zoom, v):
     oc = json.load(open(os.path.join(sg.TESTS, "oneclick", f"{name}.ball.{track}.json")))
     run = story.RUN_SPORT.get(meta["sport"], story.RUN_OFF)
     tr = story.keep_runs(hybrid.trusted(oc["pred_one"], n, truth["size"], meta["sport"]), run["min_run"], run["gap"])
+    if v["flat"] > 0:
+        # the lights out, then the short runs they leave behind (the tail of a car already leaving, < 0.5 s) out as well
+        tr = story.keep_runs(drop_flat(tr, v["flat"], v["flatdy"], v["flatdx"]), min(run["min_run"], 5), run["gap"])
     tr = keep_court(tr, v["court"], run["gap"])
     people = players(name, n)
     tr = keep_players_court(tr, people, v["courtp"])
@@ -364,6 +442,10 @@ def camera(name, track, zoom, v):
         cands = moving_candidates(det["frames"], bt.screen_boxes(name) if meta["sport"] == "beachTennis" else [],
                                   v["smin"])
     tr = keep_exits(tr, v["exit"], v["back"], v["dx"], cands, v["step"], aspect=H / W)
+    if v["play"] > 0:
+        if v["playl"] > 0:
+            tr = drop_lights(tr, people, int(v["playl"]))
+        tr = keep_play(tr, people_rows(name, n), W, H, v["playv"], v["playp"], run["gap"])
     hitters = people
     if v["hitall"] > 0:
         # 49f: the far players (smaller than the main ones) can be the hitter too: every box inside the main players' court
@@ -384,10 +466,19 @@ def camera(name, track, zoom, v):
         # test 52: the player about to hit kept whole (the ball inside too where both fit)
         boxes = hit_boxes(tr, people, W, H, v["near"], int(v["horizon"]))
         xs = keep_box(xs, tr, boxes, w, v["hitpad"], ball_first=v["hitbox"] < 2)
+    if v["nearfb"] > 0:
+        xs = near_fallback(xs, people, int(v["nearfb"]), w)
     isball = np.array([p is not None for p in tr])
     cx0 = today[:, 0] + today[:, 2] / 2
     cy0 = today[:, 1] + today[:, 3] / 2
-    tx = sg.target_x(xs, cx0, 10, "hold")
+    mode = "hold"
+    if v["players"] > 0:
+        # 2026-11-12: Jogadores 9:16 with the ball as a hint: the target is today's Jogadores crop centre, pulled toward
+        # the trusted ball by at most `hint` crop widths; with no ball, the Jogadores centre itself
+        lim = v["hint"] * w
+        xs = [None if x is None else float(cx0[k] + np.clip(x - cx0[k], -lim, lim)) for k, x in enumerate(xs)]
+        mode = "players"
+    tx = sg.target_x(xs, cx0, 10, mode)
     lead = int(v["lead"])
     if lead > 0:
         tx = np.concatenate([tx[lead:], np.repeat(tx[-1:], lead)])
@@ -466,6 +557,115 @@ def scores(name, track, zoom, v):
             "near": np.mean(near_turn) if near_turn else None, "nnear": len(near_turn), "ball": s["in"], "pts": s["pts"], "self": self_in, "hit": np.mean(hit_all) if hit_all else None,
             "nhit": len(hit_all), "turn": np.mean(hit_turn) if hit_turn else None, "nturn": len(hit_turn),
             "pan": float(np.sum(sp)) / 10 / (n / 100.0), "fast": float(np.percentile(sp, 95)) if len(sp) else 0}
+
+
+def on_person(p, rows):
+    """The point is on a person: inside a box widened by 20% of its width on each side (a hand holding the ball out)."""
+    return any(b[0] - 0.2 * b[2] <= p[0] <= b[0] + 1.2 * b[2] and b[1] <= p[1] <= b[1] + b[3] for b in rows)
+
+
+def drop_lights(tr, main, length, dy=0.03):
+    """2026-11-13: stretches of `length` points or more (a gap of at most 1 frame inside) beyond the main players' x range
+    (5-95% of their box centres), within `dy` in y and with x going one way, dropped (car lights joined to the path in
+    pieces too short for its flat rule)."""
+    mx = [b[0] + b[2] / 2 for row in main for b in row]
+    if len(mx) < 20 or length <= 0:
+        return tr
+    lo, hi = float(np.percentile(mx, 5)), float(np.percentile(mx, 95))
+    out = list(tr)
+    ks = [k for k, p in enumerate(tr) if p is not None and not lo <= p[0] <= hi]
+    for seg in _segments(ks, gap=2):
+        # split where x turns back: each one-way piece is judged alone
+        pieces, cur = [], [seg[0]]
+        for k in seg[1:]:
+            if len(cur) >= 2 and (tr[k][0] - tr[cur[-1]][0]) * (tr[cur[-1]][0] - tr[cur[-2]][0]) <= 0:
+                pieces.append(cur)
+                cur = [cur[-1]]
+            cur.append(k)
+        pieces.append(cur)
+        for pc in pieces:
+            ys = [tr[k][1] for k in pc]
+            if len(pc) >= length and max(ys) - min(ys) < dy:
+                for k in pc:
+                    out[k] = None
+    return out
+
+
+def keep_play(tr, rows, W, H, vmin, pmax, gap=4):
+    """2026-11-13: the runs (split where the next point is more than `gap` frames away) of a ball in play. A run of 3
+    points or more is dropped when its median speed is under `vmin` long sides per 100 ms (held, lying, bounced in
+    place) or `pmax` or more of its points are on a person (on_person; a frame without people uses the frame before)."""
+    L = max(W, H)
+    out = list(tr)
+    for a, b in runs_of(tr, gap):
+        ks = [k for k in range(a, b + 1) if tr[k] is not None]
+        if len(ks) < 3:
+            continue
+        sp = float(np.median([math.hypot((tr[j][0] - tr[i][0]) * W, (tr[j][1] - tr[i][1]) * H) / L / (j - i)
+                              for i, j in zip(ks, ks[1:])]))
+        on = 0
+        for k in ks:
+            r = rows[k] if k < len(rows) else []
+            if not r and 0 < k <= len(rows):
+                r = rows[k - 1]
+            on += on_person(tr[k], r)
+        if sp < vmin or on >= pmax * len(ks):
+            for k in ks:
+                out[k] = None
+    return out
+
+
+def near_targets(people, w):
+    """Per frame: where the near pair (the two tallest main players) can be framed. The pair's centre when both fit in
+    the crop width `w` (with 10% to spare), else each one's centre (the camera keeps one of them whole rather than the
+    empty sand between them); [] without players."""
+    out = []
+    for row in people:
+        pair = sorted(row, key=lambda b: -b[3])[:2]
+        if not pair:
+            out.append([])
+            continue
+        x0, x1 = min(b[0] for b in pair), max(b[0] + b[2] for b in pair)
+        out.append([(x0 + x1) / 2] if x1 - x0 <= 0.9 * w else [b[0] + b[2] / 2 for b in pair])
+    return out
+
+
+def near_x(people, w=1.0, start=None):
+    """Per frame: the near pair's x to frame (near_targets); where they do not fit, the one nearest the camera's last
+    target (from `start`, else the first choice), so it stays on one player; frames without players repeat the last."""
+    opts = near_targets(people, w)
+    out, cur = [], start
+    for o in opts:
+        if o:
+            cur = o[0] if cur is None else min(o, key=lambda x: abs(x - cur))
+        out.append(cur)
+    first = next((x for x in out if x is not None), None)
+    return [first if x is None else x for x in out]
+
+
+def near_fallback(xs, people, gap, w):
+    """2026-11-13: the target in a ball gap longer than `gap` frames, and before the first / after the last ball, is the
+    near pair (near_x, starting from the last ball x) instead of the last ball x (sg_framing.target_x "hold")."""
+    n = len(xs)
+    out = list(xs)
+    idx = [k for k in range(n) if xs[k] is not None]
+    if not any(people):
+        return out
+    if not idx:
+        return near_x(people, w)
+    spans = [(0, idx[0], xs[idx[0]])]
+    spans += [(a + 1, b, xs[a]) for a, b in zip(idx, idx[1:]) if b - a > gap]
+    spans.append((idx[-1] + 1, n, xs[idx[-1]]))
+    for a, b, last in spans:
+        if b <= a:
+            continue
+        if a == 0:
+            # before the first ball: back from it, so the camera is already near where the ball shows up
+            nx = near_x(people[a:b][::-1], w, last)[::-1]
+        else:
+            nx = near_x(people[a:b], w, last)
+        out[a:b] = nx
+    return out
 
 
 def parse_var(s):

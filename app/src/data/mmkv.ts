@@ -4,7 +4,7 @@ import { createMMKV } from 'react-native-mmkv';
 
 import { withoutSavedZoom } from '../modes/registry';
 import { ballDetPath, ballPath } from './ballFile';
-import { focusPath } from './focusFile';
+import { focusPath, peoplePath } from './focusFile';
 import { createRepo, type FileProbe, type KV } from './repo';
 import { thumbnailPath } from './thumbnailPath';
 
@@ -75,7 +75,7 @@ export function onFileRemoved(listener: (clipPath: string) => void): () => void 
 export function removeFile(path: string): void {
   removalListeners.forEach((listener) => listener(path));
   // The last one is where thumbnails were kept before they were checked for being black.
-  const own = [path, thumbnailPath(path), path.replace(/\.[^./]+$/, '') + '.jpg', focusPath(path), ballPath(path), ballDetPath(path)];
+  const own = [path, thumbnailPath(path), path.replace(/\.[^./]+$/, '') + '.jpg', focusPath(path), peoplePath(path), ballPath(path), ballDetPath(path)];
   for (const p of own) {
     try {
       new File(`file://${p}`).delete();

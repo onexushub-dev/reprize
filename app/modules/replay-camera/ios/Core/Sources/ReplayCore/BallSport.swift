@@ -47,7 +47,7 @@ public struct BallSport: Equatable {
   /// hitter, the near pair kept whole where the ball allows, a ball gone out at the top taken back only at the top (our ball looked for meanwhile), and the target going
   /// on the ball's way where it is lost in flight.
   public static let beachTennis = BallSport(
-    id: "beachTennis", modelId: "ball_tiny_btpl", rules: "ball-bt-t52", path: .beachTennis, minRun: 10, runGap: 4,
+    id: "beachTennis", modelId: "ball_tiny_btpl", rules: "ball-bt-t60", path: .beachTennis, minRun: 10, runGap: 4,
     zoom: .beachTennis, screens: true, verdict: .beachTennis, camera: .beachTennis, follow: .beachTennis)
 
   /// The profile for a sport id; nil = no Seguir a Bola for it yet.
@@ -101,24 +101,37 @@ public struct BallFollowParams: Equatable {
   public var hitBox: Int
   public var hitHorizon: Int
   public var hitPad: Double
+  /// 2026-11-13 (Victor, field clips: between points the camera held on car lights or an empty spot): a gap in the
+  /// ball longer than `nearGap` frames, and before the first / after the last ball, frames the near pair (the two
+  /// tallest main players; one of them whole when both do not fit) instead of holding the ball's last x. 0 = off.
+  public var nearGap: Int
+  /// 2026-11-13 (Victor: each followed stretch must look like play): a run of the followed ball (3 points or more) is
+  /// dropped when its median speed is under `playSpeed` long sides per 100 ms (held, lying, bounced in place) or
+  /// `playOnPerson` or more of its points are on a person (a ball in a hand, carried); the camera goes to the near
+  /// players there. playSpeed 0 = off.
+  public var playSpeed: Double
+  public var playOnPerson: Double
 
   public init(mainShare: Double, courtMargin: Double, blend: Double, near: Double, ballCourtMargin: Double = 0,
               keepPair: Bool = false, pairPad: Double = 0, exitTop: Double = 0, exitBack: Double = 0.2,
               exitDx: Double = 0.25, ownMinScore: Double = 0, ownStep: Double = 0.08, ownLost: Int = 4,
-              pairNear: Double = 0, glide: Int = 0, hitBox: Int = 0, hitHorizon: Int = 10, hitPad: Double = 0.02) {
+              pairNear: Double = 0, glide: Int = 0, hitBox: Int = 0, hitHorizon: Int = 10, hitPad: Double = 0.02,
+              nearGap: Int = 0, playSpeed: Double = 0, playOnPerson: Double = 0.6) {
     self.mainShare = mainShare; self.courtMargin = courtMargin; self.blend = blend; self.near = near
     self.ballCourtMargin = ballCourtMargin; self.keepPair = keepPair; self.pairPad = pairPad
     self.exitTop = exitTop; self.exitBack = exitBack; self.exitDx = exitDx
     self.ownMinScore = ownMinScore; self.ownStep = ownStep; self.ownLost = ownLost
     self.pairNear = pairNear; self.glide = glide
     self.hitBox = hitBox; self.hitHorizon = hitHorizon; self.hitPad = hitPad
+    self.nearGap = nearGap; self.playSpeed = playSpeed; self.playOnPerson = playOnPerson
   }
 
   public static let beachTennis = BallFollowParams(mainShare: 0.6, courtMargin: 0.2, blend: 0.4, near: 0.25,
                                                    ballCourtMargin: 0.25, keepPair: true, pairPad: 0,
                                                    exitTop: 0.05, exitBack: 0.2, exitDx: 0.25, ownMinScore: 0.5,
                                                    ownStep: 0.08, ownLost: 4, pairNear: 0.25, glide: 6,
-                                                   hitBox: 2, hitHorizon: 10, hitPad: 0.02)
+                                                   hitBox: 2, hitHorizon: 10, hitPad: 0.02, nearGap: 10,
+                                                   playSpeed: 0.007, playOnPerson: 0.6)
 }
 
 /// `cam_bt.main_players` / `keep_players_court` / `aim_x` (test 49). Boxes are x, y, width, height, 0..1 of the upright
@@ -287,6 +300,94 @@ public enum BallPlayers {
     }
     guard let b = best, b.d <= near else { return nil }
     return b.box
+  }
+
+  /// `cam_bt.on_person`: inside a person's box widened by 20% of its width on each side (a hand holding the ball out).
+  static func onPerson(_ p: BallXY, rows: [[Double]]) -> Bool {
+    rows.contains { b in b.count >= 4 && b[0] - 0.2 * b[2] <= p.x && p.x <= b[0] + 1.2 * b[2] && b[1] <= p.y
+      && p.y <= b[1] + b[3] }
+  }
+
+  /// `cam_bt.keep_play` (2026-11-13): the runs of a ball in play (a run ends where the next point is more than `gap`
+  /// frames away). A run of 3 points or more is dropped when its median speed is under `minSpeed` long sides per 100
+  /// ms or `maxOnPerson` or more of its points are on a person (`rows`: every person box per frame, top-left; a frame
+  /// without people uses the frame before). minSpeed 0 = unchanged.
+  public static func keepPlay(_ tr: [BallXY?], rows: [[[Double]]], width W: Double, height H: Double,
+                              minSpeed: Double, maxOnPerson: Double, gap: Int) -> [BallXY?] {
+    if minSpeed <= 0 { return tr }
+    let L = max(W, H)
+    var out = tr
+    var runs: [[Int]] = []
+    for k in tr.indices where tr[k] != nil {
+      if let last = runs.last?.last, k - last <= gap { runs[runs.count - 1].append(k) } else { runs.append([k]) }
+    }
+    for ks in runs where ks.count >= 3 {
+      let steps = zip(ks, ks.dropFirst()).map { i, j -> Double in
+        Foundation.hypot((tr[j]!.x - tr[i]!.x) * W, (tr[j]!.y - tr[i]!.y) * H) / L / Double(j - i)
+      }
+      let speed = BallZoom.median(steps)
+      var on = 0
+      for k in ks {
+        var r = k < rows.count ? rows[k] : []
+        if r.isEmpty && k > 0 && k <= rows.count { r = rows[k - 1] }
+        if onPerson(tr[k]!, rows: r) { on += 1 }
+      }
+      if speed < minSpeed || Double(on) >= maxOnPerson * Double(ks.count) {
+        for k in ks { out[k] = nil }
+      }
+    }
+    return out
+  }
+
+  /// `cam_bt.near_targets`: per frame, where the near pair (the two tallest boxes) can be framed: the pair's centre when
+  /// both fit in `cropWidth` (10% to spare), else each one's centre; none without players.
+  static func nearTargets(_ main: [[[Double]]], cropWidth w: Double) -> [[Double]] {
+    main.map { row in
+      // Python's sorted is stable: equal heights keep their order
+      let pair = row.enumerated().sorted { a, b in
+        a.element[3] != b.element[3] ? a.element[3] > b.element[3] : a.offset < b.offset
+      }.prefix(2).map { $0.element }
+      if pair.isEmpty { return [] }
+      let x0 = pair.map { $0[0] }.min()!, x1 = pair.map { $0[0] + $0[2] }.max()!
+      return x1 - x0 <= 0.9 * w ? [(x0 + x1) / 2] : pair.map { $0[0] + $0[2] / 2 }
+    }
+  }
+
+  /// `cam_bt.near_x`: per frame, the near pair's x to frame; where they do not fit, the one nearest the last target
+  /// (from `start`), so the camera stays on one player; frames without players repeat the last (the first known before
+  /// it).
+  static func nearX(_ main: [[[Double]]], cropWidth w: Double, start: Double? = nil) -> [Double?] {
+    var cur = start
+    var out: [Double?] = []
+    for o in nearTargets(main, cropWidth: w) {
+      if !o.isEmpty {
+        if let c = cur { cur = o.min { abs($0 - c) < abs($1 - c) } } else { cur = o[0] }
+      }
+      out.append(cur)
+    }
+    let first = out.first { $0 != nil } ?? nil
+    return out.map { $0 ?? first }
+  }
+
+  /// `cam_bt.near_fallback` (2026-11-13): the target in a ball gap longer than `gap` frames, and before the first /
+  /// after the last ball, is the near pair (`nearX`, from the ball's x next to the gap) instead of the ball's last x.
+  public static func nearFallback(_ xs: [Double?], main: [[[Double]]], gap: Int, cropWidth w: Double) -> [Double?] {
+    let n = xs.count
+    if gap <= 0 || main.allSatisfy({ $0.isEmpty }) { return xs }
+    let idx = (0..<n).filter { xs[$0] != nil }
+    guard let first = idx.first, let lastK = idx.last else { return nearX(main, cropWidth: w) }
+    var out = xs
+    var spans: [(a: Int, b: Int, from: Double)] = [(0, first, xs[first]!)]
+    for (a, b) in zip(idx, idx.dropFirst()) where b - a > gap { spans.append((a + 1, b, xs[a]!)) }
+    spans.append((lastK + 1, n, xs[lastK]!))
+    for s in spans where s.b > s.a {
+      let rows = Array(main[s.a..<min(s.b, main.count)]) + [[[Double]]](repeating: [], count: max(0, s.b - main.count))
+      // before the first ball: back from it, so the camera is already near where the ball shows up
+      let nx = s.a == 0 ? Array(nearX(rows.reversed(), cropWidth: w, start: s.from).reversed())
+                        : nearX(rows, cropWidth: w, start: s.from)
+      for (i, k) in (s.a..<s.b).enumerated() { out[k] = nx[i] }
+    }
+    return out
   }
 
   /// numpy.percentile (linear).
@@ -512,13 +613,19 @@ public struct BallVerdictParams: Equatable {
   public var shareMin: Double
   public var ballPxMin: Double
   public var panMin: Double
+  /// 2026-11-13 (Victor): seconds of followed ball in play (after `keepPlay`) the cut needs; under it there is no play
+  /// and the clip stays as it was (rarelyFound). When set, share, ball size and pan are measured but no longer a reason
+  /// (the camera frames the near players where there is no ball). 0 = the older rule.
+  public var playMin: Double
 
-  public init(playersMin: Double, shareMin: Double, ballPxMin: Double, panMin: Double) {
+  public init(playersMin: Double, shareMin: Double, ballPxMin: Double, panMin: Double, playMin: Double = 0) {
     self.playersMin = playersMin; self.shareMin = shareMin; self.ballPxMin = ballPxMin; self.panMin = panMin
+    self.playMin = playMin
   }
 
   /// Calibrated on 30 beach tennis clips (test 47a).
-  public static let beachTennis = BallVerdictParams(playersMin: 0.10, shareMin: 0.25, ballPxMin: 16, panMin: 0.6)
+  public static let beachTennis = BallVerdictParams(playersMin: 0.10, shareMin: 0.25, ballPxMin: 16, panMin: 0.6,
+                                                     playMin: 2.0)
 }
 
 /// Why Seguir a Bola is not applied to a clip (the chip says it in a few words).
@@ -579,7 +686,10 @@ public enum BallVerdicts {
       pan /= Double(rects.count) / 100.0
     }
     var reason: BallVerdictReason? = nil
-    if share < P.shareMin {
+    if P.playMin > 0 {
+      // 100 ms frames
+      if Double(followed.filter { $0 != nil }.count) / 10.0 < P.playMin { reason = .rarelyFound }
+    } else if share < P.shareMin {
       reason = .rarelyFound
     } else if ballPx < P.ballPxMin {
       reason = .tooSmall

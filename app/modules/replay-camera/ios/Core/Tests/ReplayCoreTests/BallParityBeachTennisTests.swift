@@ -8,7 +8,8 @@ import XCTest
 /// next court's ball joins the rally, one where the rally's ball leaves the picture and the next court's volleyball is
 /// found), with the lab's path, trusted points, runs of 1 s, the points inside the rally's court (by the ball), the
 /// points the camera follows (also inside the main players' court), its aim (toward the hitter, the near pair kept
-/// whole where the ball allows), zoom, 9:16 rects and verdict. Basketball's fixtures and tests are apart and
+/// whole where the ball allows), zoom, 9:16 rects and verdict. 2026-11-12: two field clips by an avenue where car
+/// lights behind the fence slide across the picture (the path's flat filter). Basketball's fixtures and tests are apart and
 /// unchanged (BallParityTests).
 final class BallParityBeachTennisTests: XCTestCase {
   private struct Fixture: Decodable { let cases: [Case] }
@@ -34,6 +35,7 @@ final class BallParityBeachTennisTests: XCTestCase {
     let ballCourt: [[Double]?]
     let playersCourt: [[Double]?]
     let followed: [[Double]?]
+    let played: [[Double]?]
     let aim: [Double?]
     let zoom: Double
     let rects: [[Double]]
@@ -96,14 +98,18 @@ final class BallParityBeachTennisTests: XCTestCase {
     XCTAssertNil(BallSport.basketball.follow)
     XCTAssertEqual(BallSport.beachTennis.camera.smoothA, 0.3)
     XCTAssertEqual(BallSport.beachTennis.camera.smoothB, 30)
-    XCTAssertEqual(BallSport.beachTennis.rules, "ball-bt-t52")
+    XCTAssertEqual(BallSport.beachTennis.rules, "ball-bt-t60")
+    XCTAssertEqual(BallSport.beachTennis.path.flat, 8)
+    XCTAssertEqual(BallSport.basketball.path.flat, 0)
     XCTAssertEqual(BallSport.beachTennis.path.headTop, 0.15)
     XCTAssertEqual(BallSport.basketball.path.headTop, 0)
     XCTAssertEqual(BallSport.beachTennis.follow,
                    BallFollowParams(mainShare: 0.6, courtMargin: 0.2, blend: 0.4, near: 0.25, ballCourtMargin: 0.25,
                                     keepPair: true, pairPad: 0, exitTop: 0.05, exitBack: 0.2, exitDx: 0.25,
                                     ownMinScore: 0.5, ownStep: 0.08, ownLost: 4, pairNear: 0.25, glide: 6,
-                                    hitBox: 2, hitHorizon: 10, hitPad: 0.02))
+                                    hitBox: 2, hitHorizon: 10, hitPad: 0.02, nearGap: 10,
+                                    playSpeed: 0.007, playOnPerson: 0.6))
+    XCTAssertEqual(BallSport.beachTennis.verdict?.playMin, 2.0)
   }
 
   func testPathMatchesLab() throws {
@@ -143,17 +149,23 @@ final class BallParityBeachTennisTests: XCTestCase {
       let followed = BallRuns.keepExits(xy(c.expect.playersCourt), top: f.exitTop, back: f.exitBack, dx: f.exitDx,
                                         cands: cands, step: f.ownStep, lost: f.ownLost, aspect: H / W)
       assertPoints(followed, c.expect.followed, "\(c.clip) followed")
-      var aim = BallPlayers.aim(xy(c.expect.followed), main: main, width: W, height: H, blend: f.blend, near: f.near)
-      aim = BallPlayers.keepPair(aim, tr: xy(c.expect.followed), main: main,
+      // 2026-11-13: only the runs that look like play
+      let played = BallPlayers.keepPlay(xy(c.expect.followed), rows: c.people, width: W, height: H,
+                                        minSpeed: f.playSpeed, maxOnPerson: f.playOnPerson, gap: s.runGap)
+      assertPoints(played, c.expect.played, "\(c.clip) played")
+      var aim = BallPlayers.aim(xy(c.expect.played), main: main, width: W, height: H, blend: f.blend, near: f.near)
+      aim = BallPlayers.keepPair(aim, tr: xy(c.expect.played), main: main,
                                  cropWidth: min(1.0, (9.0 / 16.0) * H / W) / c.expect.zoom, pad: f.pairPad,
                                  nearOnly: f.pairNear, width: W, height: H)
-      aim = BallPlayers.glide(aim, tr: xy(c.expect.followed), main: main, frames: f.glide, margin: f.courtMargin)
+      aim = BallPlayers.glide(aim, tr: xy(c.expect.played), main: main, frames: f.glide, margin: f.courtMargin)
       // test 52: the player about to hit kept whole
-      let boxes = BallPlayers.hitBoxes(xy(c.expect.followed), main: main, width: W, height: H, near: f.near,
+      let boxes = BallPlayers.hitBoxes(xy(c.expect.played), main: main, width: W, height: H, near: f.near,
                                        horizon: f.hitHorizon)
-      aim = BallPlayers.keepBox(aim, tr: xy(c.expect.followed), boxes: boxes,
+      aim = BallPlayers.keepBox(aim, tr: xy(c.expect.played), boxes: boxes,
                                 cropWidth: min(1.0, (9.0 / 16.0) * H / W) / c.expect.zoom, pad: f.hitPad,
                                 ballFirst: f.hitBox < 2)
+      aim = BallPlayers.nearFallback(aim, main: main, gap: f.nearGap,
+                                     cropWidth: min(1.0, (9.0 / 16.0) * H / W) / c.expect.zoom)
       XCTAssertEqual(aim.count, c.expect.aim.count, c.clip)
       for (i, (g, e)) in zip(aim, c.expect.aim).enumerated() {
         XCTAssertEqual(g == nil, e == nil, "\(c.clip) aim frame \(i)")
@@ -163,11 +175,14 @@ final class BallParityBeachTennisTests: XCTestCase {
   }
 
   /// The court locks and the top exit drop the next court's ball where the lab does (a-10: 10 points, f-01: 12,
-  /// b-04: 12, bt-app-1110-f: 20; the stream: 8 after a ball out at the top), and nowhere else; our ball found among
-  /// the candidates meanwhile (b-04: 1, bt-app-1110-f: 3, the stream: 2).
+  /// b-04: 10, bt-app-1110-f: 17; the stream: 8 after a ball out at the top), and nowhere else; our ball found among
+  /// the candidates meanwhile (bt-app-1110-f: 2, the stream: 2). The counts are the fixture's own: b-04 and
+  /// bt-app-1110-f changed when test 52's head rule regenerated it (12 → 10 and 1 → 0; 20 → 17 and 3 → 2), and this
+  /// test was left behind (found failing on main, 2026-11-12).
   func testCourtLockDrops() throws {
-    let want = ["bt-own-a-10": 10, "bt-own-f-01": 12, "bt-own-b-04": 12, "bt-app-1110-f": 20, "yt-bt-stream-1110": 8]
-    let found = ["bt-own-b-04": 1, "bt-app-1110-f": 3, "yt-bt-stream-1110": 2]
+    let want = ["bt-own-a-10": 10, "bt-own-f-01": 12, "bt-own-b-04": 10, "bt-app-1110-f": 17, "yt-bt-stream-1110": 8,
+                "bt-campo-1112-b": 1]
+    let found = ["bt-app-1110-f": 2, "yt-bt-stream-1110": 2]
     for c in try load() {
       let dropped = zip(c.expect.runs, c.expect.followed).filter { $0.0 != nil && $0.1 == nil }.count
       XCTAssertEqual(dropped, want[c.clip] ?? 0, c.clip)
@@ -245,7 +260,7 @@ final class BallParityBeachTennisTests: XCTestCase {
   func testZoomCameraAndVerdictMatchLab() throws {
     for c in try load() {
       let s = try sport(c)
-      let trusted = xy(c.expect.trusted), followed = xy(c.expect.followed)
+      let trusted = xy(c.expect.trusted), followed = xy(c.expect.played)
       let W = c.videoSize[0], H = c.videoSize[1]
       let z = BallZoom.zoom(ball: trusted, today: c.todayPortrait, native: c.todayNative, width: W, height: H,
                             params: s.zoom, cameraBall: followed)
@@ -300,6 +315,36 @@ final class BallParityBeachTennisTests: XCTestCase {
   /// A region whose picture changes all at once (a screen) is found; a blob that moves across the frame (a player) and
   /// a static picture are not.
   /// Test 52: on the diagonal clip the path no longer sits on the near player's head while the partner volleys.
+  /// 2026-11-12: on the field clips the flat filter changes the path (the lab's lights taken out; testPathMatchesLab
+  /// checks the frames), on a vertical clip or without people it does nothing.
+  func testFlatFilter() throws {
+    for c in try load() where c.clip.hasPrefix("bt-campo-") {
+      let frames = c.frames.map { f in
+        f.map { $0.map { BallCandidate(cx: $0[0], cy: $0[1], width: $0[2], height: $0[3], score: $0[4]) } }
+      }
+      let s = try sport(c)
+      var off = s.path
+      off.flat = 0
+      let on = BallPath.track(frames: frames, width: c.detSize[0], height: c.detSize[1], step: c.step, params: s.path,
+                              screens: s.screens ? c.screens : [], people: c.people)
+      let without = BallPath.track(frames: frames, width: c.detSize[0], height: c.detSize[1], step: c.step,
+                                   params: off, screens: s.screens ? c.screens : [], people: c.people)
+      XCTAssertNotEqual(on, without, c.clip)
+      let noPeople = BallPath.track(frames: frames, width: c.detSize[0], height: c.detSize[1], step: c.step,
+                                    params: s.path, screens: s.screens ? c.screens : [], people: [])
+      let noPeopleOff = BallPath.track(frames: frames, width: c.detSize[0], height: c.detSize[1], step: c.step,
+                                       params: off, screens: s.screens ? c.screens : [], people: [])
+      XCTAssertEqual(noPeople, noPeopleOff, c.clip)
+    }
+    // a point sliding flat across the frame at one height: dropped, with the neighbours going on the same way
+    let slide: [BallXY?] = (0..<12).map { BallXY(x: 0.5 + 0.01 * Double($0), y: 0.45) }
+    XCTAssertTrue(BallPath.dropFlat(slide, length: 8, dy: 0.03, dx: 0.04).allSatisfy { $0 == nil })
+    // a ball climbing and falling: kept
+    let arc: [BallXY?] = (0..<12).map { BallXY(x: 0.5 + 0.01 * Double($0), y: 0.45 - 0.02 * Double($0 % 6)) }
+    XCTAssertEqual(BallPath.dropFlat(arc, length: 8, dy: 0.03, dx: 0.04), arc)
+    XCTAssertEqual(BallPath.segments([1, 2, 5, 9, 10]), [[1, 2, 5], [9, 10]])
+  }
+
   func testHeadRule() throws {
     let c = try XCTUnwrap(try load().first { $0.clip == "bt-app-1111-a" })
     let got = try path(c)

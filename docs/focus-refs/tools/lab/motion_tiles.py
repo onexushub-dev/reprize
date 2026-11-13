@@ -52,13 +52,61 @@ def tiles(W, H, T):
     return [(x, y) for y in starts(H, T) for x in starts(W, T)]
 
 
-def thumbs(name, n, width=THUMB_W):
-    """n grey thumbnails (`width` wide) of the clip's window on the 100 ms grid, upright."""
+def phone_thumbs(video, start_ms, n, W, H, tw, th, grey):
+    """Test 55: the thumbnail as the app made it on 2026-11-12. Core Image folds the 4K -> 1920 scale and the thumbnail
+    scale into one affine transform and samples the native frame once, bilinear, with no averaging (one sample per
+    thumbnail pixel); the grey is (R + G + B) / 3 (`grey="mean"`) or the luma (`grey="luma"`, BT.601)."""
+    # the decoded (native) size, not the labels' size: Core Image samples the native frame
+    probe = json.loads(subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_streams", "-of", "json",
+                                       video], capture_output=True, check=True).stdout)["streams"][0]
+    W, H = probe["width"], probe["height"]
+    if (W >= H) != (tw >= th):
+        W, H = H, W
+    cmd = ["ffmpeg", "-v", "error", "-ss", f"{start_ms / 1000:.3f}", "-t", f"{n / 10 + 0.2:.3f}", "-i", video,
+           "-vf", "fps=10", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    # pixel centres of the thumbnail in source pixels (Core Image samples at centres), bilinear weights
+    xs = (np.arange(tw) + 0.5) * W / tw - 0.5
+    ys = (np.arange(th) + 0.5) * H / th - 0.5
+    x0 = np.clip(np.floor(xs).astype(int), 0, W - 2)
+    y0 = np.clip(np.floor(ys).astype(int), 0, H - 2)
+    fx = np.clip(xs - x0, 0, 1)[None, :, None]
+    fy = np.clip(ys - y0, 0, 1)[:, None, None]
+    out, size = [], W * H * 3
+    while len(out) < n:
+        raw = proc.stdout.read(size)
+        if len(raw) < size:
+            break
+        f = np.frombuffer(raw, np.uint8).reshape(H, W, 3)
+        r0, r1 = f[y0], f[y0 + 1]  # only the rows and columns sampled are converted
+        a = r0[:, x0].astype(np.float32)
+        b = r0[:, x0 + 1].astype(np.float32)
+        c = r1[:, x0].astype(np.float32)
+        d = r1[:, x0 + 1].astype(np.float32)
+        rgb = np.rint((a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy)
+        if grey == "luma":
+            g = np.rint(rgb @ np.array([0.299, 0.587, 0.114], np.float32))
+        else:
+            g = np.floor(rgb.sum(axis=2) / 3)
+        out.append(g.astype(np.int16))
+    proc.stdout.close()
+    proc.wait()
+    a = np.stack(out)
+    if len(a) < n:
+        a = np.concatenate([a, np.repeat(a[-1:], n - len(a), axis=0)])
+    return a[:n]
+
+
+def thumbs(name, n, width=THUMB_W, kind="lab"):
+    """n grey thumbnails (`width` wide) of the clip's window on the 100 ms grid, upright. `kind`: "lab" (area average,
+    luma: tests 53 / 54), "phone" (the app's 2026-11-12 sampling and RGB mean), "phone-luma" (its sampling, luma)."""
     meta = ev.clip_meta(name)
     video = os.path.join(ev.ROOT, meta["video"])
     W, H = meta["size"]
     tw = width if W >= H else int(round(width * W / H / 2)) * 2
     th = int(round(tw * H / W / 2)) * 2
+    if kind != "lab":
+        return phone_thumbs(video, meta["startMs"], n, W, H, tw, th, "luma" if kind == "phone-luma" else "mean"), tw, th
     cmd = ["ffmpeg", "-v", "error", "-ss", f"{meta['startMs'] / 1000:.3f}", "-t", f"{n / 10 + 0.2:.3f}", "-i", video,
            "-vf", f"fps=10,scale={tw}:{th}:flags=area,format=gray", "-f", "rawvideo", "-"]
     raw = subprocess.run(cmd, capture_output=True, check=True).stdout
@@ -75,18 +123,18 @@ def box3(m):
     return sum(p[dy:dy + m.shape[0], dx:dx + m.shape[1]] for dy in range(3) for dx in range(3)) / 9.0
 
 
-def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=THUMB_W, step=1, dry=0):
+def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=THUMB_W, step=1, dry=0, kind="lab"):
     full = json.load(open(os.path.join(DET, f"{name}.{det_tag}.json")))
     W, H = full["size"]
     T = full.get("tile", 416)
     TL = tiles(W, H, T)
     n = len(full["frames"])
-    F, tw, th = thumbs(name, n, thumb_w)
+    F, tw, th = thumbs(name, n, thumb_w, kind)
     sx, sy = tw / W, th / H
     rects = [(int(x * sx), int(y * sy), int(np.ceil(min(x + T, W) * sx)), int(np.ceil(min(y + T, H) * sy))) for x, y in TL]
     truth = ev.load_truth(name) if os.path.exists(os.path.join(ev.LABELS, f"{name}.ball.json")) else None
     R = ev.radius_px(truth["size"]) if truth else 0
-    frames, used = [], []
+    frames, used, carried, ran = [], [], [], []
     prev_active = set()
     last = {}  # tile index -> the candidates it held the last time it was run (carry)
     lab = lab_in = ceil_full = ceil_kept = cand_full = cand_kept = 0
@@ -94,6 +142,8 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
         fr = full["frames"][k]
         if fr is None:
             frames.append(None)
+            carried.append(None)
+            ran.append(None)
             continue
         a = box3(np.abs(F[k] - F[max(k - step, 0)])) > thr
         b = box3(np.abs(F[k] - F[min(k + step, n - 1)])) > thr
@@ -107,6 +157,7 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
         active = now | prev_active if hold else now
         prev_active = now
         used.append(1 + len(active))
+        ran.append(sorted(active))
 
         def run(cx, cy):
             px, py = cx * W, cy * H
@@ -122,13 +173,20 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
             for i in active:
                 last[i] = [c for c in fr if inside(c, i)]
             seen = {tuple(c) for c in kept}
+            old = []
             for i in range(len(TL)):
                 if i in active:
                     continue
                 for c in last.get(i, []):
                     if tuple(c) not in seen and not run(c[0], c[1]):
-                        kept.append(c)
+                        old.append(c)
                         seen.add(tuple(c))
+            if carry == 1:
+                kept = kept + old  # test 53: carried candidates are candidates like the others
+            else:
+                carried.append(old)  # test 54: evidence for the still filter only (ball_track.py "carried")
+        if len(carried) < len(frames) + 1:
+            carried.append([])
         frames.append(kept)
         cand_full += len(fr)
         cand_kept += len(kept)
@@ -139,7 +197,8 @@ def simulate(name, det_tag, out_tag, thr, min_px, hold, mode, carry=0, thumb_w=T
                 lab_in += 1 if run(g[0], g[1]) else 0
                 ceil_full += 1 if any(ev._dist_px(c[:2], g, truth["size"]) <= R for c in fr) else 0
                 ceil_kept += 1 if any(ev._dist_px(c[:2], g, truth["size"]) <= R for c in kept) else 0
-    out = dict(full, tag=out_tag, frames=frames, inferences=used,
+    out = dict(full, tag=out_tag, frames=frames, inferences=used, **({"carried": carried} if carry == 2 else {}),
+               **({"ran": ran, "ran_tiles": TL} if carry == 3 else {}),
                motion=dict(src=det_tag, thr=thr, min_px=min_px, hold=hold, mode=mode, carry=carry, thumb=[tw, th], step=step))
     if not dry:
         json.dump(out, open(os.path.join(DET, f"{name}.{out_tag}.json"), "w"), separators=(",", ":"))
@@ -157,10 +216,13 @@ def main():
     ap.add_argument("--hold", type=int, default=1, help="1: a tile also runs on the analysed frame after it moved")
     ap.add_argument("--mode", default="or", choices=["or", "and"], help="3-frame difference: either / both neighbours")
     ap.add_argument("--carry", type=int, default=0,
-                    help="1: a tile that is not run keeps the candidates of the last time it was (still objects stay seen)")
+                    help="1: a tile that is not run keeps the candidates of the last time it was (still objects stay seen); "
+                         "2: kept apart, as evidence for the still-object filter only (test 54)")
     ap.add_argument("--thumb-w", type=int, default=THUMB_W, help="thumbnail width (640 = test 53; 160 = the app's screen-rule thumbnail)")
     ap.add_argument("--step", type=int, default=1, help="neighbours this many 100 ms steps away (2 = the analysed frames at 5 fps)")
     ap.add_argument("--dry", type=int, default=0, help="1: numbers only, no detections file")
+    ap.add_argument("--thumb", default="lab", choices=["lab", "phone", "phone-luma"],
+                    help="how the thumbnail is made: the lab's (area, luma), the app's of 2026-11-12, or its with luma (test 55)")
     ap.add_argument("--summary", default=None, help="write the per-clip rows here (json)")
     ap.add_argument("clips", nargs="+")
     a = ap.parse_args()
@@ -169,7 +231,7 @@ def main():
         if not os.path.exists(os.path.join(DET, f"{name}.{a.det}.json")):
             print(name, "no detections")
             continue
-        r = simulate(name, a.det, a.out, a.thr, a.min_px, a.hold, a.mode, a.carry, a.thumb_w, a.step, a.dry)
+        r = simulate(name, a.det, a.out, a.thr, a.min_px, a.hold, a.mode, a.carry, a.thumb_w, a.step, a.dry, a.thumb)
         rows.append(r)
         pc = lambda x, y: "-" if not y else f"{100 * x / y:.0f}%"  # noqa: E731
         print(f"{name}: regions {r['regions']:.1f} of {r['regions_full']}, labelled ball in a run tile "

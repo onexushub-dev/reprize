@@ -29,7 +29,7 @@ export function ballForCut(ball: Clip['ball'], trim: Clip['trim'], sport?: BallS
  * with the older ones is analysed again the next time Seguir a Bola is on: its detections are cached, so only the path
  * and the camera run (well under a second).
  */
-export const BALL_RULES: Record<BallSportId, string> = { basquete: 'ball-t50', beachTennis: 'ball-bt-t52' };
+export const BALL_RULES: Record<BallSportId, string> = { basquete: 'ball-t50', beachTennis: 'ball-bt-t60' };
 
 /** TEMP(lab-4k): the speed test's Bola variant ('' = today), part of the rules so switching it analyses again. */
 let labVariant = '';
