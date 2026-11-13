@@ -1,6 +1,6 @@
 // TEMP(diag-remote): Diagnóstico's energy test (plan 2026-11-12, I3d). Reads the recording's one-a-minute pulse lines and
 // groups the minutes by configuration (format, gesture, voice, preview), so each block's battery and heat can be
-// compared with the others. iOS gives the battery in 1% steps: blocks of 10 minutes or more say something.
+// compared with the others. iOS gives the battery in 5% steps: blocks of 30 minutes or more say something.
 
 const HEAT_ORDER = ['nominal', 'fair', 'serious', 'critical', 'shutdown'];
 

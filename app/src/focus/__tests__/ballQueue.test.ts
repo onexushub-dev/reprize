@@ -59,10 +59,28 @@ test('the switch asks for the current cut; the analysis gets the cut, the cache,
     outPath: '/c/1.ball.json',
     focusPath: '/c/1.focus.json',
     sport: 'basquete',
-    // the range Jogadores itself analyses (the cut the clip was saved with): Bola finds its people in the same pass
+    // the range Jogadores itself analyses (the cut ± 2 s inside the clip's own part; here the whole of it): Bola finds
+    // its people in the same pass
     focusStartMs: 50000,
     focusEndMs: 60000,
     peoplePath: '/c/1.people.json',
+  });
+});
+
+test('lab test 56: Jogadores is analysed over the cut ± 2 s, and the file made on the way says so', async () => {
+  const { repo, queue, runs, addClip, done, flush } = setup();
+  const clip = addClip('/c/1.mp4');
+  repo.updateClip(clip.id, { trim: { startMs: 54000, endMs: 56000 } });
+  queue.request(clip.id);
+  expect(runs[0].opts).toMatchObject({ startMs: 54000, endMs: 56000, focusStartMs: 52000, focusEndMs: 58000 });
+  runs[0].resolve({ ...done(), focus: 'ready' });
+  await flush();
+  expect(repo.getClip(clip.id)!.focus).toEqual({
+    v: 1,
+    status: 'ready',
+    file: '/c/1.focus.json',
+    startMs: 52000,
+    endMs: 58000,
   });
 });
 
@@ -272,7 +290,7 @@ test('test 47a: not worth it on this video: kept as unsuitable with the reason, 
     startMs: 50000,
     endMs: 60000,
     sport: 'beachTennis',
-    rules: 'ball-bt-t52',
+    rules: 'ball-bt-t60',
     share: 0.6,
     reason: 'tooSmall',
   });
@@ -321,7 +339,7 @@ test('the pass that made the Jogadores file leaves it on record, so picking Joga
   queue.request(clip.id);
   runs[0].resolve({ ...done(), focus: 'ready' });
   await flush();
-  expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'ready', file: '/c/1.focus.json', every: 200 });
+  expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'ready', file: '/c/1.focus.json', startMs: 50000, endMs: 60000, every: 200 });
   expect(repo.getClip(clip.id)!.ball).toMatchObject({ status: 'ready' });
 });
 
@@ -331,7 +349,7 @@ test('a pass that found too few people for a framing says so on the Jogadores re
   queue.request(clip.id);
   runs[0].resolve({ ...done(), focus: 'none' });
   await flush();
-  expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'none', file: '/c/1.focus.json' });
+  expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'none', file: '/c/1.focus.json', startMs: 50000, endMs: 60000 });
 });
 
 test('a pass that did not make the Jogadores file leaves its record alone', async () => {

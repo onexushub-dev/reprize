@@ -787,6 +787,94 @@ Known limits of what was built:
 - I2 adds a 640 px thumbnail and two neighbour frames per analysed frame; whether that costs less than the ~9 tiles
   it saves is the phone's answer.
 
+### 9.1 Phone results, round 1 (2026-11-12, iPhone 16 Pro Max, section 10 steps 1–4) `[phone]`
+
+Six beach tennis 4K clips cut to 15 s, the same six in A, B and C (Diagnóstico files 25, 26, 14, 15). Times are
+Bola + Jogadores in one pass ("analisado em"); "open → framing" is from opening the clip to the framing on screen,
+including the tap.
+
+| Run | Passe / Recortes | Seconds per cut | Model | Regions / frame | Open → framing | Ball share (6 clips) |
+|---|---|---|---|---|---|---|
+| A | side by side / all | 5.5–5.7 | 4.1–4.5 s | 19 | 7.4–9.6 s | 70, 67, 45, 59, 78, 91% |
+| B | one after the other / all | 7.5–7.8 | 3.7–3.9 s | 19 | 10.3–11.9 s | identical to A |
+| C | side by side / motion | 3.9–4.6 | 2.0–3.0 s | 8.5–12.8 | 6.1–8.0 s | 68, 63, 42, 57, 78, 85% |
+| D (6 of 10) | side by side / all | 5.5–5.9 | 4.0–4.4 s | 19 | 7.7–9.0 s | identical to A |
+
+- **I1**: Bola and Jogadores of a 15 s 4K cut in ~5.6 s, against ~10.5 s for the two one after the other on the old
+  code (section 0). Side by side beats one after the other by ~2 s, with identical results clip for clip, so side by
+  side stays the default. Victor confirmed that Modo Foco is instant after Seguir a Bola (no second analysis).
+- **I2 on the phone**: ~24% faster (5.6 → 4.2 s), model time roughly halved, decode up 0.3 → 0.4–0.7 s (the
+  neighbour frames). But the ball share drops on 5 of the 6 clips (−2 to −6 points, mean 68 → 65%) and the camera of
+  the sixth changes (turns per 10 s 3.3 → 1.3). The lab had predicted no change on beach tennis. Test 55 (lab README) ruled out
+  the one difference found in the code, the app's grey thumbnail (single bilinear sample, RGB mean): copied in the
+  lab it costs at most a point. The cause is still open; the next step needs the phone's own detection files of the
+  same six clips with and without gating. I2 stays off.
+- **Heat and battery (D)**: 10 cuts back to back (6 beach tennis 4K 15 s, 4 basketball Full HD 5–8 s): the phone
+  reached `fair` (camera pressure `fair`, temperature) on the 5th clip, about 45 s of continuous analysis, and stayed
+  there; no slowdown (first 4K cut 5.9 s, sixth 5.7 s); battery 86 → 84% by the status bar (the app reads 5% steps:
+  85% throughout); warm to the touch.
+- Fixed after round 1: the pressure level is written as `nominal` / `fair` / … (it was the constant's name), and the
+  energy test uses 30-minute blocks (battery in 5% steps).
+
+### 9.2 Field test (2026-11-12, beach tennis at night by an avenue) and the lab follow-ups
+
+- Recording `[phone]`: 43 min at 1080p60, `nominal` heat and pressure throughout (no step), battery 95 → 80% (about
+  20% per hour with gesture and voice on, preview off by screen economy), 29 clips, no alert.
+- Seguir a Bola went to the right edge on two clips: the path followed car lights behind the fence (lab tests 57).
+  Analysis took 9–10 s for 8–12 s cuts because the shared pass also ran Jogadores over the whole (longer) clip.
+- Lab answers (README tests 56–58):
+  1. Jogadores over the cut + 2 s frames as well as over the whole clip: both modes can analyse only the cut + 2 s;
+     a changed cut then costs only its new seconds, a shorter cut nothing.
+  2. A "flat run" rule in the ball path (car lights slide at one height outside the players or as low as the far
+     players' heads; the ball climbs and falls): the path drops those candidates and is chosen again, so it finds the
+     real ball (main player in the 9:16 crop 26 → 100% on the worst field clip, the camera following the rally);
+     the 22 own labelled clips unchanged, the night set one labelled hit of 39 less. A first version in the camera
+     only kept it off the cars but left it still (Victor saw it), since the path had followed the cars instead of
+     the ball.
+  3. A Jogadores 9:16 does not replace Seguir a Bola for story / reels from horizontal recordings: 63% of the
+     labelled balls in the crop and the hitter whole 60% of the time, against 98% and 95%; the ball as a hint closes
+     part of it (93% / 86% at hint 0.5) but not the hitter.
+- Proposed for the app (Victor to decide): 1 and 2 (beach tennis's ball rules), Jogadores 16:9 unchanged.
+- Victor (2026-11-12): 1 and 2 to the app, no vertical Jogadores.
+
+### 9.3 In the app (2026-11-13): the cut + 2 s, and the flat-run rule
+
+**The cut + 2 s (both modes).** Jogadores analyses `focusRange(clip)`: the cut ± 2 s, inside the clip's own part
+of the file (`FOCUS_MARGIN_MS`, `app/src/data/focusFile.ts`). Seguir a Bola asks for the same range when its pass
+also makes the Jogadores file. The clip's Jogadores record keeps the range it covers (`focus.startMs` / `endMs`).
+When the cut changes:
+- inside the analysed range: nothing to do, the framing is instant;
+- outside it: Jogadores is analysed again over the new cut ± 2 s, and the people already found are reused from the
+  people file, so only the new seconds are looked at (`focusCovers`, `focusQueue.ensure`; native: `BallAnalyzer`
+  makes the file again only when the old one does not cover the new range);
+- a record from before ranges were kept counts as covering the whole clip, as it was made over all of it.
+
+**The flat-run rule (beach tennis only, rules `ball-bt-t57`).** Ported to `BallPath.track` (Swift) from the lab's
+`ball_track.track_flat`, with parity on 12 beach tennis clips (`ball-parity-bt.json`, now with both field clips).
+Old Seguir a Bola results are analysed again the next time the mode is on; the detections are cached, so only the
+path and the camera run.
+
+One change against 9.2, found by the parity fixture before the port: the first rule also took real balls on three
+clips that have no labelled frames there (the vertical web clips yt-bt-06 and bt-v-1029, and f-01, a lob 0.06
+frame widths to the right of the players' range). Followed points: 85 → 76%, 66 → 48%, 84 → 78%. Two guards fix it:
+- horizontal clips only (on a vertical clip a ball crossing at the far players' height looks flat);
+- "outside the play area" means beyond the main players' x range ± 0.2, the same court as the court lock.
+
+With them:
+- the ten earlier parity clips give the same output as with no rule;
+- the 22 own labelled clips are identical to no rule, frame by frame;
+- the night set and both field clips are identical to the 9.2 run, so its numbers stand (field a: main player in the
+  crop 26 → 100%; night set: one labelled hit of 39 less).
+
+**Does it work on other distractions?** It takes out anything the path follows that slides sideways at one height
+for 0.8 s or more, beyond the players' court or below the far players' heads: a car, a bike or a person walking
+behind the fence, a reflection moving along a wall. It does not take out:
+- things that stand still (the still filter already does);
+- things that climb and fall like a ball (a second ball thrown on the next court);
+- things that slide high over the court.
+
+Not measured: the rule on the phone.
+
 ## 10. Phone protocol for Stage 2 (Victor)
 
 Build (Mac, iPhone on the cable): `cd app && REPRIZE_DIAGNOSTICS=1 REPRIZE_FIELD_TEST_UNLOCK=1 npx expo run:ios
@@ -796,7 +884,8 @@ Mode off, Diagnóstico "Limpar". Share the Diagnóstico after each round.
 What iOS tells the app about heat is a level (`nominal`, `fair`, `serious`, `critical`), not degrees: the "calor"
 in each line is `thermalState`, "pressão" the camera's own reading. For a temperature, note what the back of the phone
 feels like (cool / warm / hot) at the start and end of each round, or use an infrared thermometer if there is one.
-Every Jogadores and Seguir a Bola line now carries battery and heat before and after the analysis.
+Every Jogadores and Seguir a Bola line now carries battery and heat before and after the analysis; the battery comes
+in 5% steps, so it shows over a round, not per clip.
 
 "Before" for I1 is the 2026-11-12 speed-test reading on the old code: a 15 s 4K cut took 5.1 s of Jogadores plus
 5.4 s of Bola, one after the other (section 0). Use 15 s cuts of 4K clips in steps 1–3 so the numbers compare.
@@ -825,12 +914,19 @@ Every Jogadores and Seguir a Bola line now carries battery and heat before and a
       for each other). Before Stage 2 this step restarted the camera and the clip had only what came after it.
    c. `critical`: same as b, to 720p30. Then `critical` again within a minute of b: the clip must still be one,
       covering both steps.
-   The Xcode condition moves `thermalState` only: "pressão" will not react to it. It reacts to real heat (step 7).
-6. **Energy test (I3 d).** Same place, phone on a tripod, 1080p60, recording for 4 blocks of 15 minutes with one
-   thing changed per block: (1) gesture on, voice off, screen economy on; (2) gesture off; (3) voice on; (4) screen
-   economy off. Then one block at 4K30 with (1)'s settings. Read the "Teste de energia" box in Diagnóstico: battery
-   per hour, worst heat and pressure for each block. Battery comes in 1% steps, so 15-minute blocks are the minimum;
-   for finer numbers run the same blocks with Xcode's Energy gauge attached.
+   The Xcode condition moves the camera's pressure too (round 2, 2026-11-12: "pressão serious" at the same second).
+   Do not touch the phone between 1:50 and the save, except to save: leaving the app (Control Center, a
+   notification) interrupts the camera, and an interruption empties the buffer (as before Stage 2), which hides
+   what the step did. Screen economy can be off for this step.
+6. **Energy test (I3 d).** Same place, phone on a tripod, 1080p60, recording for 4 blocks of **30 minutes** with
+   one thing changed per block: (1) gesture on, voice off, screen economy on; (2) gesture off; (3) voice on; (4)
+   screen economy off. Then one block at 4K30 with (1)'s settings. The blocks can be spread over several sessions (same
+   place, similar time of day, each starting cool and above 50% battery). Read the "Teste de energia" box in
+   Diagnóstico: battery per hour, worst heat and pressure for each block. iOS gives apps the battery in **5% steps**
+   (seen on the phone, 2026-11-12: 95 → 90 between two analyses), so at the ~23% per hour measured at 4K30 a 30-minute
+   block moves about two steps: compare blocks only when they differ by more than one step (10% per hour). For a finer
+   reading, run the same blocks from Xcode over Wi-Fi (Window → Devices and Simulators → "Connect via network", then
+   Debug Navigator → Energy Impact): never on the cable, which charges the phone.
 7. **In the sun (I3).** One recording of 30+ minutes at 1080p60 in direct sun, phone on its usual mount: write down
    when "calor" reaches `fair` and `serious`, whether the 30 fps step came, and whether "pressão" went down after it.
 

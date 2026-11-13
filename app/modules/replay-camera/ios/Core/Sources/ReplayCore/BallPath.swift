@@ -51,6 +51,17 @@ public struct BallPathParams: Equatable {
   /// off.
   public var headTop = 0.0
   public var headW = 0.0
+  /// Car lights, not the ball (2026-11-12, Victor's field clips by an avenue: lights behind the fence slid across the
+  /// picture at one height and the path took them for the ball for seconds): the path's stretches where, over `flat`
+  /// 100 ms frames, the points stay within `flatDy` in y while x moves `flatDx` frame widths per second or more, mostly
+  /// one way, lose their candidates and the path is chosen again (up to 3 times). Only outside the play area: beyond
+  /// the main players' x range ± `flatPad`, or as low as the far players' heads or lower (a ball flying flat high over
+  /// the court stays). Horizontal clips only (on vertical ones a ball crossing at the far players' height looks flat).
+  /// Needs the people; 0 = off. The lab's `ball_track.track_flat`.
+  public var flat = 0
+  public var flatDy = 0.03
+  public var flatDx = 0.04
+  public var flatPad = 0.2
 
   public init() {}
 
@@ -74,6 +85,8 @@ public struct BallPathParams: Equatable {
     // test 52
     p.headTop = 0.15
     p.headW = 0
+    // 2026-11-12: car lights
+    p.flat = 8
     return p
   }
 }
@@ -91,6 +104,40 @@ public enum BallPath {
   public static func track(frames: [[BallCandidate]?], width: Double, height: Double, step: Int,
                            params P: BallPathParams = .basketball, screens: [[Double]] = [],
                            people: [[[Double]]] = [], stale: [[BallCandidate]?] = []) -> [BallPoint?] {
+    func once(_ f: [[BallCandidate]?]) -> [BallPoint?] {
+      trackOnce(frames: f, width: width, height: height, step: step, params: P, screens: screens, people: people,
+                stale: stale)
+    }
+    var pred = once(frames)
+    // car lights (`flat`): horizontal clips with people only
+    guard P.flat > 0, width > height else { return pred }
+    let area = playArea(people)
+    var fr = frames
+    for _ in 0..<3 {
+      let pts: [BallXY?] = pred.map { $0.map { BallXY(x: $0.cx, y: $0.cy) } }
+      let kept = dropFlat(pts, length: P.flat, dy: P.flatDy, dx: P.flatDx)
+      let marked = pts.indices.filter { pts[$0] != nil && kept[$0] == nil }
+      var flagged: [Int] = []
+      for seg in segments(marked) {
+        let mx = mean(seg.map { pts[$0]!.x }), my = mean(seg.map { pts[$0]!.y })
+        let inside = area.map { $0.lo - P.flatPad <= mx && mx <= $0.hi + P.flatPad } ?? true
+        let high = area.flatMap { a in a.head.map { my < $0 - 0.03 } } ?? false
+        if inside && (high || area == nil || area?.head == nil) { continue }
+        flagged += seg.filter { $0 < fr.count && !(fr[$0]?.isEmpty ?? true) }
+      }
+      if flagged.isEmpty { break }
+      for k in flagged {
+        let p = pts[k]!
+        fr[k] = fr[k]!.filter { Foundation.hypot($0.cx - p.x, $0.cy - p.y) > 0.02 }
+      }
+      pred = once(fr)
+    }
+    return pred
+  }
+
+  /// One pass of the path (`ball_track.track`).
+  static func trackOnce(frames: [[BallCandidate]?], width: Double, height: Double, step: Int, params P: BallPathParams,
+                        screens: [[Double]], people: [[[Double]]], stale: [[BallCandidate]?]) -> [BallPoint?] {
     let n = frames.count
     let W = width, H = height, L = max(width, height)
     let an = (0..<n).filter { frames[$0] != nil }
@@ -284,6 +331,75 @@ public enum BallPath {
                        score: va.score)
     }
   }
+
+  /// `ball_track.play_area`: the main players' x range (5–95% of their box centres, at least 20) and the far players'
+  /// head line (median top of the smaller people, under 0.6 of the 80th-percentile height, within that range ± 0.05; at
+  /// least 10, else nil). People: boxes per frame, top-left. Nil without enough people.
+  static func playArea(_ rows: [[[Double]]]) -> (lo: Double, hi: Double, head: Double?)? {
+    let all = rows.flatMap { $0.filter { $0.count >= 4 } }
+    let allH = all.map { $0[3] }
+    let mx = BallPlayers.main(rows, share: 0.6).flatMap { $0.map { $0[0] + $0[2] / 2 } }
+    if mx.count < 20 || allH.isEmpty { return nil }
+    let lo = BallPlayers.percentile(mx, 5), hi = BallPlayers.percentile(mx, 95)
+    let small = 0.6 * BallPlayers.percentile(allH, 80)
+    let far = all.filter { b in lo - 0.05 <= b[0] + b[2] / 2 && b[0] + b[2] / 2 <= hi + 0.05 && b[3] < small }
+      .map { $0[1] }
+    return (lo, hi, far.count >= 10 ? BallZoom.median(far) : nil)
+  }
+
+  /// `cam_bt.drop_flat`: the points of every window of `length` frames (at least 70% of them with a point) that stay
+  /// within `dy` in y while x travels `dx` × length / 10 or more, mostly one way (at most 35% of the steps back, none
+  /// back by 0.04 or more), set to nil; then each dropped stretch takes the neighbouring points that go on at the same
+  /// height the same way (up to 3 frames without a point between them).
+  static func dropFlat(_ tr: [BallXY?], length L: Int, dy: Double, dx: Double) -> [BallXY?] {
+    if L <= 0 { return tr }
+    var out = tr
+    if tr.count >= L {
+      for s0 in 0...(tr.count - L) {
+        let pts = tr[s0..<(s0 + L)].compactMap { $0 }
+        if Double(pts.count) < 0.7 * Double(L) { continue }
+        let ys = pts.map { $0.y }, xs = pts.map { $0.x }
+        if ys.max()! - ys.min()! >= dy || abs(xs.last! - xs.first!) < dx * Double(L) / 10 { continue }
+        let way = xs.last! >= xs.first! ? 1.0 : -1.0
+        let d = (0..<(xs.count - 1)).map { (xs[$0 + 1] - xs[$0]) * way }
+        if d.isEmpty { continue }
+        let back = Double(d.filter { $0 < 0 }.count) / Double(d.count)
+        if back <= 0.35 && d.map({ -$0 }).max()! < 0.04 {
+          for k in s0..<(s0 + L) { out[k] = nil }
+        }
+      }
+    }
+    let marked = tr.indices.filter { tr[$0] != nil && out[$0] == nil }
+    for seg in segments(marked) {
+      let ym = mean(seg.map { tr[$0]!.y })
+      let way = tr[seg.last!]!.x >= tr[seg.first!]!.x ? 1.0 : -1.0
+      for step in [-1, 1] {
+        var k = step < 0 ? seg.first! : seg.last!
+        var last = tr[k]!
+        var miss = 0
+        while 0 <= k + step && k + step < tr.count && miss <= 3 {
+          k += step
+          guard let p = tr[k] else { miss += 1; continue }
+          if abs(p.y - ym) > dy || (p.x - last.x) * way * Double(step) < -0.04 { break }
+          out[k] = nil
+          last = p
+          miss = 0
+        }
+      }
+    }
+    return out
+  }
+
+  /// `cam_bt._segments`: runs of frame indices (a gap of up to `gap` frames inside a run).
+  static func segments(_ ks: [Int], gap: Int = 3) -> [[Int]] {
+    var out: [[Int]] = []
+    for k in ks {
+      if let l = out.last?.last, k - l <= gap { out[out.count - 1].append(k) } else { out.append([k]) }
+    }
+    return out
+  }
+
+  static func mean(_ v: [Double]) -> Double { v.reduce(0, +) / Double(v.count) }
 
   static func roundTo(_ v: Double, _ digits: Int) -> Double {
     let s = pow(10.0, Double(digits))

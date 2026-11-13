@@ -124,7 +124,8 @@ private func analyzeBallResult(_ o: AnalyzeBallOptions) async throws -> [String:
     return ["status": r.verdict.isEmpty ? "ready" : "unsuitable", "reason": r.verdict, "analysed": r.analysed,
             "reused": r.reused, "ballFrames": r.ballFrames, "trustedFrames": r.trustedFrames,
             "ballShare": r.ballShare, "zoom": r.zoom, "elapsedMs": r.elapsedMs, "focus": r.focus,
-            "stages": r.stages.json, "panP95": r.panP95, "turnsPer10s": r.turnsPer10s]
+            "stages": r.stages.json, "panP95": r.panP95, "turnsPer10s": r.turnsPer10s,
+            "playSeconds": r.playSeconds]
   } catch BallAnalyzer.Failure.cancelled {
     throw ReplayException("CANCELLED", "Ball analysis cancelled")
   } catch BallAnalyzer.Failure.interrupted {

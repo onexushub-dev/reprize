@@ -107,7 +107,7 @@ public enum BallFraming {
     let n = grid.count
     let path = BallPath.track(frames: grid, width: W, height: H, step: step, params: sport.path,
                               screens: sport.screens ? screens : [],
-                              people: sport.path.personRatio > 0 || sport.path.headTop > 0 ? people : [],
+                              people: sport.path.personRatio > 0 || sport.path.headTop > 0 || sport.path.flat > 0 ? people : [],
                               stale: stale)
     let trusted = BallTrust.trusted(path, width: W, height: H)
     var followed = BallRuns.keep(trusted, minRun: sport.minRun, gap: sport.runGap)
@@ -122,6 +122,10 @@ public enum BallFraming {
         ? BallRuns.movingCandidates(grid, screens: sport.screens ? screens : [], minScore: f.ownMinScore) : nil
       followed = BallRuns.keepExits(followed, top: f.exitTop, back: f.exitBack, dx: f.exitDx, cands: cands,
                                     step: f.ownStep, lost: f.ownLost, aspect: H / W)
+      // 2026-11-13: only the runs that look like play (a ball held, bounced in place or carried is not followed)
+      followed = BallPlayers.keepPlay(followed, rows: (0..<n).map { $0 < people.count ? people[$0] : [] }, width: W,
+                                      height: H, minSpeed: f.playSpeed, maxOnPerson: f.playOnPerson,
+                                      gap: sport.runGap)
     }
     let todayRows = aligned(today, count: n, width: W, height: H)
     let nativeRows = native.isEmpty ? [[0, 0, 1, 1]] : native
@@ -141,6 +145,9 @@ public enum BallFraming {
         a = BallPlayers.keepBox(a, tr: followed, boxes: boxes, cropWidth: min(1.0, (9.0 / 16.0) * H / W) / zoom.zoom,
                                 pad: f.hitPad, ballFirst: f.hitBox < 2)
       }
+      // 2026-11-13: no ball for a while (between points, before the serve): the near pair, not the last ball x
+      a = BallPlayers.nearFallback(a, main: main, gap: f.nearGap,
+                                   cropWidth: min(1.0, (9.0 / 16.0) * H / W) / zoom.zoom)
       aim = a
     }
     let rects = n == 0 ? [] : BallCamera.rects(ball: followed, today: todayRows, width: W, height: H, zoom: zoom.zoom,

@@ -31,9 +31,19 @@ type Card = {
 export function FocusPanel({ ctx }: { ctx: ToolContext }) {
   const { t } = useT();
   const [sheet, setSheet] = useState(false);
+  // The card tapped, lit at once (Victor, 2026-11-13: the light came a beat after the tap, so she tapped twice). Applying
+  // a framing re-renders the whole clip screen; it runs on the next frame, after this card has been drawn lit.
+  const [tapped, setTapped] = useState<Framing | undefined>(undefined);
+  const tap = (f: Framing) => {
+    setTapped(f);
+    requestAnimationFrame(() => {
+      ctx.pickFraming(f);
+      setTapped(undefined);
+    });
+  };
   // A clip saved before (Modo Foco on by default) where Jogadores cannot frame shows as the Original it is.
   // Likewise a clip stored on Bola where Bola is not offered (its sport not known, or without a ball model).
-  let framing: Framing = ctx.edit.framing;
+  let framing: Framing = tapped !== undefined ? tapped : ctx.edit.framing;
   if ((framing === 'focus' && ctx.focus === 'unavailable') || (framing === 'ball' && ctx.ball === 'hidden')) framing = 'none';
   const free = ctx.plan === 'free';
   const playersWorking = framing === 'focus' && ctx.focus === 'preparing';
@@ -116,8 +126,13 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
                 accessibilityLabel={a11y}
                 accessibilityState={{ checked: on, disabled: c.dimmed }}
                 disabled={c.dimmed}
-                onPress={() => ctx.pickFraming(c.framing)}
-                style={[styles.card, on ? styles.cardOn : null, c.dimmed ? styles.cardDimmed : null]}>
+                onPress={() => tap(c.framing)}
+                style={({ pressed }) => [
+                  styles.card,
+                  on ? styles.cardOn : null,
+                  c.dimmed ? styles.cardDimmed : null,
+                  pressed ? styles.cardPressed : null,
+                ]}>
                 {c.busy ? (
                   c.percent !== undefined ? (
                     <ProgressRing progress={c.percent / 100} />
@@ -215,6 +230,7 @@ const styles = StyleSheet.create({
   },
   cardOn: { borderWidth: 2, borderColor: colors.accent },
   cardDimmed: { borderStyle: 'dashed' },
+  cardPressed: { opacity: 0.7 },
   cardText: { fontFamily: fonts.bodyBold, fontSize: 14 },
   hint: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.muted },
   hintWarn: { color: colors.warning },

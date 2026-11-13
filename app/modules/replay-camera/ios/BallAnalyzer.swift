@@ -34,6 +34,8 @@ enum BallAnalyzer {
     /// How much the 9:16 camera moves (`FramingMotion`).
     let panP95: Double
     let turnsPer10s: Double
+    /// 2026-11-13: seconds of followed ball in play (what the verdict's `playMin` reads); -1 = the sport has no verdict.
+    var playSeconds: Double = -1
   }
 
   /// `interrupted`: Core ML or the reader kept failing (the app went to the background); `hot`: stopped at `critical`.
@@ -105,7 +107,11 @@ enum BallAnalyzer {
 
     // The Jogadores file as it is: with its person boxes it is used as before; without them (or with no file) the
     // people are found in this pass and the file is made from them.
-    let hasPeople = (readJSON(focusPath) as? [String: Any]).map { ($0["v"] as? NSNumber)?.intValue == 1 && $0["people"] != nil } ?? false
+    // ... and covering this cut: a file made for another cut (only the cut ± 2 s is analysed since 2026-11-13, lab test
+    // 56) has no people here, so the pass makes it again for this one.
+    let hasPeople = (readJSON(focusPath) as? [String: Any]).map {
+      ($0["v"] as? NSNumber)?.intValue == 1 && $0["people"] != nil && Self.covers($0, startMs: startMs, endMs: endMs)
+    } ?? false
     let makeFocus = !hasPeople && want.endMs > want.startMs && !focusPath.isEmpty
     // Test 47a, before any frame is analysed: players too small for the 9:16 output = recorded too far, nothing to run.
     // (On a clip with no Jogadores file yet the same verdict comes after the pass, from the people it found.)
@@ -228,7 +234,16 @@ enum BallAnalyzer {
                    trustedFrames: r.trustedFrames, ballShare: r.zoom.share, zoom: r.zoom.zoom,
                    elapsedMs: Date().timeIntervalSince(started) * 1000,
                    verdict: r.verdict?.reason?.rawValue ?? "", focus: focus, stages: stages, panP95: motion.panP95,
-                   turnsPer10s: motion.turnsPer10s)
+                   turnsPer10s: motion.turnsPer10s,
+                   playSeconds: r.verdict.map { $0.share * Double(r.rects.count) / 10.0 } ?? -1)
+  }
+
+  /// Whether a Jogadores file's rows (from its `startMs`, one per `stepMs`) reach over `startMs`…`endMs`.
+  static func covers(_ file: [String: Any], startMs: Double, endMs: Double) -> Bool {
+    guard let rows = file["people"] as? [Any] else { return false }
+    let from = (file["startMs"] as? NSNumber)?.doubleValue ?? 0
+    let step = (file["stepMs"] as? NSNumber)?.doubleValue ?? 100
+    return from <= startMs + 0.5 && from + Double(rows.count) * step >= endMs - step - 0.5
   }
 
   /// The players' median height (share of the frame height) that today's Modo Foco analysis kept, if any.

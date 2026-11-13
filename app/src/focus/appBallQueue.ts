@@ -3,7 +3,7 @@ import { AppState } from 'react-native';
 
 import * as camera from '../../modules/replay-camera';
 import { setBallLabVariant } from '../data/ballFile';
-import { focusPath } from '../data/focusFile';
+import { focusCovers, focusPath } from '../data/focusFile';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { stagesText } from '../diag/clipTimings';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
@@ -74,6 +74,8 @@ export const ballQueue = createBallQueue({
   // before 2026-11-10 (test 50: no person boxes), the native analysis finds the people in the same pass as the ball and
   // writes it. A clip already analysed with no people is not tried again.
   focusLacksPeople: (clip) => {
+    // a Jogadores file made for another cut (lab test 56: only the cut ± 2 s is analysed) has no people for this one
+    if (clip.focus !== undefined && clip.focus.status === 'ready' && !focusCovers(clip.focus, clip.trim)) return true;
     try {
       const f = JSON.parse(new File(`file://${focusPath(clip.path)}`).textSync()) as Record<string, unknown>;
       return f.v === 1 && f.people === undefined;
@@ -91,7 +93,9 @@ export const ballQueue = createBallQueue({
     diag(
       `Seguir a Bola: corte de ${((clip.trim.endMs - clip.trim.startMs) / 1000).toFixed(1)} s ` +
         `analisado em ${(r.elapsedMs / 1000).toFixed(1)} s (${r.analysed} quadros, ${r.reused} do cache, ` +
-        `bola em ${Math.round(r.ballShare * 100)}%, zoom ${r.zoom}, ` +
+        `bola em ${Math.round(r.ballShare * 100)}%, ` +
+        `${r.playSeconds !== undefined && r.playSeconds >= 0 ? `jogo ${r.playSeconds.toFixed(1)} s, ` : ''}` +
+        `zoom ${r.zoom}, ` +
         `${ballMaxWidth() > 0 ? `quadro reduzido a ${ballMaxWidth()}` : 'quadro nativo'}, ` +
         `${ballMotionTiles() ? 'recortes com movimento' : 'todos os recortes'}, Jogadores 1 a cada ${focusEveryMs()} ms` +
         `${r.focus === 'ready' || r.focus === 'none' ? `, jogadores no mesmo passe${scanSequential() ? ' (em sequencia)' : ' (lado a lado)'}` : ''}` +

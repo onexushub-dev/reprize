@@ -1,6 +1,6 @@
 import type { AnalyzeBallOptions, BallAnalysis } from '../../modules/replay-camera/src/ReplayCamera.types';
 import { ballDetPath, ballForCut, ballPath, ballRules, ballRulesCurrent } from '../data/ballFile';
-import { focusPath, peoplePath } from '../data/focusFile';
+import { focusPath, focusRange, peoplePath } from '../data/focusFile';
 import type { Repo } from '../data/repo';
 import type { BallSportId, BallUnsuitable, Clip } from '../data/schema';
 import type { FocusHold } from './focusQueue';
@@ -135,9 +135,9 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         now !== undefined && now.ball !== undefined && now.ball.status === 'pending' && ballForCut(now.ball, cut, sport)
       );
     };
-    // The range Jogadores itself analyses (the cut the clip was saved with): when its file is missing or has no person
-    // boxes, the same pass over the frames finds the people and writes it (one decode for the two).
-    const players = clip.bounds ? clip.bounds : { startMs: 0, endMs: clip.durationMs };
+    // The range Jogadores itself analyses (the cut ± 2 s, lab test 56): when its file is missing, has no person boxes or
+    // does not cover this cut, the same pass over the frames finds the people and writes it (one decode for the two).
+    const players = focusRange(clip);
     const every = deps.focusEvery !== undefined ? deps.focusEvery() : 100;
     deps
       .analyze({
@@ -162,7 +162,14 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         // The Jogadores file made on the way is the clip's, whatever became of the ball: picking Jogadores is instant.
         if (result.focus === 'ready' || result.focus === 'none') {
           deps.repo.updateClip(clip.id, {
-            focus: { v: 1, status: result.focus, file: focusPath(clip.path), ...(every !== 100 ? { every } : {}) },
+            focus: {
+              v: 1,
+              status: result.focus,
+              file: focusPath(clip.path),
+              startMs: players.startMs,
+              endMs: players.endMs,
+              ...(every !== 100 ? { every } : {}),
+            },
           });
         }
         if (!wanted()) return;

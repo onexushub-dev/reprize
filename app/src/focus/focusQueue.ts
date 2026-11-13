@@ -1,5 +1,5 @@
 import type { AnalyzeFocusOptions, FocusAnalysis } from '../../modules/replay-camera/src/ReplayCamera.types';
-import { focusPath, peoplePath } from '../data/focusFile';
+import { focusCovers, focusPath, focusRange, peoplePath } from '../data/focusFile';
 import type { Repo } from '../data/repo';
 import type { Clip } from '../data/schema';
 
@@ -110,7 +110,8 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
 
   function start(clip: Clip) {
     const outPath = focusPath(clip.path);
-    const range = clip.bounds ? clip.bounds : { startMs: 0, endMs: clip.durationMs };
+    // The cut ± 2 s (lab test 56), not the whole clip: a later cut inside it needs nothing, one outside only its new seconds.
+    const range = focusRange(clip);
     running = { id: clip.id, path: clip.path };
     const waited = Date.now() - (queuedAt.get(clip.id) ?? Date.now());
     queuedAt.delete(clip.id);
@@ -131,7 +132,14 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
         }
         // updateClip never brings back a deleted clip; the file it wrote is then left over.
         const every = deps.every !== undefined ? deps.every() : 100;
-        const focus = { v: 1 as const, status: result.status, file: outPath, ...(every !== 100 ? { every } : {}) };
+        const focus = {
+          v: 1 as const,
+          status: result.status,
+          file: outPath,
+          startMs: range.startMs,
+          endMs: range.endMs,
+          ...(every !== 100 ? { every } : {}),
+        };
         if (!deps.repo.updateClip(clip.id, { focus })) {
           deps.deleteFile(outPath);
           return;
@@ -175,7 +183,11 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
       const stale =
         deps.every !== undefined && clip.focus !== undefined && clip.focus.status === 'ready' &&
         clip.focus.every !== undefined && clip.focus.every !== deps.every();
-      if (clip.focus && clip.focus.status !== 'pending' && !stale) return;
+      // A cut that leaves the analysed part (lab test 56): analysed again, only its new seconds (the people are kept).
+      const outside =
+        clip.focus !== undefined && (clip.focus.status === 'ready' || clip.focus.status === 'none') &&
+        !focusCovers(clip.focus, clip.trim);
+      if (clip.focus && clip.focus.status !== 'pending' && !stale && !outside) return;
       if (!deps.supported()) return;
       if (running && running.id === clip.id) return;
       // Opened in the editor: it goes first, and may run during an `openedOnly` hold. The app is in front.

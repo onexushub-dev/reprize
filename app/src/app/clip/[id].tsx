@@ -410,13 +410,14 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   useEffect(() => {
     if (track) diagFramingShown(Date.now() - openedAt.current);
   }, [track]);
-  // Only once the player picked Jogadores (2026-11-11): opening a clip analyses nothing by itself.
+  // Only once the player picked Jogadores (2026-11-11): opening a clip analyses nothing by itself. A cut that leaves the
+  // analysed part (the cut ± 2 s, lab test 56) asks again: only the new seconds are analysed.
   const playersChosen = edit.framing === 'focus';
   useEffect(() => {
     if (!sizeKnown || !playersChosen || blockedAuto.current.focus) return;
     const current = repo.getClip(id);
     if (current && focusSupported) focusQueue.ensure(current);
-  }, [id, focusSupported, sizeKnown, playersChosen]);
+  }, [id, focusSupported, sizeKnown, playersChosen, cutKey]);
   // The introduction, once ever: the framing grows out of the whole video with a caption.
   const reduceMotion = useReduceMotion();
   const [introDue] = useState(() => !repo.getPrefs().focusIntroSeen);

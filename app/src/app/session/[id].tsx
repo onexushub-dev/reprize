@@ -64,8 +64,6 @@ export default function SessionSummary() {
   );
 
   const plan = useViewPlan(id);
-  // The grid shows the newest clip first (2026-11-11); numbers stay the order they were saved in.
-  const newestFirst = useMemo(() => [...clips].reverse(), [clips]);
 
   // Jogadores and Bola are analysed only when the player picks them on a clip (2026-11-11): nothing runs from this list.
   // Minhas gravações marks the recording seen last; set before the first paint, so the list is right on the way back.
@@ -390,7 +388,8 @@ export default function SessionSummary() {
       />
 
       <FlatList
-        data={newestFirst}
+        // In the order they were saved, the first clip on top (Victor, 2026-11-13: back from newest first)
+        data={clips}
         keyExtractor={(c) => c.id}
         numColumns={2}
         columnWrapperStyle={styles.gridRow}

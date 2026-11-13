@@ -314,6 +314,8 @@ export type BallAnalysis = {
   /** How much the camera moves: 95th percentile of its speed (frame sizes per second), direction changes per 10 s. */
   panP95?: number;
   turnsPer10s?: number;
+  /** Seconds of the followed ball in play (the verdict needs 2 s in beach tennis); -1 or absent = no verdict. */
+  playSeconds?: number;
 };
 
 /**

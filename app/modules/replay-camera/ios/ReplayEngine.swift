@@ -400,7 +400,7 @@ final class ReplayEngine {
   }
 
   /// TEMP(diag-remote): battery, charging, Low Power Mode and heat in one line (field test: what Modo Foco costs per
-  /// clip and per minute of recording). iOS gives the level in 1% steps.
+  /// clip and per minute of recording). iOS gives the level in 5% steps (seen on the phone, 2026-11-12).
   static func powerState() -> String {
     let device = UIDevice.current
     if !device.isBatteryMonitoringEnabled {
@@ -426,8 +426,9 @@ final class ReplayEngine {
     guard running else { return "" }
     let info = capture.diagInfo
     let on = { (b: Bool) in b ? "ligado" : "desligado" }
-    return ", pressão \(info.pressure) — config: \(info.format), gesto \(on(gesture.enabled)), voz \(on(voice.isEnabled)), " +
-      "prévia \(on(EnergyDiag.previewOn))"
+    let onF = { (b: Bool) in b ? "ligada" : "desligada" }
+    return ", pressão \(info.pressure) — config: \(info.format), gesto \(on(gesture.enabled)), voz \(onF(voice.isEnabled)), " +
+      "prévia \(onF(EnergyDiag.previewOn))"
   }
 
   /// The audio session as the volume remote depends on it: the remote is read through `outputVolume`.

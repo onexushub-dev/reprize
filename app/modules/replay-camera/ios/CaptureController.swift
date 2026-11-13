@@ -113,7 +113,21 @@ final class CaptureController: NSObject, AVCaptureVideoDataOutputSampleBufferDel
     if state.factors.contains(.peakPower) { factors.append("pico de energia") }
     if state.factors.contains(.depthModuleTemperature) { factors.append("módulo de profundidade") }
     if #available(iOS 17.0, *), state.factors.contains(.cameraTemperature) { factors.append("câmera") }
-    return factors.isEmpty ? state.level.rawValue : "\(state.level.rawValue) (\(factors.joined(separator: ", ")))"
+    let level = Self.levelName(state.level)
+    return factors.isEmpty ? level : "\(level) (\(factors.joined(separator: ", ")))"
+  }
+
+  /// The pressure level in the words of the heat levels ("nominal", "fair", …): its raw value is the constant's name
+  /// ("AVCaptureSystemPressureLevelNominal", seen on the phone 2026-11-12), which the energy test cannot rank.
+  static func levelName(_ level: AVCaptureDevice.SystemPressureState.Level) -> String {
+    switch level {
+    case .nominal: return "nominal"
+    case .fair: return "fair"
+    case .serious: return "serious"
+    case .critical: return "critical"
+    case .shutdown: return "shutdown"
+    default: return level.rawValue.replacingOccurrences(of: "AVCaptureSystemPressureLevel", with: "").lowercased()
+    }
   }
 
   /// Diagnóstico's view of the camera (format as "1080p60", pressure), readable from any thread: written on the

@@ -89,6 +89,13 @@ export type ClipFocus = {
   v: 1;
   status: 'pending' | 'ready' | 'none' | 'failed';
   file?: string;
+  /**
+   * The part of the clip the analysis covered (lab test 56: the cut ± 2 s, inside `bounds`); a cut that leaves it is
+   * analysed again (only the new seconds: the people are kept per picture). Absent on records from before 2026-11-13:
+   * those covered the clip's whole `bounds`.
+   */
+  startMs?: number;
+  endMs?: number;
   /** TEMP(lab-4k): analysed one frame every `every` ms (absent = 100, today); another setting analyses again. */
   every?: number;
 };

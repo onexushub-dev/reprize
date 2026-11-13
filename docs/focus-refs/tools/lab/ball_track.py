@@ -31,7 +31,8 @@ import low_fps  # noqa: E402
 
 DET = os.path.join(ev.ROOT, "lab", "tests", "detect")
 ONECLICK = os.path.join(ev.ROOT, "lab", "tests", "oneclick")
-P = dict(box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=20, link=0.08, gap=6, min_len=3,
+P = dict(flat=0.0, flatdy=0.03, flatdx=0.04, flatpad=0.2,  # 2026-11-12 (field clips by an avenue): see track_flat
+         box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=20, link=0.08, gap=6, min_len=3,
          min_spread=0.03, conf=0.05,
          # dp=1: the ball per frame by dynamic programming over all the candidates (best total score along a path that
          # moves like a ball: at most vmax long sides per 100 ms, a cost per long side moved, a frame without the ball
@@ -76,7 +77,10 @@ P = dict(box_max=0.06, aspect_max=2.5, still_r=0.02, still_share=0.2, still_win=
 # the ball in play passing near one (16% of arena A's labelled points); share 0.3 (middle of the 0.004-0.01 / 0.2-0.4
 # plateau). Path cover 69 -> 78% on arena A, 81 -> 85% on arena B before the trust change of hybrid.py (r_det).
 SPORT_P = {"basquete": dict(still_share=0.5, person_ratio=0.3, person_asp=1.35, person_w=0.3),
-           "beachTennis": dict(still_r=0.006, still_share=0.3, screen=1.0, head_top=0.15, head_w=0.0, person_vision=1.0)}
+           "beachTennis": dict(still_r=0.006, still_share=0.3, screen=1.0, head_top=0.15, head_w=0.0, person_vision=1.0,
+                                  flat=8.0)}
+# 2026-11-12 (Victor's field clips by an avenue): beach tennis drops the path's flat sliding stretches outside the play
+# area (car lights behind the fence) and chooses the path again (track_flat, flat=8 frames).
 # Test 50 (2026-11-10): basketball's shirt rule (person_ratio / person_asp / person_w; people from
 # lab/tests/detect/<clip>.people-yx.json, none = off). To score test 50's "today", pass person_ratio=0.
 # Test 47b (2026-11-10, a tournament stream: the path followed round things inside the video on the venue's LED
@@ -364,6 +368,68 @@ def dp_track(an, moving, W, H, n, step, P):
     return finish(an, chosen, n, step, P, links)
 
 
+def track_flat(det, P, rounds=3):
+    """2026-11-12 (Victor's field clips by an avenue): car lights behind the fence slide across the picture at one
+    height and the path took them for the ball for seconds, missing the real one. With P["flat"] (window, frames): the
+    path's stretches that slide that way (cam_bt.drop_flat: y within `flatdy`, x at `flatdx` frame widths / s or more,
+    mostly one way) lose their candidates (within 0.02 of the path's point) and the path is chosen again, so it can
+    take the ball instead; up to `rounds` times."""
+    import cam_bt
+    pred, ntr = track(det, P)
+    W, H = det["size"]
+    # 2026-11-13: horizontal clips only; on the vertical web clips (yt-bt-06, bt-v-1029) a ball crossing the frame at
+    # the far players' height looks flat and the filter took it (ball_parity.py's fixture: followed 85 -> 76%, 66 -> 48%)
+    if not P.get("flat") or W <= H:
+        return pred, ntr
+    frames = [list(f) if f is not None else None for f in det["frames"]]
+    area = play_area(det.get("clip"), len(frames), det.get("people_tl"))
+    for _ in range(rounds):
+        n = len(frames)
+        pts = [None if pred.get(k) is None else (pred[k][0], pred[k][1]) for k in range(n)]
+        kept = cam_bt.drop_flat(pts, P["flat"], P["flatdy"], P["flatdx"])
+        marked = [k for k in range(n) if pts[k] is not None and kept[k] is None]
+        flagged = []
+        for seg in cam_bt._segments(marked):
+            mx = float(np.mean([pts[k][0] for k in seg]))
+            my = float(np.mean([pts[k][1] for k in seg]))
+            # a ball flying flat high over the court (seen from the side, arena A) stays; lights are outside the
+            # players' x range, or as low as the far players' heads or lower (the fence, the street behind it)
+            # (2026-11-13: x range +- flatpad, the main players' court as the court lock's; f-01's lob over the court
+            # 0.06 right of the players' range stays)
+            inside = area is None or area["lo"] - P["flatpad"] <= mx <= area["hi"] + P["flatpad"]
+            high = area is not None and area["head"] is not None and my < area["head"] - 0.03
+            if inside and (high or area is None or area["head"] is None):
+                continue
+            flagged += [k for k in seg if frames[k]]
+        if not flagged:
+            break
+        for k in flagged:
+            x, y = pts[k]
+            frames[k] = [c for c in frames[k] if math.hypot(c[0] - x, c[1] - y) > 0.02]
+        pred, ntr = track(dict(det, frames=frames), P)
+    return pred, ntr
+
+
+def play_area(clip, n, rows=None):
+    """The main players' x range (5-95% of their box centres) and the far players' head line (median top of the
+    smaller people inside that range), from the clip's Vision people (or `rows`, per 100 ms frame, top-left: the
+    app's Modo Foco file, ball_parity.py's fixture); None without people."""
+    import cam_bt
+    if rows is None:
+        if not clip:
+            return None
+        rows = cam_bt.people_rows(clip, n)
+    allh = [b[3] for r in rows for b in r]
+    main = cam_bt.main_players(rows)
+    mx = [b[0] + b[2] / 2 for r in main for b in r]
+    if len(mx) < 20 or not allh:
+        return None
+    lo, hi = float(np.percentile(mx, 5)), float(np.percentile(mx, 95))
+    small = 0.6 * float(np.percentile(allh, 80))
+    far = [b[1] for r in rows for b in r if lo - 0.05 <= b[0] + b[2] / 2 <= hi + 0.05 and b[3] < small]
+    return {"lo": lo, "hi": hi, "head": float(np.median(far)) if len(far) >= 10 else None}
+
+
 def finish(an, chosen, n, step, P, links=()):
     """chosen {analysed frame: candidate} -> the track; links: (a, b) frames a path joins directly over a gap."""
     pred = {}
@@ -489,7 +555,7 @@ def main():
             print(name, "no detections")
             continue
         det = json.load(open(p))
-        pred, ntr = track(det, P)
+        pred, ntr = track_flat(det, P)
         n = len(det["frames"])
         json.dump({"clip": name, "mode": "ball", "frames": n, "fps": 10, "source": f"ball_track.py {a.det}",
                    "params": P, "pred_one": {str(k): pred.get(k) for k in range(n)}},

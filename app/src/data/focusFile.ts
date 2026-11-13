@@ -1,4 +1,5 @@
 import { File } from 'expo-file-system';
+import type { ClipFocus } from './schema';
 
 /** Where a clip's Modo Foco framing is kept: next to it, same name, .focus.json. Written by the native analysis. */
 export function focusPath(clipPath: string): string {
@@ -11,6 +12,39 @@ export function focusPath(clipPath: string): string {
  */
 export function peoplePath(clipPath: string): string {
   return clipPath.replace(/\.[^./]+$/, '') + '.people.json';
+}
+
+/**
+ * Lab test 56 (2026-11-12): Jogadores framed over the cut and 2 s on each side frames the cut as well as over the whole
+ * clip (52 labelled clips: ball in the crop 90.5% vs 90.2%, people 97.4% both, same camera movement); with no margin
+ * it is a little worse. Both Jogadores and Bola's pass analyse this range only.
+ */
+export const FOCUS_MARGIN_MS = 2000;
+
+/** The part of the clip Jogadores analyses: the cut ± `FOCUS_MARGIN_MS`, inside the clip's bounds (or the file). */
+export function focusRange(clip: {
+  durationMs: number;
+  trim: { startMs: number; endMs: number };
+  bounds?: { startMs: number; endMs: number };
+}): { startMs: number; endMs: number } {
+  const b = clip.bounds ? clip.bounds : { startMs: 0, endMs: clip.durationMs };
+  return {
+    startMs: Math.max(b.startMs, clip.trim.startMs - FOCUS_MARGIN_MS),
+    endMs: Math.min(b.endMs, clip.trim.endMs + FOCUS_MARGIN_MS),
+  };
+}
+
+/**
+ * Whether a Modo Foco record's analysed part holds the whole cut (its framing exists for every picture the editor and
+ * the export show). A record without a range (before 2026-11-13) covered the whole clip.
+ */
+export function focusCovers(
+  focus: ClipFocus | undefined,
+  trim: { startMs: number; endMs: number },
+): boolean {
+  if (focus === undefined) return false;
+  if (focus.startMs === undefined || focus.endMs === undefined) return true;
+  return focus.startMs <= trim.startMs && focus.endMs >= trim.endMs;
 }
 
 export type FocusAspect = 'landscape' | 'portrait';
