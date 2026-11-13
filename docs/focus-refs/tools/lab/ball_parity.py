@@ -51,7 +51,10 @@ BT_CLIPS = [("bt-own-a-02", "btplA-n5"), ("bt-own-b-02", "btplB-n5"), ("yt-bt-06
             # Test 49e: a lob goes out at the top and the path takes the next court's ball mid-frame
             ("bt-app-1110-f", "btpl-n5"),
             # Test 52: the diagonal view; the path sat on a near player's head while the partner volleyed (head rule)
-            ("bt-app-1111-a", "btpl-n5")]
+            ("bt-app-1111-a", "btpl-n5"),
+            # 2026-11-12: Victor's field clips by an avenue; car lights behind the fence slide across the picture and
+            # the path took them for the ball (the flat filter, ball_track.track_flat)
+            ("bt-campo-1112-a", "btpl-campo"), ("bt-campo-1112-b", "btpl-campo")]
 
 
 def camera_rects(tr, today, W, H, zoom, smooth=None, aim=None):
@@ -201,6 +204,8 @@ def bt_case(name, tag):
     import ball_verdict as bv
     det = json.load(open(os.path.join(ev.ROOT, "lab", "tests", "detect", f"{name}.{tag}.json")))
     meta = ev.clip_meta(name)
+    # the detector ran on every picture of the video; the case is the clip's rows (Modo Foco's file has as many)
+    det["frames"] = det["frames"][:meta["count"]]
     sport = meta["sport"]
     P = dict(bt.P)
     P.update(bt.SPORT_P[sport])
@@ -208,7 +213,8 @@ def bt_case(name, tag):
     # test 52: the head rule reads the fixture's own person boxes (Vision, top-left, 7 decimals), as the Swift port
     people_tl = [[[round(float(x), 7) for x in b] for b in row] for row in cam_bt.people_rows(name, ev.clip_meta(name)["count"])]
     det["people"] = [[[b[0] + b[2] / 2, b[1] + b[3] / 2, b[2], b[3]] for b in row] for row in people_tl]
-    pred, _ = bt.track(det, P)
+    det["people_tl"] = people_tl  # 2026-11-12: the play area of the flat filter (track_flat), the same boxes as Swift
+    pred, _ = bt.track_flat(det, P)
     n = meta["count"]
     real = ev.load_truth
     ev.load_truth = truth_or_empty
@@ -225,10 +231,14 @@ def bt_case(name, tag):
     main = cam_bt.main_players(people)
     ball_court = cam_bt.keep_court(runs, cam_bt.T49["court"], run["gap"])
     players_court = cam_bt.keep_players_court(ball_court, main, cam_bt.T49["courtp"])
-    T = cam_bt.T52
+    T = cam_bt.T60
     cands = cam_bt.moving_candidates(det["frames"], screens, T["smin"])
     fol = cam_bt.keep_exits(players_court, T["exit"], cam_bt.BASE["back"], cam_bt.BASE["dx"], cands, T["step"],
                             aspect=H / W)
+    followed = fol
+    if T.get("play"):
+        # 2026-11-13: only the runs that look like play (a ball held, bounced in place or carried is not followed)
+        fol = cam_bt.keep_play(fol, people_tl, W, H, T["playv"], T["playp"], run["gap"])
     fc = json.load(open(os.path.join(sg.TESTS, "framing", f"{name}.current.focus.json")))
     native = np.array(fc["landscape" if orient == "landscape" else "portrait"], dtype=float)
     assert n2 == n, (name, n2, n)
@@ -247,6 +257,8 @@ def bt_case(name, tag):
     if T["hitbox"]:
         boxes = cam_bt.hit_boxes(fol, main, W, H, cam_bt.BASE["near"], int(T["horizon"]))
         aim = cam_bt.keep_box(aim, fol, boxes, crop_w, T["hitpad"], ball_first=T["hitbox"] < 2)
+    if T.get("nearfb"):
+        aim = cam_bt.near_fallback(aim, main, int(T["nearfb"]), crop_w)
     rects = camera_rects(fol, today, W, H, zoom, smooth=(T["a"], T["b"]), aim=aim)
     # the verdict on these arrays (ball_verdict.verdict)
     lim = bv.VERDICT[sport]
@@ -259,8 +271,11 @@ def bt_case(name, tag):
     ball_px = float(np.median(sizes)) * 1080.0 / src_w if sizes else 0.0
     cx = rects[:, 0] + rects[:, 2] / 2
     pan = float(np.sum(np.abs(np.diff(cx)) / rects[1:, 2])) / (n / 100.0)
+    play = sum(p is not None for p in fol) / 10.0
     if players is not None and players < lim["players_min"]:
         reason = "tooFar"
+    elif lim.get("play_min"):
+        reason = "rarelyFound" if play < lim["play_min"] else None
     elif share < lim["share_min"]:
         reason = "rarelyFound"
     elif ball_px < lim["ball_px_min"]:
@@ -285,7 +300,8 @@ def bt_case(name, tag):
             "runs": [None if p is None else [r(p[0]), r(p[1])] for p in runs],
             "ballCourt": [None if p is None else [r(p[0]), r(p[1])] for p in ball_court],
             "playersCourt": [None if p is None else [r(p[0]), r(p[1])] for p in players_court],
-            "followed": [None if p is None else [r(p[0]), r(p[1])] for p in fol],
+            "followed": [None if p is None else [r(p[0]), r(p[1])] for p in followed],
+            "played": [None if p is None else [r(p[0]), r(p[1])] for p in fol],
             "aim": [None if x is None else r(x) for x in aim],
             "zoom": zoom, "zoomParts": {k: r(v) for k, v in parts.items()},
             "rects": [[r(x) for x in row] for row in rects.tolist()],

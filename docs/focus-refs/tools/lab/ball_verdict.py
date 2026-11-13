@@ -32,7 +32,10 @@ import story  # noqa: E402
 # Beach tennis, calibrated on 30 clips (test 47a): the far / static ones Victor or the labels reject (bt-v-1029 0.5x,
 # bt-rz-1105-v, bt-wa-1028, yt1105-bt) fall out, the 19 own arena clips stay in except bt-own-a-06 (camera 0.4: the
 # ball stays in the middle, the 9:16 crop hardly needs to move).
-VERDICT = {"beachTennis": dict(players_min=0.10, share_min=0.25, ball_px_min=16.0, pan_min=0.6)}
+VERDICT = {"beachTennis": dict(players_min=0.10, share_min=0.25, ball_px_min=16.0, pan_min=0.6, play_min=2.0)}
+# 2026-11-13 (Victor): with the camera on the near players where there is no ball in play (cam_bt T60), only two things
+# keep Seguir a Bola off: players too far (players_min) and no play in the cut (play_min: seconds of followed ball in
+# play, cam_bt.keep_play). share / ball px / pan are still measured, no longer a reason. Used by ball_parity.py.
 
 
 def players_height(name):

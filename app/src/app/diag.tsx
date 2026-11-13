@@ -17,10 +17,11 @@ import {
   diagText,
   parseLine,
 } from '../diag/diagLog';
+import { energyBlocks, energyText } from '../diag/energyTest';
 import { ballDetPath, ballPath } from '../data/ballFile';
-import { focusPath } from '../data/focusFile';
+import { focusPath, peoplePath } from '../data/focusFile';
 import { repo } from '../data/mmkv';
-import { applyLabVariants, ballMaxWidth } from '../focus/appBallQueue';
+import { applyLabVariants, ballMaxWidth, ballMotionTiles, scanSequential } from '../focus/appBallQueue';
 import { focusEveryMs } from '../focus/appFocusQueue';
 import { colors, fonts, radius } from '../theme/tokens';
 
@@ -54,6 +55,19 @@ function LabSwitches() {
     repo.setPrefs({ labFocusEveryMs: v });
     setEvery(v);
   };
+  // TEMP(lab-motion): Bola with only the tiles where the picture changed (lab tests 53 and 54), against every tile.
+  const [motion, setMotion] = useState(() => (ballMotionTiles() ? 1 : 0));
+  const pickMotion = (v: number) => {
+    repo.setPrefs({ labBallMotionTiles: v === 1 });
+    applyLabVariants();
+    setMotion(v);
+  };
+  // TEMP(lab-pass): Bola on a clip with no Jogadores yet runs both detectors on each frame; this times the two ways.
+  const [sequential, setSequential] = useState(() => (scanSequential() ? 1 : 0));
+  const pickSequential = (v: number) => {
+    repo.setPrefs({ labScanSequential: v === 1 });
+    setSequential(v);
+  };
   const row = (label: string, options: [number, string][], value: number, pick: (v: number) => void) => (
     <View style={styles.labRow}>
       <Text style={styles.labLabel}>{label}</Text>
@@ -84,7 +98,7 @@ function LabSwitches() {
             let count = 0;
             for (const { session } of repo.listSessions()) {
               for (const c of repo.listClips(session.id)) {
-                for (const path of [focusPath(c.path), ballPath(c.path), ballDetPath(c.path)]) {
+                for (const path of [focusPath(c.path), peoplePath(c.path), ballPath(c.path), ballDetPath(c.path)]) {
                   try {
                     new File(`file://${path}`).delete();
                   } catch {
@@ -104,6 +118,8 @@ function LabSwitches() {
     <View style={styles.lab}>
       {row('Bola', [[0, 'Quadro nativo (antes)'], [1920, 'Reduzido a 1920 (padrão)']], ball, pickBall)}
       {row('Jogadores', [[100, '10 fps (antes)'], [200, '5 fps (padrão)']], every, pickEvery)}
+      {row('Recortes', [[0, 'Todos (padrão)'], [1, 'Só com movimento']], motion, pickMotion)}
+      {row('Passe', [[0, 'Lado a lado (padrão)'], [1, 'Um após o outro']], sequential, pickSequential)}
       <Pressable accessibilityRole="button" onPress={resetAll} hitSlop={8} style={styles.labReset}>
         <Text style={styles.linkSoft}>Zerar análises de todos os clipes</Text>
       </Pressable>
@@ -136,6 +152,8 @@ function DiagScreen() {
 
   const all = text.length === 0 ? [] : text.split('\n');
   const parsed = all.map((line) => ({ line, ...parseLine(line) }));
+  // TEMP(diag-remote): the energy test (plan 2026-11-12, I3d), the last few blocks
+  const energy = energyBlocks(all).slice(-6);
   const present = DIAG_AREAS.filter((a) => parsed.some((p) => p.area === a));
   const filters: Filter[] = ['TODOS', 'ALERTAS', ...present];
   const shown = parsed.filter((p) => filter === 'TODOS' || (filter === 'ALERTAS' ? p.warn : p.area === filter));
@@ -164,6 +182,17 @@ function DiagScreen() {
         </View>
 
         <LabSwitches />
+
+        {energy.length > 0 ? (
+          <View style={styles.lab}>
+            <Text style={styles.labLabel}>Teste de energia</Text>
+            {energy.map((b, i) => (
+              <Text key={i} style={styles.energyText}>
+                {energyText(b)}
+              </Text>
+            ))}
+          </View>
+        ) : null}
 
         <ScrollView
           horizontal
@@ -225,6 +254,7 @@ const styles = StyleSheet.create({
   labRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   labLabel: { width: 72, fontFamily: fonts.bodySemi, fontSize: 12, color: colors.text },
   labReset: { minHeight: 32, justifyContent: 'center' },
+  energyText: { fontFamily: 'Menlo', fontSize: 10.5, lineHeight: 15, color: colors.text },
   log: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.card },
   logBody: { padding: 10 },
   logText: { fontFamily: 'Menlo', fontSize: 10.5, lineHeight: 15, color: colors.text },

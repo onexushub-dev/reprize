@@ -223,3 +223,7 @@ bt4k-1111-e6b4d8ff-p5|raw-dump/2026-11-11-4k/clips/E6B4D8FF-9E33-4D0B-AE4B-22C77
 bt4k-1111-e8f317e9-p5|raw-dump/2026-11-11-4k/clips/E8F317E9-FEB6-4008-8AD4-8D38CAE6C467.mp4|2000|15000|beachTennis
 bt4k-1111-f87d3d3c-p5|raw-dump/2026-11-11-4k/clips/F87D3D3C-B2FE-4693-91EB-65FC2456F92F.mp4|2000|15000|beachTennis
 bt4k-1111-f9fd986e-p5|raw-dump/2026-11-11-4k/clips/F9FD986E-CEA4-434F-A7B0-F8BDF4584A32.mp4|2000|15000|beachTennis
+bt-campo-1112-a|refs/2026-11-12-campo/bt-campo-1112-a.mp4|0|8300|beachTennis
+bt-campo-1112-b|refs/2026-11-12-campo/bt-campo-1112-b.mp4|0|12500|beachTennis
+bt-campo-1112-c|refs/2026-11-12-campo/bt-campo-1112-c.mp4|0|29900|beachTennis
+bt-campo-1112-d|refs/2026-11-12-campo/bt-campo-1112-d.mp4|0|18100|beachTennis

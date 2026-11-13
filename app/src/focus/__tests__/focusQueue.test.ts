@@ -42,7 +42,59 @@ test('a saved clip is marked pending and analysed over its own part of the file'
   const clip = addClip('/c/1.mp4');
   queue.enqueue(clip.id);
   expect(repo.getClip(clip.id)!.focus).toEqual({ v: 1, status: 'pending' });
-  expect(runs[0].opts).toEqual({ clipPath: '/c/1.mp4', startMs: 30000, endMs: 60000, outPath: '/c/1.focus.json' });
+  expect(runs[0].opts).toEqual({
+    clipPath: '/c/1.mp4',
+    startMs: 30000,
+    endMs: 60000,
+    outPath: '/c/1.focus.json',
+    // the people of each analysed picture are kept: a stopped analysis goes on from there
+    peoplePath: '/c/1.people.json',
+  });
+});
+
+test('lab test 56: the analysis covers the cut ± 2 s, inside the clip own part, and the result says which', async () => {
+  const { repo, queue, runs, addClip, done, flush } = setup();
+  const clip = addClip('/c/1.mp4');
+  repo.updateClip(clip.id, { trim: { startMs: 40000, endMs: 50000 } });
+  queue.enqueue(clip.id);
+  expect(runs[0].opts).toMatchObject({ startMs: 38000, endMs: 52000 });
+  runs[0].resolve(done());
+  await flush();
+  expect(repo.getClip(clip.id)!.focus).toEqual({
+    v: 1,
+    status: 'ready',
+    file: '/c/1.focus.json',
+    startMs: 38000,
+    endMs: 52000,
+  });
+});
+
+test('a new cut inside the analysed part needs nothing; one that leaves it is analysed again over its own range', async () => {
+  const { repo, queue, runs, addClip, done, flush } = setup();
+  const clip = addClip('/c/1.mp4');
+  repo.updateClip(clip.id, { trim: { startMs: 40000, endMs: 50000 } });
+  queue.enqueue(clip.id);
+  runs[0].resolve(done());
+  await flush();
+  queue.ensure(repo.updateClip(clip.id, { trim: { startMs: 38500, endMs: 51500 } }) as Clip);
+  expect(runs).toHaveLength(1);
+  queue.ensure(repo.updateClip(clip.id, { trim: { startMs: 31000, endMs: 50000 } }) as Clip);
+  expect(runs).toHaveLength(2);
+  // the people already found are kept in the people file: only the new seconds are looked at (native side)
+  expect(runs[1].opts).toMatchObject({ startMs: 30000, endMs: 52000, peoplePath: '/c/1.people.json' });
+  // nobody found counts the same: a cut outside is looked at again
+  runs[1].resolve(done('none'));
+  await flush();
+  queue.ensure(repo.updateClip(clip.id, { trim: { startMs: 45000, endMs: 58000 } }) as Clip);
+  expect(runs).toHaveLength(3);
+  expect(runs[2].opts).toMatchObject({ startMs: 43000, endMs: 60000 });
+});
+
+test('a result from before the range was kept covers the clip, as it was analysed over all of it', () => {
+  const { repo, queue, runs, addClip } = setup();
+  const clip = repo.updateClip(addClip('/c/1.mp4').id, { focus: { v: 1, status: 'ready', file: '/c/1.focus.json' } }) as Clip;
+  queue.ensure(repo.updateClip(clip.id, { trim: { startMs: 31000, endMs: 40000 } }) as Clip);
+  expect(runs).toHaveLength(0);
 });
 
 test('analyses run one at a time, in order', async () => {
@@ -66,8 +118,8 @@ test('the result is stored with its file: ready, or none when nobody was found',
   await flush();
   runs[1].resolve(done('none'));
   await flush();
-  expect(repo.getClip(a.id)!.focus).toEqual({ v: 1, status: 'ready', file: '/c/1.focus.json' });
-  expect(repo.getClip(b.id)!.focus).toEqual({ v: 1, status: 'none', file: '/c/2.focus.json' });
+  expect(repo.getClip(a.id)!.focus).toEqual({ v: 1, status: 'ready', file: '/c/1.focus.json', startMs: 30000, endMs: 60000 });
+  expect(repo.getClip(b.id)!.focus).toEqual({ v: 1, status: 'none', file: '/c/2.focus.json', startMs: 30000, endMs: 60000 });
 });
 
 test('a broken analysis is marked failed and the next one still runs', async () => {
@@ -144,10 +196,10 @@ test('without the native analysis nothing is queued or marked', () => {
   expect(repo.getClip(clip.id)!.focus).toBeUndefined();
 });
 
-test('an old clip without bounds is analysed over the whole file', () => {
+test('an old clip without bounds: the cut ± 2 s, the file being its own part', () => {
   const { queue, runs, addOldClip } = setup();
   queue.ensure(addOldClip('/c/old.mp4'));
-  expect(runs[0].opts).toMatchObject({ startMs: 0, endMs: 60000 });
+  expect(runs[0].opts).toMatchObject({ startMs: 28000, endMs: 60000 });
 });
 
 test('an analysis interrupted (app sent to the background) stays pending and is redone when the clip is opened', async () => {

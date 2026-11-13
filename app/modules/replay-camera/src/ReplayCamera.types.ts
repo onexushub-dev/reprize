@@ -253,6 +253,8 @@ export type AnalyzeFocusOptions = {
   startMs: number;
   endMs: number;
   outPath: string;
+  /** Where the people of each analysed picture are kept (`peoplePath`), so a stopped analysis goes on from there. */
+  peoplePath?: string;
   /** Also write the people found in each analysed frame (`samples`), for the test screen. */
   debug?: boolean;
   /** TEMP(lab-4k): one frame every `everyMs` (100 = today, 200 = the 5 fps test); the file keeps 100 ms rows. */
@@ -277,6 +279,18 @@ export type AnalyzeBallOptions = {
   sport?: string;
   /** TEMP(lab-4k): frames wider than this are scaled down before the ball search (0 / absent = native size). */
   maxWidth?: number;
+  /**
+   * The clip's Jogadores analysis (its range, interval and people file): when `focusPath` is missing or has no person
+   * boxes, the same pass over the frames finds the people and writes that file (the result's `focus` says so).
+   */
+  focusStartMs?: number;
+  focusEndMs?: number;
+  focusEveryMs?: number;
+  peoplePath?: string;
+  /** TEMP(lab-pass): the people and ball detectors one after the other on each frame, to time against side by side. */
+  sequential?: boolean;
+  /** TEMP(lab-motion): only the tiles where the picture changed go to the ball model (lab tests 53 and 54). */
+  motionTiles?: boolean;
 };
 
 /**
@@ -294,15 +308,41 @@ export type BallAnalysis = {
   ballShare: number;
   zoom: number;
   elapsedMs: number;
+  /** The Jogadores file made in the same pass: 'ready', 'none' (too few people); '' or absent = not made here. */
+  focus?: 'ready' | 'none' | '';
+  stages?: AnalysisStages;
+  /** How much the camera moves: 95th percentile of its speed (frame sizes per second), direction changes per 10 s. */
+  panP95?: number;
+  turnsPer10s?: number;
+  /** Seconds of the followed ball in play (the verdict needs 2 s in beach tennis); -1 or absent = no verdict. */
+  playSeconds?: number;
+};
+
+/**
+ * Milliseconds per stage of one analysis, for the Diagnóstico line. `regions`: tiles sent to the ball model per frame.
+ * With the people and ball detectors side by side their times overlap.
+ */
+export type AnalysisStages = {
+  decodeMs: number;
+  peopleMs: number;
+  prepMs: number;
+  modelMs: number;
+  pathMs: number;
+  regions: number;
 };
 
 /** `none`: too few people for a framing (the file has empty tracks). */
 export type FocusAnalysis = {
   status: 'ready' | 'none';
   frames: number;
+  /** Of `frames`, those taken from the kept people (an analysis that goes on from where it was stopped). */
+  reused?: number;
   framesWithPeople: number;
   meanPeople: number;
   elapsedMs: number;
+  stages?: AnalysisStages;
+  panP95?: number;
+  turnsPer10s?: number;
 };
 
 export type ReplayCameraViewProps = {

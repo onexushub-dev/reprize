@@ -12,6 +12,7 @@ class ReplayCameraView: ExpoView {
   /// Off: the preview layers stop receiving frames (capture and writing go on). Main thread.
   static func setPreviewEnabled(_ enabled: Bool) {
     previewEnabled = enabled
+    EnergyDiag.previewOn = enabled
     for view in views.allObjects { view.applyPreviewEnabled() }
   }
 
@@ -41,5 +42,15 @@ class ReplayCameraView: ExpoView {
   override func layoutSubviews() {
     super.layoutSubviews()
     previewLayer.frame = bounds
+  }
+}
+
+/// What the camera preview is doing, readable off the main thread (Diagnóstico's energy test, plan 2026-11-12 I3d).
+enum EnergyDiag {
+  private static let lock = NSLock()
+  private static var _previewOn = true
+  static var previewOn: Bool {
+    get { lock.lock(); defer { lock.unlock() }; return _previewOn }
+    set { lock.lock(); _previewOn = newValue; lock.unlock() }
   }
 }

@@ -1,23 +1,27 @@
 import AVFoundation
 import Vision
 
-/// Modo Foco analysis: one frame every 100 ms between `startMs` and `endMs`, people found with Vision, the framing
-/// computed by `FocusPath` and written next to the clip (<clip>.focus.json). One analysis at a time, at utility priority.
+/// Modo Foco: Jogadores. One picture every `everyMs` between `startMs` and `endMs` (`ClipScan`), people found with
+/// Vision, the framing computed by `FocusPath` and written next to the clip (<clip>.focus.json). The people of each
+/// analysed picture are kept in <clip>.people.json, so an analysis that was stopped goes on from where it was.
 enum FocusAnalyzer {
   struct Outcome {
     let ready: Bool
+    /// Analysed pictures in the range: found now and taken from the kept ones.
     let frames: Int
+    let reused: Int
     let framesWithPeople: Int
     let meanPeople: Double
     let elapsedMs: Double
+    let stages: ClipScan.Stages
+    /// How much the framing moves (`FramingMotion`), in the video's own orientation.
+    let panP95: Double
+    let turnsPer10s: Double
   }
 
-  /// `interrupted`: Vision kept failing, as it does with the app in the background; the analysis is redone later.
-  enum Failure: Error { case noVideo, unreadable, cancelled, interrupted }
+  typealias Failure = ClipScan.Failure
 
   static let stepMs = 100.0
-  static let minConfidence: VNConfidence = 0.3
-  private static let work = DispatchQueue(label: "reprize.focus", qos: .utility)
   private static let lock = NSLock()
   nonisolated(unsafe) private static var cancelled = Set<String>() // guarded by `lock`
 
@@ -35,19 +39,16 @@ enum FocusAnalyzer {
     lock.lock(); cancelled.remove(clipPath); lock.unlock()
   }
 
-  static func analyze(clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Bool,
-                      everyMs: Double = 100) async throws -> Outcome {
-    let asset = AVURLAsset(url: URL(fileURLWithPath: clipPath))
-    guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw Failure.noVideo }
-    let transform = try await track.load(.preferredTransform)
-    let natural = try await track.load(.naturalSize)
+  /// `peoplePath`: where the people of each analysed picture are kept ("" = not kept).
+  static func analyze(clipPath: String, startMs: Double, endMs: Double, outPath: String, peoplePath: String = "",
+                      debug: Bool, everyMs: Double = 100) async throws -> Outcome {
+    let video = try await ClipScan.Video.load(clipPath: clipPath)
     return try await withCheckedThrowingContinuation { (done: CheckedContinuation<Outcome, Error>) in
-      work.async {
+      ClipScan.work.async {
         defer { clearCancel(clipPath) }
         do {
-          done.resume(returning: try run(asset: asset, track: track, transform: transform, natural: natural,
-                                         clipPath: clipPath, startMs: startMs, endMs: endMs, outPath: outPath, debug: debug,
-                                         everyMs: everyMs))
+          done.resume(returning: try run(video: video, clipPath: clipPath, startMs: startMs, endMs: endMs,
+                                         outPath: outPath, peoplePath: peoplePath, debug: debug, everyMs: everyMs))
         } catch {
           done.resume(throwing: error)
         }
@@ -55,83 +56,55 @@ enum FocusAnalyzer {
     }
   }
 
-  private static func run(asset: AVAsset, track: AVAssetTrack, transform: CGAffineTransform, natural: CGSize,
-                          clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Bool,
-                          everyMs: Double = 100) throws -> Outcome {
+  private static func run(video: ClipScan.Video, clipPath: String, startMs: Double, endMs: Double, outPath: String,
+                          peoplePath: String, debug: Bool, everyMs: Double) throws -> Outcome {
     let started = Date()
     if isCancelled(clipPath) { throw Failure.cancelled }
-    let orientation = Self.orientation(of: transform)
-    let turned = orientation == .left || orientation == .right
-    let width = Double(turned ? natural.height : natural.width), height = Double(turned ? natural.width : natural.height)
+    let every = max(stepMs, everyMs)
+    let end = endMs > startMs ? endMs : video.durationMs
+    let kept = FocusFrames.read(ClipScan.readJSON(peoplePath), width: video.width, height: video.height)
+    let missing = ScanTicks.missing(ticks: ScanTicks.ticks(startMs: startMs, endMs: end, everyMs: every),
+                                    have: kept.map { $0.tMs }, windowMs: every)
+    var stages = ClipScan.Stages()
+    var found: [FocusSample] = []
+    let keep = {
+      ClipScan.writeJSON(FocusFrames.json(FocusFrames.merged(kept, found), width: video.width, height: video.height),
+                         to: peoplePath)
+    }
+    defer { if !found.isEmpty { keep() } } // whatever happened, keep what was found
+    try ClipScan.run(video: video, people: missing, peopleWindowMs: every, ball: nil, sideBySide: false,
+                     stages: &stages, cancelled: { isCancelled(clipPath) }) { f in
+      guard let p = f.people else { return }
+      found.append(p)
+      if found.count % 25 == 0 { keep() }
+    }
+    let frames = inRange(FocusFrames.merged(kept, found), startMs: startMs, endMs: end)
+    let framed = Date()
+    let file = try write(frames: frames, startMs: startMs, endMs: endMs, everyMs: every, width: Double(video.width),
+                         height: Double(video.height), outPath: outPath, debug: debug)
+    stages.path += Date().timeIntervalSince(framed) * 1000
+    let motion = FramingMotion.stats(rects: file.rects.map { [$0.x, $0.y, $0.width, $0.height] }, stepMs: stepMs)
+    return Outcome(ready: file.ready, frames: frames.count, reused: frames.count - found.count,
+                   framesWithPeople: frames.filter { !$0.boxes.isEmpty }.count,
+                   meanPeople: frames.isEmpty ? 0 : Double(frames.reduce(0) { $0 + $1.boxes.count }) / Double(frames.count),
+                   elapsedMs: Date().timeIntervalSince(started) * 1000, stages: stages, panP95: motion.panP95,
+                   turnsPer10s: motion.turnsPer10s)
+  }
 
-    let reader = try AVAssetReader(asset: asset)
-    let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
-      kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
-    ])
-    output.alwaysCopiesSampleData = false
-    reader.add(output)
-    if endMs > startMs {
-      reader.timeRange = CMTimeRange(start: CMTime(seconds: startMs / 1000, preferredTimescale: 600),
-                                     end: CMTime(seconds: endMs / 1000, preferredTimescale: 600))
-    }
-    guard reader.startReading() else { throw Failure.unreadable }
+  /// The kept pictures that belong to a range (the reader used to stop at its ends).
+  static func inRange(_ frames: [FocusSample], startMs: Double, endMs: Double) -> [FocusSample] {
+    frames.filter { $0.tMs >= startMs - 0.5 && $0.tMs < endMs }
+  }
 
-    let request = VNDetectHumanRectanglesRequest()
-    request.upperBodyOnly = false
-    // v14: the same detector on the gesture's 9 half-frame regions as well, so far players are found (ScanTiles).
-    // With a regionOfInterest the boxes still come back normalized to the whole frame.
-    let tileRequests: [(request: VNDetectHumanRectanglesRequest, region: CGRect)] = ScanTiles.regions.map { region in
-      let r = VNDetectHumanRectanglesRequest()
-      r.upperBodyOnly = false
-      r.regionOfInterest = region
-      return (r, region)
-    }
-    let frameSize = CGSize(width: width, height: height)
-    var frames: [FocusSample] = []
-    var people = 0
-    var failures = 0
-    var next = startMs
-    while let buffer = output.copyNextSampleBuffer() {
-      if isCancelled(clipPath) { reader.cancelReading(); throw Failure.cancelled }
-      let t = CMSampleBufferGetPresentationTimeStamp(buffer).seconds * 1000
-      if t + 0.5 < next { continue } // keep the first frame at or after each 100 ms tick
-      // TEMP(lab-4k): `everyMs` 200 = one frame every 200 ms (the 5 fps test); the rows stay every 100 ms
-      while next <= t + 0.5 { next += max(stepMs, everyMs) }
-      guard let pixels = CMSampleBufferGetImageBuffer(buffer) else { continue }
-      let boxes: [FocusBox]? = autoreleasepool {
-        do {
-          try VNImageRequestHandler(cvPixelBuffer: pixels, orientation: orientation)
-            .perform([request] + tileRequests.map { $0.request })
-        } catch {
-          return nil
-        }
-        // Vision: normalized, origin bottom-left, in the upright picture (the orientation above).
-        let full = (request.results ?? []).filter { $0.confidence >= minConfidence }
-          .map { (box: $0.boundingBox, confidence: Double($0.confidence)) }
-        var tiles: [(box: CGRect, confidence: Double)] = []
-        for (r, region) in tileRequests {
-          for o in r.results ?? [] {
-            let b = o.boundingBox
-            guard region.insetBy(dx: -0.02, dy: -0.02).contains(CGPoint(x: b.midX, y: b.midY)),
-                  ScanTiles.plausible(b, confidence: Double(o.confidence), frame: frameSize) else { continue }
-            tiles.append((b, Double(o.confidence)))
-          }
-        }
-        return PersonBoxes.merge(full + tiles).map {
-          FocusBox(x: Double($0.minX), y: Double(1 - $0.maxY), width: Double($0.width), height: Double($0.height))
-        }
-      }
-      guard let found = boxes else { failures += 1; continue }
-      people += found.count
-      frames.append(FocusSample(tMs: t, boxes: found))
-    }
-    if reader.status == .failed { throw Failure.unreadable }
-    // A few lost frames are covered by the grid; many mean Vision could not run (app in the background).
-    if failures * 10 > (frames.count + failures) { throw Failure.interrupted }
+  /// The Jogadores file of a range from its analysed pictures (`frames`, in time order). `endMs` as the analysis was
+  /// asked (at or before `startMs` = to the end of the clip). Returns whether there is a framing, and its rects in the
+  /// video's own orientation.
+  static func write(frames: [FocusSample], startMs: Double, endMs: Double, everyMs: Double, width: Double,
+                    height: Double, outPath: String, debug: Bool) throws -> (ready: Bool, rects: [FocusRect]) {
     // Row k of the file is at startMs + k × 100 ms, whatever gaps the frames had.
     var samples = FocusGrid.samples(from: frames, startMs: startMs, endMs: endMs > startMs ? endMs : .infinity, stepMs: stepMs)
-    // TEMP(lab-4k): at 5 fps the last analysed frame can be up to 200 ms before the end; its people are held to the end
-    // so the file has as many rows as at 10 fps (Seguir a Bola reads them row by row).
+    // At 5 fps the last analysed frame can be up to 200 ms before the end; its people are held to the end so the file
+    // has as many rows as at 10 fps (Bola reads them row by row).
     if everyMs > stepMs, endMs > startMs, let last = samples.last {
       var tick = last.tMs + stepMs
       while tick < endMs - 0.5 { samples.append(FocusSample(tMs: tick, boxes: last.boxes)); tick += stepMs }
@@ -151,25 +124,22 @@ enum FocusAnalyzer {
       "landscape": rows(landscape ? mainRects : otherRects),
       "portrait": rows(landscape ? otherRects : mainRects),
     ]
-    // Test 47a: the players' median height (share of the frame height, every box of every frame), so Seguir a Bola can
-    // tell a recording made too far before analysing it. Read by BallAnalyzer only; the framing above is unchanged.
+    // Test 47a: the players' median height (share of the frame height, every box of every frame), so Bola can tell a
+    // recording made too far before analysing it. Read by BallAnalyzer only; the framing above is unchanged.
     let heights = frames.flatMap { $0.boxes.map { $0.height } }.sorted()
     if !heights.isEmpty {
       let mid = heights.count / 2
       file["playersHeight"] = r4(heights.count % 2 == 1 ? heights[mid] : (heights[mid - 1] + heights[mid]) / 2)
     }
-    // Test 49: the person boxes per row (x, y, width, height, top-left), so Seguir a Bola can keep to the main players'
-    // court and aim toward the player hitting the ball (sports with `follow`). Read by BallAnalyzer only; the framing
-    // above is unchanged.
+    // Test 49: the person boxes per row (x, y, width, height, top-left), so Bola can keep to the main players' court
+    // and aim toward the player hitting the ball (sports with `follow`). Read by BallAnalyzer only.
     file["people"] = samples.map { s in s.boxes.map { [r4($0.x), r4($0.y), r4($0.width), r4($0.height)] } }
     if debug {
       file["samples"] = samples.map { s in [s.tMs, s.boxes.map { [r4($0.x), r4($0.y), r4($0.width), r4($0.height)] }] as [Any] }
     }
     let data = try JSONSerialization.data(withJSONObject: file)
     try data.write(to: URL(fileURLWithPath: outPath), options: .atomic) // never a half-written file to read
-    return Outcome(ready: mainRects != nil, frames: frames.count, framesWithPeople: frames.filter { !$0.boxes.isEmpty }.count,
-                   meanPeople: frames.isEmpty ? 0 : Double(people) / Double(frames.count),
-                   elapsedMs: Date().timeIntervalSince(started) * 1000)
+    return (mainRects != nil, mainRects ?? [])
   }
 
   private static func rows(_ rects: [FocusRect]?) -> [[Double]] {
@@ -177,12 +147,4 @@ enum FocusAnalyzer {
   }
 
   private static func r4(_ v: Double) -> Double { (v * 10000).rounded() / 10000 }
-
-  /// How to turn the stored frames upright, from the track's transform (the camera stores sensor-oriented frames).
-  static func orientation(of t: CGAffineTransform) -> CGImagePropertyOrientation {
-    if t.a == 0 && t.b == 1 && t.c == -1 && t.d == 0 { return .right }
-    if t.a == 0 && t.b == -1 && t.c == 1 && t.d == 0 { return .left }
-    if t.a == -1 && t.d == -1 { return .down }
-    return .up
-  }
 }

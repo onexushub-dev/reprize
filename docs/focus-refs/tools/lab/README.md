@@ -23,6 +23,227 @@ Pieces: `dump_inventory.py` (MMKV + ffprobe → inventory, clips.txt, the phone'
 Models per sport: beach tennis `ball_tiny_btpl`, basketball `ball_tiny_gym` (the app's). Lab times are the Mac / cloud
 CPU: compare today with the candidate there; the phone's own times come from the plan's step 8.
 
+## Stage 2 gates (2026-11-12) — what was built from plan `2026-11-12-focus-pipeline-analysis-and-improvement-plan.md`
+
+Before / after on the labelled clips for each item built (section 9 of the plan has the summary and the phone protocol).
+
+**I1, one pass for Jogadores and Bola (`scan_parity.py`).** The shared pass (`ClipScan` + `ScanTicks.Cursor`) must hand
+the people and ball detectors the same pictures the two analyzers did on main `c19cbf2`. Frame times read from the
+sample tables of **278 app recordings** (`raw-dump/**`, `clips/`; 30 and 60 fps), each rule copied line for line:
+Jogadores over the whole clip at 200 ms **41,985 pictures, 0 differ**; Bola over the whole clip and an off-grid
+middle-third cut **56,057 pictures, 0 differ**. Same pictures, same detectors (`PeopleDetector` is the old code moved),
+same `FocusPath` / `BallFraming`: Jogadores and Bola are expected to give what they gave before on every labelled
+clip (Bola: the `det-<det>-ref` rows below; the Swift parity fixtures `BallParity*`, `FocusPath*` pass, 329 tests).
+This is inferred from identical inputs (a Python copy of both rules), not from re-running the Swift pass on the
+labelled clips; Jogadores has no labelled quality number of its own. Report:
+`lab/tests/focusfps/scan-parity.md`. Not adopted: Jogadores over the cut + a margin instead of the clip's range (gate
+G4, `focus_cut.py`): with 2 s the framing inside the cut moves up to 11% of the frame (15 of 114 clips over 5%), with 4 s
+up to 8.4% (5 clips) — `lab/tests/focusfps/cut-m2000.md`, `cut-m4000.md`. Jogadores keeps the clip's range; the gain
+it keeps is one decode for both and the people kept per tick (`.people.json`: a stopped analysis resumes).
+
+**I3, recording slowed to 30 fps under heat.** The analyses pick one picture per 200 ms tick inside a 100 ms window.
+Across the 278 recordings (different recordings, grouped by their own rate) every Bola tick gets a picture at 30 fps (13,424 / 13,429; the 5 missing are one recording's own 0.8 s with no frames, basket-h-side-low-unavailable-03 at 4.2–5.0 s)
+as at 60 fps (28,561 / 28,561), so the grid is filled at either rate. Not measured: a clip that changes rate mid-way, or Bola / Jogadores quality at
+30 against 60 fps on the same play (the labelled clips' videos are not in the repository); the gate stays open.
+
+**I5 (per-stage timers) and the rest of I3** touch no analysis input or rule: nothing to measure in the lab; the
+timers and the energy lines are read on the phone.
+
+## Tests 56–58 (2026-11-12, lab only) — after Victor's first field test with Stage 2
+
+Victor (2026-11-12): Seguir a Bola went to the right edge on two beach tennis clips by an avenue (cars behind the
+fence); Jogadores worked very well; should Jogadores be analysed over the cut only, as Bola; should we put the
+energy into a Jogadores 9:16 for story / reels? Three lab items, the field clips registered as `bt-campo-1112-a` /
+`-b` (`refs/2026-11-12-campo/`: the app's horizontal export "foco não" and its 9:16 Seguir a Bola export).
+
+**Test 56 — Jogadores over the cut (`focus_quality.py`).** 52 ball-labelled clips with Vision people; framing by
+`focus_variant.py` (v15, 5 fps) over the whole clip vs over the cut (the clip's middle half) + a margin, scored
+inside the cut: labelled ball inside the crop, people boxes inside, FramingMotion's pan p95 and turns.
+
+| variant | native crop: ball / people / pan / turns | 9:16 crop: ball / people / pan / turns |
+|---|---|---|
+| whole clip (today) | 90.2% / 97.4% / 0.053 / 1.36 | 67.9% / 51.5% / 0.062 / 1.37 |
+| cut | 89.5% / 97.4% / 0.053 / 1.29 (5 clips −5 pts) | 69.2% / 51.5% / 0.061 / 1.58 |
+| cut + 1 s | 90.2% / 97.5% / 0.053 / 1.46 | 68.5% / 52.0% / 0.061 / 1.57 |
+| **cut + 2 s** | **90.5% / 97.4% / 0.053 / 1.37** | **68.2% / 51.5% / 0.061 / 1.36** |
+
+Over the cut + 2 s the framing is as good as over the whole clip (per-clip moves go both ways): G4's "different" is
+not "worse". Report `lab/tests/focusfps/focus-quality.md`.
+
+**Test 57 — the field clips: car lights (`ball_detect.py` btpl at 1920 / 416 tiles / 5 fps, `people_yolox.py` as
+the stand-in for Vision, `ball_track.py`, `cam_bt.py` T52, `app_camera.py` on the app's 9:16 export).** The lab path
+has the ball in 95% / 78% of the frames (the app: 93% / 75%); the lab's T52 camera matches the app's on clip a (mean
+|dx| 0.022 of the frame width; on b 0.084: the app went right at 4–5 s where the lab did not). Cause: for 0–5.5 s (a) and 0–1.5 s (b) the path follows car lights behind the fence —
+x 0.70 → 0.94 at y 0.45–0.49, about 0.08 frame widths per second; the court lock (main players' x ± 0.20) lets them
+through (a: up to 0.88; b: the whole frame).
+
+First try, in the camera (`cam_bt.py` `flat`, dropping the path's flat stretches): clip a stopped going right but
+the camera stood still — the path had followed the lights INSTEAD of the ball, so with the lights out there was no
+ball left (Victor, 2026-11-12: "sem movimentação nenhuma"). **Kept: in the path** (`ball_track.py` `track_flat`,
+`--set flat=8`): the path's stretches that slide at one height for 0.8 s (y within 0.03, x at >= 0.04 frame widths
+/ s, at most 35% of the steps back) lose their candidates and the path is chosen again (up to 3 times), so it can take
+the real ball; a stretch is only treated as lights when it is outside the main players' x range or as low as the far
+players' heads or lower (`play_area`): a ball flying flat high over the court (arena A, side view: a-06, a-09) stays.
+
+| path + T52 camera | own 22: path prec / cover; camera ball / hitter all / at hits / labelled hits | night 8: path prec / cover; camera same | field a: main player in crop / on the right strip | field b |
+|---|---|---|---|---|
+| today (app) | A 97.9 / 89.7, B 99.3 / 91.3; 98.4% / 94.5 / 93.2 / 88.2% | 95.4 / 84.5; 94.2% / 90.9 / 93.5 / 92.3% | lab 26% / 71% (app 45% / 60%) | lab 95% / 7% (app 87% / 28%) |
+| **flat in the path** | **A 97.9 / 89.7, B 99.3 / 91.3; 98.4% / 94.5 / 93.2 / 88.2%** | **95.4 / 84.3; 93.8% / 90.6 / 92.8 / 89.7% (1 hit of 39)** | **100% / 0%, the camera follows the rally** | **97% / 9%** |
+| flat in the path, no `play_area` guard | A 97.9 / 86.2 (a-06, a-09 lose a real ball) | | | |
+| flat in the path + in the camera | 98.1% / 94.0 / 91.7 / 88.2% | 93.8% / 92.0 / 92.5 / 89.7% | 100% / 0% | 97% / 9% |
+
+Videos (app | T52 on the path with `flat` | Jogadores + hint 0.5): `lab/tests/story/bt-campo-1112-{a,b}.campo-compare.mp4`.
+
+**Test 57b (2026-11-13), before the Swift port.** `ball_parity.py --out-bt` with `track_flat` showed the rule also
+taking real balls on three clips with no labels at those frames: yt-bt-06 and bt-v-1029 (vertical) and f-01 (a lob
+0.06 to the right of the players' x range). Followed: 85 → 76%, 66 → 48%, 84 → 78%. Guards added in `track_flat`:
+- horizontal clips only;
+- "outside" is beyond the players' x range ± `flatpad` 0.2 (the court lock's margin).
+
+Now:
+- the ten earlier parity clips are as with no rule;
+- the 22 labelled clips (`det-t52-h15f`) are identical to `det-t52-h15`;
+- the night set and the field tracks are identical to the run above.
+
+`SPORT_P["beachTennis"]` has `flat=8`. The app has it as `BallPathParams.flat` (rules `ball-bt-t57`), and the
+fixture holds both field clips.
+
+**Test 60 (2026-11-13) — only a ball in play is followed; the verdict asks for play, not a share (Victor's
+decisions 1–4).** `cam_bt.py` `play=1` (`T60`, `keep_play`): a followed run of 3 points or more is dropped when its
+median speed is under 0.007 long sides per 100 ms (a ball held, lying, bounced in place) or 60% or more of its points
+are on a person (box widened 20% each side: a ball in a hand, carried); the near pair frames those moments (T59).
+Verdict (`ball_verdict.VERDICT` `play_min`): Seguir a Bola stays off only when the players are too far (as before) or
+the cut has under 2 s of ball in play ("rarelyFound"); share, ball size and pan are still measured, not reasons.
+
+| | 22 labelled: ball in crop / hitter whole all / at hits / labelled hits | night 8 |
+|---|---|---|
+| T59 | 98.0% / 94.6% / 93.2% / 87.3% | 93.8% / 90.6% / 92.8% / 89.7% |
+| **T60** | **98.0% / 94.6% / 93.0% / 87.3%** | **93.8% / 90.4% / 92.8% / 89.7%** |
+
+Runs judged (followed runs, own clips): play 0.010–0.035 median speed, on a person 0–0.43; dropped: field c's ball
+in a hand and bounced before the serve (0.002–0.008, on a person 0.9+), d's start (0.005), a-10, b-08, b-09 after the
+point (labels: not the ball), the stream's far players' heads (0.003–0.008). Seconds of play per clip: 3.2–25.6 s on
+every clip with a rally (22 own, night 8, field a–d), so 2 s keeps them all. Night bt4k-35a58bfc (share 0.21) and
+bt-v-1029 (tooSmall) are no longer kept off. Not done: car lights joined to ball pieces (field c 13.6–14.0 s; a short
+"lights beyond the players" rule, `playl=4`, takes the camera from 0.82 to 0.68 there but drops real wide balls:
+hitter at hits 90.6 -> 90.2%) -> off. Videos: `lab/tests/story/bt-campo-1112-{c,d}.play-compare.mp4`. App: rules
+`ball-bt-t60` (`BallFollowParams.playSpeed` / `playOnPerson`, `BallVerdictParams.playMin`).
+
+**Test 59 (2026-11-13) — the near players while the ball is missing (`cam_bt.py` `nearfb`, `T59`).** Victor, field
+clips: between points the camera held where the ball was last (car lights, an empty spot). With `nearfb=10`, a gap in
+the followed ball longer than 1 s, and the time before the first / after the last ball, frames the near pair: both if
+they fit in the 9:16 crop, else the one nearer the last target (aiming between them showed only sand).
+
+| T52 camera | 22 labelled: ball in crop / hitter whole / labelled hits | night 8: same | frames with no ball nearby: a near player whole / no player in crop |
+|---|---|---|---|
+| hold (today) | 98.4% / 94.5% / 88.2% | 93.8% / 90.6% / 89.7% | 22 clips 74% / 9.2%; night 75% / 0.8% |
+| **near pair (T59)** | **98.0% / 94.6% / 87.3% (b-05, 1 hit of 110)** | **93.8% / 90.6% / 89.7%** | **99% / 0.7%; 99.7% / 0%** |
+
+Same for `nearfb` 15 and 20. In the app as `BallFollowParams.nearGap` 10 (rules `ball-bt-t59`); ball_parity.py uses
+T59. Field clips c (30 s, people walking between points) and d (18 s) from Victor's phone exports, people from
+`people_yolox.py`, inputs by `field_inputs.py`. On c the path also follows a ball in a hand and, at 13.6–14.0 s, car
+lights at the far players' head height joined to ball pieces (too short and broken for the flat rule): there is no gap,
+so the near pair does not help. The next step is to tell play from no play by the ball's own motion.
+Videos: `lab/tests/story/{bt-own-b-02,bt-campo-1112-a,bt-campo-1112-c}.near-compare.mp4`.
+
+**Test 58 — Jogadores 9:16 with the ball as a hint (`cam_bt.py` `players=1,hint=h`: the target is today's Jogadores
+9:16 centre, pulled toward the trusted ball by at most h crop widths; same crop width as Seguir a Bola).**
+
+| camera (22 labelled) | ball in crop | hitter whole: all / at hits | labelled hits: hitter whole | pan |
+|---|---|---|---|---|
+| Seguir a Bola (T52) | **98.4%** | **94.5 / 93.2%** | **88.2%** | 2.0 |
+| Jogadores 9:16 | 62.9% | 59.6 / 58.2% | 52.7% | 0.3 |
+| + hint 0.20 | 76.3% | 72.9 / 71.1% | 60.0% | 0.6 |
+| + hint 0.35 | 84.7% | 81.7 / 78.8% | 69.1% | 0.8 |
+| + hint 0.50 (a 0.3, b 30) | 93.6% | 85.9 / 83.2% | 72.7% | 1.6 |
+| + hint 1.0 (a 0.3, b 30) | 98.5% | 89.6 / 85.2% | 76.4% | 2.1 |
+
+Night set (8 clips): T52 94.2% / hitter 90.9% / labelled hits 92.3%; Jogadores 9:16 87.0% / 49.4% / 46.2%; + hint
+0.5 93.2% / 75.7% / 74.4%. A 9:16 crop is a third of a horizontal frame and beach tennis has four players across
+it: following the players alone frames the space between them; the hint closes the gap to the ball but never the
+one to the hitter, which T52 keeps whole by aiming at him. Jogadores stays the 16:9 default, as today.
+
+## Test 55 (2026-11-12, lab only) — is the phone's thumbnail why motion gating lost ball share? (`motion_tiles.py --thumb`)
+
+Phone round 1 (plan section 9.1): with "Recortes: Só com movimento" the ball share dropped on 5 of 6 beach tennis 4K
+clips (−2 to −6 points), which tests 53 / 54 did not predict. One difference found in the code: the app's grey
+thumbnail is not the lab's. Core Image folds the 4K → 1920 scale and the thumbnail scale into one transform and takes
+**one bilinear sample of the native frame per thumbnail pixel** (no averaging), and the grey is **(R + G + B) / 3**;
+the lab averages every pixel (`ffmpeg … flags=area`) and uses the luma. `--thumb phone` copies the app's sampling and
+grey from the decoded native frames; `--thumb phone-luma` the same sampling with luma. Same settings as `mt20e`.
+
+| Set | `mt20e` (lab thumbnail) prec / cover / ball-mode mean / regions | `mt20eP` (phone's) | `mt20eL` (phone's, luma) |
+|---|---|---|---|
+| gym `bgym-n5` | 94.4 / 83.7 / 86.1 / 9.2 | 94.4 / 83.7 / 86.1 / 9.4 | — |
+| arena A `btplA2-n5` | 94.8 / 83.9 / 78.0 / 9.5 | 93.8 / 83.6 / 78.2 / 11.7 | 93.8 / 83.6 / 78.2 / 11.8 |
+| arena B `btplB-n5` | 99.0 / 89.8 / 86.0 / 10.8 | 99.0 / 89.8 / 84.9 / 11.8 | 99.0 / 89.8 / 84.9 / 11.8 |
+| night `btpl-4kplan-1920` | 95.0 / 83.9 / 81.0 / 10.3 | 95.0 / 83.2 / 81.0 / 12.2 | 95.0 / 83.5 / 81.0 / 12.2 |
+
+The phone's thumbnail is noisier (more regions run: 12.2 at night, as the phone's 8.5–12.8) and costs at most a point
+(night cover −0.7, detector ceiling 89.6 → 89.0; luma gives back half of it), and no verdict changes. **Not the cause
+of the phone's drop.** Still open, phone-side only: NMS over fewer tiles (the lab keeps the full run's post-NMS
+candidates), the neighbour pictures being real video frames, and whether the six phone clips are like the labelled
+ones. Next: the phone's own detection files of the same clips with and without gating (plan section 9.1).
+Outputs: `lab/tests/detect/report.mt-mt20e{P,L}-<det>.md`, `lab/tests/motion/*mt20e{P,L}*`.
+
+## Test 54 (2026-11-12, lab only) — motion-gated tiles, carried candidates as evidence only (`motion_tiles.py --carry 2`)
+
+Test 53's open point: carrying a tile's last candidates into the frames it is not run on (`--carry 1`) lets them
+become points of the path, which moved bt4k-1111-2fd3b0a7 from "not applied" to "applied" at lower precision. Here the
+carried candidates are kept apart (`carried` in the detections file) and `ball_track.py` uses them **only in the
+still-object filter** (the lamp is still there), never as a point. Variants, all at threshold 20, 2 pixels, hold 1
+(tags: `mt20c` = test 53; `e` = evidence only; `s2` = neighbours ±200 ms instead of ±100 ms; `o` = evidence counted
+only on frames that looked at that tile):
+
+| Set (clips, points) | baseline prec / cover | `mt20c` | **`mt20e` (in the app)** | `mt20s2e` | `mt20s2o` |
+|---|---|---|---|---|---|
+| gym `bgym-n5` (12, 325) | 94.4 / 83.7 | = | **=** | = | = |
+| arena A `btplA2-n5` (10, 373) | 94.8 / 83.9 | 94.8 / 83.9 | **94.8 / 83.9** | 93.3 / 83.1, 1 gate flip | 93.3 / 83.1, 1 flip |
+| arena B `btplB-n5` (9, 336) | 99.0 / 90.1 | 99.0 / 89.8 | **99.0 / 89.8** | 99.0 / 89.8 | 98.6 / 90.1 |
+| night 4K→1920 `btpl-4kplan-1920` (8, 308) | 95.4 / 84.5 | 93.4 / 83.6, 1 flip | **95.0 / 83.9, 0 flips** | 95.0 / 83.9 | 95.0 / 83.9 |
+
+(precision / cover weighted by labelled points; "flip" = the ball gate changes its verdict.) Regions per analysed
+frame 19 → 9.2 (gym), 9.5 (A), 10.8 (B), 10.3 (night); detector ceiling unchanged on all 1,342 points. `mt20e` per
+clip, the only rows that move: a-01 precision 94 → 97, ball-mode share 83 → 81; a-03 precision 95 → 92; b-02 cover
+92 → 88; b-08 ball-mode share 90 → 71; b-09 ball-mode share 86 → 94; bt4k-1111-c4bd28f7 precision 100 → 98, cover
+97 → 94. bt4k-1111-2fd3b0a7 stays "not applied", as Victor asked (2026-11-12). The ±200 ms neighbours (no extra
+frames to decode) lose a gate on a-07 (`s2e`, `s2o`), so the app uses ±100 ms.
+
+`mt20e` is what the app's `BallMotion` / `BallPath(stale:)` port does (fixture `ball-motion.json` from
+`motion_parity.py`, checked by `BallMotionTests`). In the app behind Diagnóstico's "Recortes: Só com movimento"
+switch, off by default, until the phone run (plan section 9) shows the time it saves and the clips look the same.
+Outputs: `lab/tests/detect/<clip>.<det>-mt20{e,s2e,s2o,s2c}.json`, reports `report.mt-<tag>-<det>.md`, logs
+`lab/tests/motion/`.
+
+## Test 53 (2026-11-12, lab only) — Bola with motion-gated tiles (`motion_tiles.py`)
+
+Made for `docs/superpowers/plans/2026-11-12-focus-pipeline-analysis-and-improvement-plan.md` (section 6 has the table).
+Idea: the camera is on a tripod, so a tile goes to the detector only when its picture changed (grey thumbnail, 3-frame
+difference, 20 grey levels, the tile also runs on the analysed frame after it moved); a tile that is not run keeps its
+last candidates (`--carry 1`), or the still-object filter stops recognising still objects. Offline simulation on the
+stored all-tiles detections (as test 19's `roi_tiles.py`), python3 + numpy + ffmpeg, no venv.
+
+- Regions per analysed frame 19 → 9.2–10.8; **detector ceiling unchanged on 39 labelled clips, 1,342 points**
+  (night 4K→1920 `btpl-4kplan-1920`, gym `bgym-n5`, arenas `btplA2-n5` / `btplB-n5`).
+- Path (ball_track.py, det_report.py; baseline `det-<det>-ref`): basketball identical on all 12 clips. Arenas A / B
+  equal as sets (cover −0.3 on B) but single clips move: precision 94 → 97% (a-01), 95 → 92% (a-03), cover 92 → 88%
+  (b-02), ball-mode share 78 → 100% (a-05), 90 → 71% (b-08), 86 → 94% (b-09). Night 4K precision 95.4 → 93.4%, cover
+  84.5 → 83.6%, from two clips: bt4k-1111-2fd3b0a7 (precision 91 → 77%, cover 62 → 59%, **gate "não" → "sim"**) and
+  bt4k-1111-c4bd28f7 (precision 100 → 98%, cover 97 → 94%).
+- Without `--carry`: beach tennis precision −1.7 to −3.2. Threshold 30 with no hold: ceiling 89.6 → 80.8% (too far).
+- Not on the phone yet; nothing in the app. Outputs `lab/tests/detect/<clip>.<det>-mt20c.json`, tracks
+  `det-<det>-mt20c`, reports `report.mt-{ref,mt20c}-<det>.md`, logs `lab/tests/motion/`.
+- Unlike tests 19 / 32 (tiles around the path: do not repeat), the tile choice does not depend on the path.
+- **53b, what the phone would have to compute** (`--thumb-w`, `--step`, `--dry 1`; detector ceiling / regions):
+  neighbours ±200 ms (`--step 2`, the analysed frames only, no extra frames) keep the ceiling on all four sets with
+  about one region more (night 11.3, gym 9.4, A 10.6, B 11.7), and the path reports for night and arena B
+  (`report.mt-mt20s2c-*`) equal the ±100 ms ones row for row. Thumbnail width: 480 px night 89.6 → 86.7%; 320 px
+  night → 81.5%, A 88.7 → 80.7%, B 95.2 → 89.9%, gym no loss; 160 px (the app's screen-rule thumbnail) night → 57.8%,
+  gym 90.2 → 89.8%. So one 640 px grey thumbnail per analysed frame, nothing smaller for beach tennis.
+- Sweep rerun (night, carry 1): thr 12 + hold → 12.1 regions, ceiling kept; thr 30 no hold → 8.7 regions, 89.6 → 82.1%.
+- Open: bt4k-1111-2fd3b0a7 moves the same way with both neighbour distances, so look at the carry-forward and at the
+  whole-frame-only candidates the simulation drops (`path_diag.py`) before anything else.
+
 ## Outcome (Victor, 2026-11-06) — read this first
 
 **Nothing from this lab went into the app. Production keeps today's Modo Foco (players only, Vision whole frame +

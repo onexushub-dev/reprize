@@ -44,13 +44,29 @@ final class VoiceTrigger {
         self.backoff = Self.firstBackoff
       }
       self.enabled = on
+      self.mirror(on)
       if !on { self.stopTask() }
     }
+  }
+
+  /// Whether listening is on (Diagnóstico's energy test), from any thread without waiting for `queue`.
+  var isEnabled: Bool {
+    enabledLock.lock()
+    defer { enabledLock.unlock() }
+    return enabledMirror
+  }
+  private let enabledLock = NSLock()
+  private var enabledMirror = false
+  private func mirror(_ on: Bool) {
+    enabledLock.lock()
+    enabledMirror = on
+    enabledLock.unlock()
   }
 
   func stop() {
     queue.async {
       self.enabled = false
+      self.mirror(false)
       self.stopTask()
     }
   }

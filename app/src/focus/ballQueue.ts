@@ -1,6 +1,6 @@
 import type { AnalyzeBallOptions, BallAnalysis } from '../../modules/replay-camera/src/ReplayCamera.types';
 import { ballDetPath, ballForCut, ballPath, ballRules, ballRulesCurrent } from '../data/ballFile';
-import { focusPath } from '../data/focusFile';
+import { focusPath, focusRange, peoplePath } from '../data/focusFile';
 import type { Repo } from '../data/repo';
 import type { BallSportId, BallUnsuitable, Clip } from '../data/schema';
 import type { FocusHold } from './focusQueue';
@@ -18,17 +18,18 @@ export type BallQueueDeps = {
   /** Every finished analysis with its numbers (field test). */
   measured?(clip: Clip, result: BallAnalysis): void;
   /**
-   * Test 50: the clip's Modo Foco file has no person boxes ("people", written since 2026-11-10), which the path's shirt
-   * rule (basketball) and the players' rules (beach tennis) read. Such a file is made again before the analysis.
+   * Test 50: the clip's Jogadores file is missing or has no person boxes ("people", written since 2026-11-10), which
+   * the path's shirt rule (basketball) and the players' rules (beach tennis) read. The native analysis then finds the
+   * people in its own pass and writes that file (plan 2026-11-12, I1); a result made without them is made again.
    */
   focusLacksPeople?(clip: Clip): boolean;
+  /** Jogadores' frame interval (ms), for the file the same pass may write; absent = 100. */
+  focusEvery?(): number;
   /**
    * Whether the app is in front right now. The native side also reports `BALL_INTERRUPTED` when Core ML keeps failing
    * with the app in front (e.g. a camera left running): that is a failure to retry, not a wait for the app to come back.
    */
   appActive?(): boolean;
-  /** Runs the clip's Modo Foco analysis again (same range and file as the Modo Foco queue). */
-  refreshFocus?(clip: Clip): Promise<unknown>;
   /** For the Diagnóstico screen (field test): a cut already analysed is analysed again (older rules or no people). */
   note?(e: { redo: true; from: string | undefined; to: string }): void;
 };
@@ -134,9 +135,12 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         now !== undefined && now.ball !== undefined && now.ball.status === 'pending' && ballForCut(now.ball, cut, sport)
       );
     };
-    // An older Modo Foco file without person boxes is made again first (a failure there still lets the ball run).
-    const analyze = () =>
-      deps.analyze({
+    // The range Jogadores itself analyses (the cut ± 2 s, lab test 56): when its file is missing, has no person boxes or
+    // does not cover this cut, the same pass over the frames finds the people and writes it (one decode for the two).
+    const players = focusRange(clip);
+    const every = deps.focusEvery !== undefined ? deps.focusEvery() : 100;
+    deps
+      .analyze({
         clipPath: clip.path,
         startMs: cut.startMs,
         endMs: cut.endMs,
@@ -144,23 +148,29 @@ export function createBallQueue(deps: BallQueueDeps): BallQueue {
         outPath,
         focusPath: focusPath(clip.path),
         sport,
-      });
-    const refresh = deps.refreshFocus;
-    const run =
-      refresh !== undefined && deps.focusLacksPeople !== undefined && deps.focusLacksPeople(clip)
-        ? refresh(clip)
-            .catch(() => undefined)
-            .then(() => {
-              if (!wanted()) throw Object.assign(new Error('no longer wanted'), { code: 'CANCELLED' });
-              return analyze();
-            })
-        : analyze();
-    run
+        focusStartMs: players.startMs,
+        focusEndMs: players.endMs,
+        peoplePath: peoplePath(clip.path),
+        ...(every !== 100 ? { focusEveryMs: every } : {}),
+      })
       .then((result) => {
         try {
           if (deps.measured) deps.measured(clip, result);
         } catch {
           // a measurement never breaks an analysis
+        }
+        // The Jogadores file made on the way is the clip's, whatever became of the ball: picking Jogadores is instant.
+        if (result.focus === 'ready' || result.focus === 'none') {
+          deps.repo.updateClip(clip.id, {
+            focus: {
+              v: 1,
+              status: result.focus,
+              file: focusPath(clip.path),
+              startMs: players.startMs,
+              endMs: players.endMs,
+              ...(every !== 100 ? { every } : {}),
+            },
+          });
         }
         if (!wanted()) return;
         if (result.status === 'unsuitable') {
