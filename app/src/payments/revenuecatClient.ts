@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import Purchases, { type CustomerInfo, type PurchasesOffering } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
 
@@ -7,6 +7,9 @@ import { type PartnerDirectory, parsePartners } from '../partner/directory';
 import type { PaymentsClient, PaywallOutcome } from './client';
 import { toSnapshot } from './snapshot';
 import { EMPTY_SNAPSHOT } from './types';
+
+/** The Reprize app in App Store Connect: the offer code redemption page is per app. */
+const APP_STORE_ID = '6833159162';
 
 export type RevenueCatKeys = { ios?: string; android?: string; test?: string };
 
@@ -87,6 +90,35 @@ export function createRevenueCatClient(): PaymentsClient {
     async restore() {
       if (!configured) return EMPTY_SNAPSHOT;
       return toSnapshot(await Purchases.restorePurchases());
+    },
+
+    async setPartner(code, source) {
+      if (!configured) return;
+      try {
+        await Purchases.setAttributes({ partner_code: code, partner_source: source });
+        await Purchases.setMediaSource('partner');
+        await Purchases.setCampaign(code);
+      } catch (e) {
+        if (__DEV__) console.warn('[payments] setPartner failed', e);
+        // retried at the next start while the attribution exists
+      }
+    },
+
+    async redeemOfferCode(code) {
+      if (Platform.OS !== 'ios') return false;
+      try {
+        await Linking.openURL(`https://apps.apple.com/redeem?ctx=offercodes&id=${APP_STORE_ID}&code=${encodeURIComponent(code)}`);
+        return true;
+      } catch {
+        // the page could not be opened: try StoreKit's own sheet, where the player types the code
+      }
+      try {
+        if (!configured) return false;
+        await Purchases.presentCodeRedemptionSheet();
+        return true;
+      } catch {
+        return false;
+      }
     },
 
     async partners(): Promise<PartnerDirectory | null> {

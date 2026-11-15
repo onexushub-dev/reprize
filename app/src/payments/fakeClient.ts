@@ -16,6 +16,11 @@ export function createFakeClient() {
     paywallGate: undefined as Promise<void> | undefined,
     /** What `partners()` answers; null = could not be read. */
     directory: {} as PartnerDirectory | null,
+    /** The (code, source) of every setPartner call. */
+    partnerCalls: [] as [string, string][],
+    /** What `redeemOfferCode` answers, and the codes it was asked for. */
+    redeemResult: true,
+    redeemed: [] as string[],
     configure() {},
     async getSnapshot(): Promise<Snapshot> {
       if (fake.failSnapshot) throw new Error('snapshot unavailable');
@@ -34,6 +39,13 @@ export function createFakeClient() {
     async restore(): Promise<Snapshot> {
       if (fake.failRestore || fake.failSnapshot) throw new Error('snapshot unavailable');
       return fake.snapshot;
+    },
+    async setPartner(code: string, source: string): Promise<void> {
+      fake.partnerCalls.push([code, source]);
+    },
+    async redeemOfferCode(code: string): Promise<boolean> {
+      fake.redeemed.push(code);
+      return fake.redeemResult;
     },
     async partners(): Promise<PartnerDirectory | null> {
       return fake.directory;

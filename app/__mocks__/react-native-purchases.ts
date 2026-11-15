@@ -5,6 +5,10 @@ const Purchases = {
   addCustomerInfoUpdateListener: jest.fn(),
   removeCustomerInfoUpdateListener: jest.fn(() => true),
   getOfferings: jest.fn(async () => ({ current: null, all: {} as Record<string, unknown> })),
+  setAttributes: jest.fn(async () => {}),
+  setMediaSource: jest.fn(async () => {}),
+  setCampaign: jest.fn(async () => {}),
+  presentCodeRedemptionSheet: jest.fn(async () => {}),
   restorePurchases: jest.fn(async () => ({ entitlements: { active: {} }, nonSubscriptionTransactions: [] })),
 };
 

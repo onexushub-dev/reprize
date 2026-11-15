@@ -12,4 +12,8 @@ export interface PaymentsClient {
   restore(): Promise<Snapshot>;
   /** The partner codes from the `default` offering metadata; null when they could not be read (offline, no key). */
   partners(): Promise<PartnerDirectory | null>;
+  /** Records who referred this customer as RevenueCat attributes. Never throws; a build without a key does nothing. */
+  setPartner(code: string, source: string): Promise<void>;
+  /** iOS: opens Apple's offer code redemption with `code` filled in. False when it could not be opened (and always off iOS). */
+  redeemOfferCode(code: string): Promise<boolean>;
 }

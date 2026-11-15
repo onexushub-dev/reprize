@@ -227,6 +227,13 @@ export function createPaymentsStore(
       }
     },
 
+    /** Re-reads the purchases (after something outside the paywall may have bought: Apple's offer code redemption). */
+    async refresh(): Promise<Snapshot> {
+      const fresh = await read(() => client.getSnapshot());
+      if (fresh) apply(fresh);
+      return current ?? EMPTY_SNAPSHOT;
+    },
+
     /** Restores Pro. Passes it brings go to the ledger, never become credits. False if that ledger write fails. */
     async restore(): Promise<boolean> {
       try {

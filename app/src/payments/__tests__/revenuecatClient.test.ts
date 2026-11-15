@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import Purchases from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
 
@@ -183,6 +183,93 @@ describe('partners', () => {
     c.configure();
     (Purchases.getOfferings as jest.Mock).mockRejectedValueOnce(new Error('offline'));
     expect(await c.partners()).toBeNull();
+  });
+});
+
+describe('partner attribution and offer codes', () => {
+  const REDEEM = 'https://apps.apple.com/redeem?ctx=offercodes&id=6833159162&code=PROFJOAO';
+
+  it('writes the partner attributes', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    await c.setPartner('PROFJOAO', 'link');
+    expect(Purchases.setAttributes).toHaveBeenCalledWith({ partner_code: 'PROFJOAO', partner_source: 'link' });
+    expect(Purchases.setMediaSource).toHaveBeenCalledWith('partner');
+    expect(Purchases.setCampaign).toHaveBeenCalledWith('PROFJOAO');
+  });
+
+  it('setPartner never throws: SDK failure or no key', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.setAttributes as jest.Mock).mockRejectedValueOnce(new Error('sdk'));
+    await expect(c.setPartner('PROFJOAO', 'link')).resolves.toBeUndefined();
+
+    jest.clearAllMocks();
+    setKeys({});
+    const off = createRevenueCatClient();
+    off.configure();
+    await expect(off.setPartner('PROFJOAO', 'link')).resolves.toBeUndefined();
+    expect(Purchases.setAttributes).not.toHaveBeenCalled();
+  });
+
+  it('opens the redemption URL with the code on iOS', async () => {
+    Platform.OS = 'ios';
+    setKeys({ test: 'test_x' });
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
+    const c = createRevenueCatClient();
+    c.configure();
+    expect(await c.redeemOfferCode('PROFJOAO')).toBe(true);
+    expect(open).toHaveBeenCalledWith(REDEEM);
+    expect(Purchases.presentCodeRedemptionSheet).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the StoreKit sheet when the URL cannot be opened', async () => {
+    Platform.OS = 'ios';
+    setKeys({ test: 'test_x' });
+    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('cannot open'));
+    const c = createRevenueCatClient();
+    c.configure();
+    expect(await c.redeemOfferCode('PROFJOAO')).toBe(true);
+    expect(Purchases.presentCodeRedemptionSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('is false when neither way works', async () => {
+    Platform.OS = 'ios';
+    setKeys({ test: 'test_x' });
+    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('cannot open'));
+    (Purchases.presentCodeRedemptionSheet as jest.Mock).mockRejectedValueOnce(new Error('no sheet'));
+    const c = createRevenueCatClient();
+    c.configure();
+    expect(await c.redeemOfferCode('PROFJOAO')).toBe(false);
+  });
+
+  it('does not redeem on Android', async () => {
+    Platform.OS = 'android';
+    setKeys({ test: 'test_x' });
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
+    const c = createRevenueCatClient();
+    c.configure();
+    expect(await c.redeemOfferCode('PROFJOAO')).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+    Platform.OS = 'ios';
+  });
+
+  it('shows the partner offering by its identifier, falling back to the current one', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    const partner = { identifier: 'partner' };
+    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({ current: null, all: { partner } });
+    (RevenueCatUI.presentPaywall as jest.Mock).mockResolvedValueOnce('PURCHASED');
+    expect(await c.showPaywall('partner')).toBe('purchased');
+    expect(RevenueCatUI.presentPaywall).toHaveBeenCalledWith({ displayCloseButton: true, offering: partner });
+
+    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({ current: null, all: {} });
+    (RevenueCatUI.presentPaywall as jest.Mock).mockResolvedValueOnce('CANCELLED');
+    expect(await c.showPaywall('partner')).toBe('cancelled');
+    expect(RevenueCatUI.presentPaywall).toHaveBeenLastCalledWith({ displayCloseButton: true });
   });
 });
 
