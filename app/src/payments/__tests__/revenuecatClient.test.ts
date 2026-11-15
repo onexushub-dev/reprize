@@ -148,3 +148,41 @@ describe('createRevenueCatClient', () => {
     expect(Purchases.removeCustomerInfoUpdateListener).toHaveBeenCalledWith(listener);
   });
 });
+
+describe('partners', () => {
+  it('reads the directory from the default offering metadata', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({
+      current: null,
+      all: { default: { metadata: { partners: { PROFJOAO: { name: 'Prof. João' } } } } },
+    });
+    expect(await c.partners()).toEqual({ PROFJOAO: { name: 'Prof. João' } });
+  });
+
+  it('reads the current offering when there is no "default" identifier', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({
+      current: { metadata: { partners: { ABC: { name: 'Abc' } } } },
+      all: {},
+    });
+    expect(await c.partners()).toEqual({ ABC: { name: 'Abc' } });
+  });
+
+  it('is null when the offerings fail or the SDK is not configured', async () => {
+    setKeys({});
+    const off = createRevenueCatClient();
+    off.configure();
+    expect(await off.partners()).toBeNull();
+
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.getOfferings as jest.Mock).mockRejectedValueOnce(new Error('offline'));
+    expect(await c.partners()).toBeNull();
+  });
+});
+

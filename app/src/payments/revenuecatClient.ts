@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import Purchases, { type CustomerInfo, type PurchasesOffering } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
 
+import { type PartnerDirectory, parsePartners } from '../partner/directory';
 import type { PaymentsClient, PaywallOutcome } from './client';
 import { toSnapshot } from './snapshot';
 import { EMPTY_SNAPSHOT } from './types';
@@ -86,6 +87,17 @@ export function createRevenueCatClient(): PaymentsClient {
     async restore() {
       if (!configured) return EMPTY_SNAPSHOT;
       return toSnapshot(await Purchases.restorePurchases());
+    },
+
+    async partners(): Promise<PartnerDirectory | null> {
+      if (!configured) return null;
+      try {
+        const offerings = await Purchases.getOfferings();
+        const offering = offerings.all.default ?? offerings.current;
+        return parsePartners(offering?.metadata);
+      } catch {
+        return null;
+      }
     },
   };
 }

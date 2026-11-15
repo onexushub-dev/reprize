@@ -1,3 +1,4 @@
+import type { PartnerDirectory } from '../partner/directory';
 import type { PaymentsClient, PaywallOutcome } from './client';
 import { EMPTY_SNAPSHOT, type Offering, type Snapshot } from './types';
 
@@ -13,6 +14,8 @@ export function createFakeClient() {
     lastOffering: undefined as Offering | undefined,
     /** When set, showPaywall waits for it (lets tests emit during the paywall). */
     paywallGate: undefined as Promise<void> | undefined,
+    /** What `partners()` answers; null = could not be read. */
+    directory: {} as PartnerDirectory | null,
     configure() {},
     async getSnapshot(): Promise<Snapshot> {
       if (fake.failSnapshot) throw new Error('snapshot unavailable');
@@ -31,6 +34,9 @@ export function createFakeClient() {
     async restore(): Promise<Snapshot> {
       if (fake.failRestore || fake.failSnapshot) throw new Error('snapshot unavailable');
       return fake.snapshot;
+    },
+    async partners(): Promise<PartnerDirectory | null> {
+      return fake.directory;
     },
     emit(s: Snapshot) {
       fake.snapshot = s;
