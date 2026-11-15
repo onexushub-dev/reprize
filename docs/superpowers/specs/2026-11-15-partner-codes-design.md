@@ -70,7 +70,7 @@ Purchase → attribution locked → reports per partner
 4. **Where attribution is recorded.**
    - RevenueCat customer attributes: `partner_code`, `partner_source`, plus the reserved `$mediaSource = "partner"` and `$campaign = <code>`. They travel in exports, webhooks and customer lists.
    - PostHog: three new events and a `partner` property on `paywall_viewed` and `purchase_completed`. The code names a partner, never a person, and only directory-validated codes are sent; this is a deliberate, documented exception to "no free text" in the analytics spec.
-   - Landing page: one web analytics event per open, with the code.
+   - Landing page: each open is a page view of `/p/CODE` in Vercel Web Analytics.
    - iPhone installs per partner: App Store campaign link (`ct=<code>`), read in App Analytics.
 5. **Discount.** First year of the annual plan at **R$ 83,90** (30% under R$ 119,90; US $34.99), then the normal price. No free trial on top. The value lives only in the stores; changing it needs no build. Monthly is not discounted.
 6. **iPhone delivery: Apple offer code.** One offer `PARCEIROS` on `pro_annual` (pay up front, 1 year), eligible for new and expired subscribers, with one custom code per partner equal to the partner code. The app opens `https://apps.apple.com/redeem?ctx=offercodes&id=6833159162&code=<CODE>`; if that cannot be opened it falls back to the StoreKit redemption sheet. The app's own field is labelled "código de indicação" and never changes a price by itself, which keeps it inside guideline 3.1.1.
@@ -103,7 +103,7 @@ Purchase → attribution locked → reports per partner
 
 | Question | Where |
 |---|---|
-| Opens of each partner link | Landing page analytics, event `partner_link_opened` by `code` |
+| Opens of each partner link | Vercel Web Analytics: page views of `/p/CODE` (custom events need a paid plan) |
 | iPhone installs per partner | App Store Connect → App Analytics → campaigns |
 | Codes applied, by source | PostHog `partner_code_applied` by `code`, `source` |
 | Offer seen → subscribed, per partner | PostHog funnel `paywall_viewed` → `purchase_completed` by `partner` |
