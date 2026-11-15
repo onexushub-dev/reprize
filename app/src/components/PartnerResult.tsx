@@ -20,7 +20,7 @@ export function PartnerResult({ result, name, onActivate, onClose }: Props) {
   if (result === 'applied') {
     return (
       <View style={styles.box}>
-        <View style={styles.badge}>
+        <View testID="partner-badge" style={styles.badge}>
           <CheckIcon size={64} />
         </View>
         <Text style={styles.title}>{t('partner.appliedTitle')}</Text>
@@ -30,14 +30,21 @@ export function PartnerResult({ result, name, onActivate, onClose }: Props) {
       </View>
     );
   }
-  const text =
-    result === 'pending' ? t('partner.pendingText') : result === 'locked' ? t('partner.lockedText') : t('partner.invalidText');
+  if (result === 'pending') {
+    // Not an error: the code is kept and confirmed when the connection returns.
+    return (
+      <View style={styles.box}>
+        <Text style={styles.text}>{t('partner.pendingText')}</Text>
+        <Button label={t('common.close')} variant="secondary" onPress={onClose} />
+      </View>
+    );
+  }
   return (
     <View style={styles.box}>
-      <View style={[styles.badge, styles.badgeBad]}>
+      <View testID="partner-badge" style={[styles.badge, styles.badgeBad]}>
         <CloseIcon color={colors.ground} size={56} />
       </View>
-      <Text style={styles.warning}>{text}</Text>
+      <Text style={styles.warning}>{result === 'locked' ? t('partner.lockedText') : t('partner.invalidText')}</Text>
       <Button label={t('common.close')} variant="secondary" onPress={onClose} />
     </View>
   );

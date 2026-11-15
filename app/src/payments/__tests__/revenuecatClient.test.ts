@@ -214,6 +214,23 @@ describe('partner attribution and offer codes', () => {
     expect(Purchases.setAttributes).not.toHaveBeenCalled();
   });
 
+  it('two quick partner writes never interleave: the last code wins in every attribute', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.setAttributes as jest.Mock).mockImplementationOnce(() => new Promise((r) => setTimeout(r, 20)));
+    await Promise.all([c.setPartner('AAA', 'link'), c.setPartner('BBB', 'typed')]);
+    expect((Purchases.setAttributes as jest.Mock).mock.calls.map((a) => a[0].partner_code)).toEqual(['AAA', 'BBB']);
+    expect((Purchases.setCampaign as jest.Mock).mock.calls.map((a) => a[0])).toEqual(['AAA', 'BBB']);
+    expect((Purchases.setMediaSource as jest.Mock).mock.calls).toHaveLength(2);
+    // and the order inside: AAA's three writes all precede BBB's first
+    const order = [
+      ...(Purchases.setAttributes as jest.Mock).mock.invocationCallOrder,
+      ...(Purchases.setCampaign as jest.Mock).mock.invocationCallOrder,
+    ];
+    expect(Math.max(...order.slice(0, 1), ...order.slice(2, 3))).toBeLessThan(Math.min(order[1], order[3]));
+  });
+
   it('opens the redemption URL with the code on iOS', async () => {
     Platform.OS = 'ios';
     setKeys({ test: 'test_x' });

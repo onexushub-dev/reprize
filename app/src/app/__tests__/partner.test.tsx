@@ -61,7 +61,7 @@ describe('/p/[code]', () => {
     apply.mockResolvedValue('applied');
     await render(<PartnerCode />);
     await fireEvent.press(await screen.findByText('Get the discount'));
-    expect(openPaywall).toHaveBeenCalledWith(expect.any(Function), 'upgrade_card');
+    expect(openPaywall).toHaveBeenCalledWith(expect.any(Function), 'partner');
     expect(redeemPartnerOffer).not.toHaveBeenCalled();
   });
 
@@ -75,6 +75,41 @@ describe('/p/[code]', () => {
     await render(<PartnerCode />);
     expect(await screen.findByText(text)).toBeTruthy();
     expect(screen.queryByText('Get the discount')).toBeNull();
+  });
+
+  it('applies again when the link changes while the screen stays mounted', async () => {
+    mockParams = { code: 'AAA111' };
+    apply.mockResolvedValue('applied');
+    const view = await render(<PartnerCode />);
+    mockParams = { code: 'BBB222' };
+    await view.rerender(<PartnerCode />);
+    expect(apply).toHaveBeenCalledWith('AAA111', 'link');
+    expect(apply).toHaveBeenCalledWith('BBB222', 'link');
+    expect(apply).toHaveBeenCalledTimes(2);
+  });
+
+  it('can be closed while the code is still being checked', async () => {
+    mockParams = { code: 'PROFJOAO' };
+    apply.mockReturnValue(new Promise(() => {}));
+    await render(<PartnerCode />);
+    await fireEvent.press(screen.getByText('Close'));
+    expect(mockRouter.replace).toHaveBeenCalledWith('/');
+  });
+
+  it('a code waiting for a connection is not shown as an error', async () => {
+    mockParams = { code: 'PROFJOAO' };
+    apply.mockResolvedValue('pending');
+    await render(<PartnerCode />);
+    await screen.findByText("No connection right now. We'll confirm the code as soon as you're back online.");
+    expect(screen.queryByTestId('partner-badge')).toBeNull();
+  });
+
+  it('a code that is not found keeps the error badge', async () => {
+    mockParams = { code: 'NOPE' };
+    apply.mockResolvedValue('invalid');
+    await render(<PartnerCode />);
+    await screen.findByText('Code not found. Check it with the person who referred you.');
+    expect(screen.getByTestId('partner-badge')).toBeTruthy();
   });
 
   it('closing goes to the start with replace, never back into the link', async () => {

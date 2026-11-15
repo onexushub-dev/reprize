@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '../../components/Button';
 import { PartnerResult } from '../../components/PartnerResult';
 import { useT } from '../../i18n/useT';
 import { type ApplyResult, applyPartnerCode, partner } from '../../partner';
@@ -15,12 +16,16 @@ export default function PartnerLink() {
   const params = useLocalSearchParams<{ code?: string | string[] }>();
   const code = Array.isArray(params.code) ? params.code[0] : params.code;
   const [result, setResult] = useState<ApplyResult | null>(null);
-  const started = useRef(false);
+  // The code applied last: a new link while the screen stays mounted applies again, and only the latest answer is shown.
+  const applied = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void applyPartnerCode(code ?? '', 'link').then(setResult);
+    if (applied.current === code) return;
+    applied.current = code;
+    setResult(null);
+    void applyPartnerCode(code ?? '', 'link').then((r) => {
+      if (applied.current === code) setResult(r);
+    });
   }, [code]);
 
   // Opened straight from a link there is no screen behind this one: replace it, so closing never returns here.
@@ -31,7 +36,10 @@ export default function PartnerLink() {
       <View style={styles.body}>
         <Text style={styles.role}>{t('partner.title')}</Text>
         {result === null ? (
-          <ActivityIndicator color={colors.accent} />
+          <>
+            <ActivityIndicator color={colors.accent} />
+            <Button label={t('common.close')} variant="secondary" onPress={close} />
+          </>
         ) : (
           <PartnerResult
             result={result}

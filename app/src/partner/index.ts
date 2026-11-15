@@ -18,6 +18,14 @@ export const partner = createPartnerStore({
   onValid: (a) => void paymentsClient.setPartner(a.code, a.source),
 });
 
+/** A code is reported once per launch: a start and a link can both confirm the same one. */
+const announced = new Set<string>();
+function announce(code: string, source: PartnerSource): void {
+  if (announced.has(code)) return;
+  announced.add(code);
+  track('partner_code_applied', { code, source });
+}
+
 /** A code from a link, the install referrer or the typed field. Reports the result; a customer who has PRO never applies one. */
 export async function applyPartnerCode(raw: string, source: PartnerSource): Promise<ApplyResult> {
   // A fresh read, not getSnapshot(): at a cold start the store still holds the empty snapshot, and a subscriber opening a
@@ -26,7 +34,7 @@ export async function applyPartnerCode(raw: string, source: PartnerSource): Prom
   const result = await partner.apply(raw, source, { blocked: proActive });
   if (result === 'applied') {
     const code = partner.current()?.code;
-    if (code) track('partner_code_applied', { code, source });
+    if (code) announce(code, source);
   } else if (result === 'invalid' || result === 'locked') {
     track('partner_code_rejected', { source, reason: result });
   }
@@ -65,7 +73,7 @@ async function confirmAndAnnounce(): Promise<void> {
   await partner.start();
   const now = partner.current();
   if (hadPending && now?.status === 'valid' && (before?.status !== 'valid' || before.code !== now.code)) {
-    track('partner_code_applied', { code: now.code, source: now.source });
+    announce(now.code, now.source);
   }
 }
 

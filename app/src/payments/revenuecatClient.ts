@@ -31,6 +31,8 @@ export function outcomeFor(result: string): PaywallOutcome {
 export function createRevenueCatClient(): PaymentsClient {
   let configured = false;
   let attempted = false;
+  // The partner writes go one after the other: two quick ones must not leave attributes from different codes.
+  let partnerWrites: Promise<void> = Promise.resolve();
 
   return {
     configure(): void {
@@ -92,16 +94,19 @@ export function createRevenueCatClient(): PaymentsClient {
       return toSnapshot(await Purchases.restorePurchases());
     },
 
-    async setPartner(code, source) {
-      if (!configured) return;
-      try {
-        await Purchases.setAttributes({ partner_code: code, partner_source: source });
-        await Purchases.setMediaSource('partner');
-        await Purchases.setCampaign(code);
-      } catch (e) {
-        if (__DEV__) console.warn('[payments] setPartner failed', e);
-        // retried at the next start while the attribution exists
-      }
+    setPartner(code, source) {
+      if (!configured) return Promise.resolve();
+      partnerWrites = partnerWrites.then(async () => {
+        try {
+          await Purchases.setAttributes({ partner_code: code, partner_source: source });
+          await Purchases.setMediaSource('partner');
+          await Purchases.setCampaign(code);
+        } catch (e) {
+          if (__DEV__) console.warn('[payments] setPartner failed', e);
+          // retried at the next start while the attribution exists
+        }
+      });
+      return partnerWrites;
     },
 
     async redeemOfferCode(code) {

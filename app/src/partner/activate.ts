@@ -10,5 +10,5 @@ import { redeemPartnerOffer } from './index';
  */
 export async function activatePartnerDiscount(t: TFunction): Promise<void> {
   if (Platform.OS === 'ios') await redeemPartnerOffer(t);
-  else await openPaywall(t, 'upgrade_card');
+  else await openPaywall(t, 'partner');
 }

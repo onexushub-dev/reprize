@@ -19,6 +19,12 @@ describe('codeFromUrl', () => {
     expect(codeFromUrl('https://www.reprizeapp.com/p/PROFJOAO/?utm=x')).toBe('PROFJOAO');
     expect(codeFromUrl('reprize://p/profjoao')).toBe('PROFJOAO');
   });
+  it('finds a link without the scheme or inside a sentence', () => {
+    expect(codeFromUrl('reprizeapp.com/p/ana')).toBe('ANA');
+    expect(codeFromUrl('Use meu link https://reprizeapp.com/p/profjoao, valeu!')).toBe('PROFJOAO');
+    expect(codeFromUrl('https://evil.example/reprizeapp.com/p/ABC')).toBeNull();
+    expect(codeFromUrl('notreprizeapp.com/p/ABC')).toBeNull();
+  });
   it('ignores other paths, other hosts and text that is not a link', () => {
     expect(codeFromUrl('https://reprizeapp.com/privacy')).toBeNull();
     expect(codeFromUrl('https://evil.example/p/PROFJOAO')).toBeNull();

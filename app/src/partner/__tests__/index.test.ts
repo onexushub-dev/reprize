@@ -95,6 +95,18 @@ describe('applyPartnerCode', () => {
   });
 });
 
+describe('partner_code_applied is sent once per code', () => {
+  it('a pending code confirmed by the start and by the link at the same time is one event', async () => {
+    mockClient.partners.mockResolvedValue(null);
+    await load().applyPartnerCode('PROFJOAO', 'link'); // an earlier launch, offline
+    mockClient.partners.mockResolvedValue(DIR);
+    mockTrack.mockClear();
+    const again = load();
+    await Promise.all([again.startPartner(), again.applyPartnerCode('PROFJOAO', 'link')]);
+    expect(sent().filter(([name]) => name === 'partner_code_applied')).toHaveLength(1);
+  });
+});
+
 describe('startPartner', () => {
   it('confirms a pending code once the directory loads and reports it then', async () => {
     mockClient.partners.mockResolvedValue(null);

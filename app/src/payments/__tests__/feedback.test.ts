@@ -189,6 +189,20 @@ describe('openPaywall with a partner attribution', () => {
     expect(lock).toHaveBeenCalledTimes(1);
   });
 
+  it('iOS: a second tap while the choice is open does not stack another alert', async () => {
+    Platform.OS = 'ios';
+    let answer: (() => void) | undefined;
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(((_t: string, _m: unknown, buttons: { text: string; onPress?: () => void }[]) => {
+      answer = () => buttons.find((b) => b.text === t('partner.later'))?.onPress?.();
+    }) as never);
+    const first = openPaywall(t, 'upgrade_card');
+    await Promise.resolve();
+    await expect(openPaywall(t, 'upgrade_card')).resolves.toBe('cancelled');
+    expect(alert).toHaveBeenCalledTimes(1);
+    answer?.();
+    await first;
+  });
+
   it('iOS: dismissing the choice opens nothing', async () => {
     Platform.OS = 'ios';
     jest.spyOn(Alert, 'alert').mockImplementation(((_title: string, _msg: unknown, buttons: { text: string; onPress?: () => void }[]) => {

@@ -12,9 +12,10 @@ export function normalizeCode(raw: string): string | null {
   return code.length >= MIN && code.length <= MAX ? code : null;
 }
 
+// A link anywhere in a pasted text, with or without the scheme; the host must start the word, so lookalike hosts do not match.
 const LINK_PATTERNS = [
-  /^https?:\/\/(?:www\.)?reprizeapp\.com\/p\/([^/?#]+)/i,
-  /^reprize:\/\/p\/([^/?#]+)/i,
+  /(?:^|[\s(<"'])(?:https?:\/\/)?(?:www\.)?reprizeapp\.com\/p\/([^/?#\s,;)>"']+)/i,
+  /(?:^|[\s(<"'])reprize:\/\/p\/([^/?#\s,;)>"']+)/i,
 ];
 
 function decode(s: string): string {
@@ -25,7 +26,7 @@ function decode(s: string): string {
   }
 }
 
-/** The code in a partner link (`https://reprizeapp.com/p/CODE` or `reprize://p/CODE`); null for any other text. */
+/** The code in a partner link (`https://reprizeapp.com/p/CODE`, `reprizeapp.com/p/CODE` or `reprize://p/CODE`), alone or inside a text; null otherwise. */
 export function codeFromUrl(url: string): string | null {
   const text = url.trim();
   for (const pattern of LINK_PATTERNS) {

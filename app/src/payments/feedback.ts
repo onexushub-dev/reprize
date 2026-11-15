@@ -27,6 +27,8 @@ async function show(t: TFunction, source: PaywallSource, offering: Offering, cod
   return outcome;
 }
 
+let choosing = false;
+
 /** iPhone: the discount is an Apple offer code, so the player chooses between it and the plans at the normal price. */
 function chooseOffer(t: TFunction, a: Attribution): Promise<'discount' | 'all' | 'later'> {
   return new Promise((resolve) =>
@@ -56,7 +58,14 @@ export async function openPaywall(t: TFunction, source: PaywallSource, offering:
     return show(t, source, 'partner', offer.code);
   }
   if (Platform.OS === 'ios') {
-    const choice = await chooseOffer(t, offer);
+    if (choosing) return 'cancelled'; // a second tap while the choice is open
+    choosing = true;
+    let choice: Awaited<ReturnType<typeof chooseOffer>>;
+    try {
+      choice = await chooseOffer(t, offer);
+    } finally {
+      choosing = false;
+    }
     if (choice === 'all') return show(t, source, 'default', offer.code);
     if (choice === 'discount') await redeemPartnerOffer(t);
     return 'cancelled';

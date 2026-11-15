@@ -34,7 +34,7 @@ Cada parceiro tem **um código** (3 a 20 letras e números, ex.: `PROFJOAO`) que
 | Aberturas do link de cada parceiro | Vercel → Web Analytics → páginas `/p/CODE` |
 | Instalações no iPhone por parceiro | App Store Connect → App Analytics → Campanhas (precisa do token de provedor em `PUBLIC_APP_STORE_PROVIDER_TOKEN`) |
 | Códigos aplicados, por origem | PostHog → evento `partner_code_applied`, por `code` e `source` |
-| Da oferta à assinatura, por parceiro | PostHog → funil `paywall_viewed` → `purchase_completed`, por `partner` |
+| Da oferta à assinatura, por parceiro | PostHog → funil por `partner`: no Android `paywall_viewed` → `purchase_completed`; no iPhone `partner_offer_opened` (via `offer_code`) → `purchase_completed` (o resgate da Apple não passa pelo paywall) |
 | Assinantes e receita por parceiro (renovações e reembolsos incluídos) | RevenueCat → Customers, filtro pelo atributo `partner_code`; exporte todo mês |
 | Resgates por código no iPhone (conferência) | App Store Connect → oferta `PARCEIROS` |
 
