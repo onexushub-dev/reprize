@@ -25,6 +25,7 @@ const DIR = { PROFJOAO: { name: 'Prof. João' }, MARIA10: { name: 'Maria' } };
 function load(): typeof import('../index') {
   let mod!: typeof import('../index');
   jest.isolateModules(() => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     mod = require('../index');
   });
   return mod;
