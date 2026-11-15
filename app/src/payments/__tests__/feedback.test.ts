@@ -2,15 +2,17 @@ import { Alert, Platform } from 'react-native';
 
 import { track } from '../../analytics';
 import { translate } from '../../i18n';
-import { partner, redeemPartnerOffer } from '../../partner';
+import { disarmRedemption, partner, redeemPartnerOffer, refreshPartner } from '../../partner';
 import { openPaywall, restorePurchases } from '../feedback';
 import { payments } from '..';
 
 jest.mock('../../analytics', () => ({ track: jest.fn() }));
-jest.mock('..', () => ({ payments: { showPaywall: jest.fn(), restore: jest.fn() } }));
+jest.mock('..', () => ({ payments: { showPaywall: jest.fn(), restore: jest.fn(), getSnapshot: jest.fn(() => ({ proActive: false })) } }));
 jest.mock('../../partner', () => ({
   partner: { active: jest.fn(() => null), lock: jest.fn() },
   redeemPartnerOffer: jest.fn(async () => {}),
+  refreshPartner: jest.fn(async () => {}),
+  disarmRedemption: jest.fn(),
 }));
 
 const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate('en', key, params);
@@ -196,6 +198,42 @@ describe('openPaywall with a partner attribution', () => {
     expect(showPaywall).not.toHaveBeenCalled();
     expect(redeem).not.toHaveBeenCalled();
     expect(sent()).toEqual([]);
+  });
+});
+
+describe('openPaywall guards around the partner discount', () => {
+  const active = partner.active as jest.Mock;
+  const getSnapshot = payments.getSnapshot as jest.Mock;
+  const attribution = { code: 'PROFJOAO', name: 'Prof. João', source: 'link', appliedAt: 1, status: 'valid' };
+
+  beforeEach(() => {
+    active.mockReturnValue(attribution);
+    getSnapshot.mockReturnValue({ proActive: false });
+    Platform.OS = 'android';
+    showPaywall.mockResolvedValue('cancelled');
+  });
+  afterEach(() => {
+    active.mockReturnValue(null);
+    Platform.OS = 'ios';
+  });
+
+  it('a PRO customer never gets the partner paywall', async () => {
+    getSnapshot.mockReturnValue({ proActive: true });
+    await openPaywall(t, 'upgrade_card');
+    expect(showPaywall).toHaveBeenCalledWith('default');
+  });
+
+  it('asks the directory again for a code waiting offline before deciding, for the PRO paywall only', async () => {
+    await openPaywall(t, 'upgrade_card');
+    expect(refreshPartner).toHaveBeenCalledTimes(1);
+    (refreshPartner as jest.Mock).mockClear();
+    await openPaywall(t, 'export_limit', 'pass');
+    expect(refreshPartner).not.toHaveBeenCalled();
+  });
+
+  it.each(['default', 'pass'] as const)('any paywall (%s) ends the wait for Apple\'s redemption', async (offering) => {
+    await openPaywall(t, 'upgrade_card', offering);
+    expect(disarmRedemption).toHaveBeenCalledTimes(1);
   });
 });
 

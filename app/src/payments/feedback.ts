@@ -3,7 +3,7 @@ import { Alert, Platform } from 'react-native';
 import { track } from '../analytics';
 import type { PaywallSource } from '../analytics/events';
 import type { TFunction } from '../i18n';
-import { type Attribution, partner, redeemPartnerOffer } from '../partner';
+import { type Attribution, disarmRedemption, partner, redeemPartnerOffer, refreshPartner } from '../partner';
 import type { PaywallOutcome } from './client';
 import type { Offering } from './types';
 import { payments } from '.';
@@ -13,6 +13,7 @@ import { payments } from '.';
  * locks the attribution.
  */
 async function show(t: TFunction, source: PaywallSource, offering: Offering, code?: string): Promise<PaywallOutcome> {
+  disarmRedemption(); // what is bought next is this paywall's purchase, not Apple's redemption
   const tag = code ? { partner: code } : {};
   track('paywall_viewed', { source, offering, ...tag });
   const outcome = await payments.showPaywall(offering);
@@ -45,7 +46,10 @@ function chooseOffer(t: TFunction, a: Attribution): Promise<'discount' | 'all' |
  * discount there is an Apple offer code). The Single Pass is never touched.
  */
 export async function openPaywall(t: TFunction, source: PaywallSource, offering: Offering = 'default'): Promise<PaywallOutcome> {
-  const offer = offering === 'default' ? partner.active() : null;
+  if (offering === 'default') await refreshPartner(); // a code applied offline may be valid by now
+  // A PRO customer never sees the discount: the code may have been applied before their purchases had loaded.
+  const attribution = offering === 'default' ? partner.active() : null;
+  const offer = attribution !== null && !payments.getSnapshot().proActive ? attribution : null;
   if (offer === null) return show(t, source, offering);
   if (Platform.OS === 'android') {
     track('partner_offer_opened', { code: offer.code, via: 'paywall' });

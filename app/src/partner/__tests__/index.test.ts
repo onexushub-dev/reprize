@@ -4,7 +4,15 @@ import { translate } from '../../i18n';
 
 const mockData = new Map<string, string>();
 const mockTrack = jest.fn();
-const mockPayments = { getSnapshot: jest.fn(), refresh: jest.fn() };
+let mockSubscriber: (() => void) | undefined;
+const mockPayments = {
+  getSnapshot: jest.fn(),
+  refresh: jest.fn(),
+  subscribe: jest.fn((fn: () => void) => {
+    mockSubscriber = fn;
+    return () => {};
+  }),
+};
 const mockClient = { partners: jest.fn(), setPartner: jest.fn(), redeemOfferCode: jest.fn() };
 const mockReferrer = jest.fn();
 
@@ -45,6 +53,7 @@ beforeEach(() => {
   mockClient.redeemOfferCode.mockResolvedValue(true);
   mockReferrer.mockResolvedValue('utm_source=google-play&utm_medium=organic');
   appStateHandler = undefined;
+  mockSubscriber = undefined;
   jest.spyOn(AppState, 'addEventListener').mockImplementation(((_: string, fn: (s: string) => void) => {
     appStateHandler = fn;
     return { remove: removeSub };
@@ -69,8 +78,9 @@ describe('applyPartnerCode', () => {
     expect(sent()).toEqual([['partner_code_rejected', { source: 'typed', reason: 'invalid' }]]);
   });
 
-  it('does not apply a code for a customer who already has PRO', async () => {
-    mockPayments.getSnapshot.mockReturnValue({ proActive: true, passTransactions: [] });
+  it('does not apply a code for a customer who already has PRO, even before the first snapshot has loaded', async () => {
+    // cold start: the store still answers with the empty snapshot, a fresh read says PRO
+    mockPayments.refresh.mockResolvedValue({ proActive: true, passTransactions: [] });
     const { applyPartnerCode, partner } = load();
     expect(await applyPartnerCode('PROFJOAO', 'typed')).toBe('locked');
     expect(partner.current()).toBeNull();
@@ -120,7 +130,21 @@ describe('startPartner', () => {
   });
 });
 
+const PRO = { proActive: true, passTransactions: [] };
+const FREE = { proActive: false, passTransactions: [] };
+const settle = () => new Promise((r) => setImmediate(r));
+
 describe('redeemPartnerOffer (iPhone)', () => {
+  async function redeemed() {
+    const mod = load();
+    await mod.startPartner(); // registers the listeners
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    mockTrack.mockClear();
+    await mod.redeemPartnerOffer(t);
+    mockTrack.mockClear();
+    return mod;
+  }
+
   it('opens the redemption for the active code and reports it', async () => {
     const { applyPartnerCode, redeemPartnerOffer } = load();
     await applyPartnerCode('PROFJOAO', 'link');
@@ -130,46 +154,97 @@ describe('redeemPartnerOffer (iPhone)', () => {
     expect(sent()).toEqual([['partner_offer_opened', { code: 'PROFJOAO', via: 'offer_code' }]]);
   });
 
-  it('tells the player when the redemption cannot be opened', async () => {
+  it('tells the player when the redemption cannot be opened, and arms nothing', async () => {
     mockClient.redeemOfferCode.mockResolvedValue(false);
-    const { applyPartnerCode, redeemPartnerOffer } = load();
-    await applyPartnerCode('PROFJOAO', 'link');
-    await redeemPartnerOffer(t);
+    const mod = load();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    await mod.redeemPartnerOffer(t);
     expect(Alert.alert).toHaveBeenCalledWith(t('partner.redeemError'));
-    expect(appStateHandler).toBeUndefined();
+    mockPayments.getSnapshot.mockReturnValue(PRO);
+    mockTrack.mockClear();
+    mockSubscriber?.();
+    await settle();
+    expect(sent()).toEqual([]);
+  });
+
+  it('does nothing for a customer who already has PRO', async () => {
+    const mod = load();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    mockPayments.getSnapshot.mockReturnValue(PRO);
+    await mod.redeemPartnerOffer(t);
+    expect(mockClient.redeemOfferCode).not.toHaveBeenCalled();
   });
 
   it('coming back without PRO records no purchase and leaves the attribution open', async () => {
-    const { applyPartnerCode, redeemPartnerOffer, partner } = load();
-    await applyPartnerCode('PROFJOAO', 'link');
-    mockTrack.mockClear();
-    await redeemPartnerOffer(t);
-    mockTrack.mockClear();
+    const mod = await redeemed();
     appStateHandler?.('active');
-    await new Promise((r) => setImmediate(r));
+    await settle();
     expect(sent()).toEqual([]);
-    expect(partner.active()?.code).toBe('PROFJOAO');
+    expect(mod.partner.active()?.code).toBe('PROFJOAO');
   });
 
-  it('coming back with PRO records purchase_completed once and locks the attribution', async () => {
-    const { applyPartnerCode, redeemPartnerOffer, partner } = load();
-    await applyPartnerCode('PROFJOAO', 'link');
-    await redeemPartnerOffer(t);
-    mockTrack.mockClear();
-    mockPayments.refresh.mockResolvedValue({ proActive: true, passTransactions: [] });
-    appStateHandler?.('active');
-    await new Promise((r) => setImmediate(r));
+  it('PRO delivered by the SDK listener before the app is back is still the purchase: recorded once, attribution locked', async () => {
+    const mod = await redeemed();
+    mockPayments.getSnapshot.mockReturnValue(PRO); // the listener got there first
+    mockSubscriber?.();
+    appStateHandler?.('active'); // and the foreground return finds nothing left to record
+    mockPayments.refresh.mockResolvedValue(PRO);
+    await settle();
     expect(sent()).toEqual([['purchase_completed', { offering: 'default', partner: 'PROFJOAO' }]]);
-    expect(partner.active()).toBeNull();
-    expect(partner.current()?.lockedAt).toBeDefined();
-    expect(removeSub).toHaveBeenCalled();
+    expect(mod.partner.active()).toBeNull();
+    expect(mod.partner.current()?.lockedAt).toBeDefined();
   });
 
-  it('ignores a background change', async () => {
-    const { applyPartnerCode, redeemPartnerOffer } = load();
-    await applyPartnerCode('PROFJOAO', 'link');
-    await redeemPartnerOffer(t);
-    appStateHandler?.('background');
-    expect(mockPayments.refresh).not.toHaveBeenCalled();
+  it('survives the app being killed while the App Store is in front', async () => {
+    await redeemed();
+    mockPayments.refresh.mockResolvedValue(PRO);
+    mockPayments.getSnapshot.mockReturnValue(PRO);
+    const next = load(); // a new launch, same storage
+    await next.startPartner();
+    expect(sent()).toEqual([['purchase_completed', { offering: 'default', partner: 'PROFJOAO' }]]);
+    expect(next.partner.current()?.lockedAt).toBeDefined();
+  });
+
+  it('a purchase made through a paywall instead disarms the redemption: no second record', async () => {
+    const mod = await redeemed();
+    mod.disarmRedemption(); // openPaywall calls this when any paywall opens
+    mockPayments.getSnapshot.mockReturnValue(PRO);
+    mockSubscriber?.();
+    await settle();
+    expect(sent()).toEqual([]);
+  });
+
+  it('a redemption left unfinished for two days no longer counts (a later restore is not a partner purchase)', async () => {
+    const realNow = Date.now;
+    const mod = await redeemed();
+    Date.now = () => realNow() + 49 * 3600 * 1000;
+    try {
+      mockPayments.getSnapshot.mockReturnValue(PRO);
+      mockSubscriber?.();
+      await settle();
+      expect(sent()).toEqual([]);
+    } finally {
+      Date.now = realNow;
+    }
+    expect(mod.partner.current()?.lockedAt).toBeUndefined();
+  });
+});
+
+describe('refreshPartner', () => {
+  it('confirms a code applied offline as soon as the app is used again, without a restart', async () => {
+    mockClient.partners.mockResolvedValue(null);
+    const mod = load();
+    expect(await mod.applyPartnerCode('PROFJOAO', 'typed')).toBe('pending');
+    expect(mod.partner.active()).toBeNull();
+    mockClient.partners.mockResolvedValue(DIR);
+    await mod.refreshPartner();
+    expect(mod.partner.active()?.name).toBe('Prof. João');
+    expect(sent()).toEqual([['partner_code_applied', { code: 'PROFJOAO', source: 'typed' }]]);
+  });
+
+  it('is a no-op when nothing is waiting', async () => {
+    const mod = load();
+    await mod.refreshPartner();
+    expect(mockClient.partners).not.toHaveBeenCalled();
   });
 });

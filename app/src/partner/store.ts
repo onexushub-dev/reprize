@@ -18,6 +18,8 @@ export type Attribution = {
 export type ApplyResult = 'applied' | 'pending' | 'invalid' | 'locked';
 
 const KEY = 'partner.attribution';
+/** A code applied offline while a valid attribution exists: held beside it until the directory confirms or rejects it. */
+const CANDIDATE_KEY = 'partner.candidate';
 
 /**
  * One attribution per install, kept in storage. A newer valid code replaces an older one until the first purchase locks
@@ -33,26 +35,37 @@ export function createPartnerStore(o: {
   const { kv, directory, now, onValid } = o;
   const listeners = new Set<() => void>();
 
-  function load(): Attribution | null {
+  function load(key: string): Attribution | null {
     try {
-      const raw = kv.getString(KEY);
+      const raw = kv.getString(key);
       return raw === undefined ? null : (JSON.parse(raw) as Attribution);
     } catch {
       return null;
     }
   }
 
-  let state: Attribution | null = load();
+  let state: Attribution | null = load(KEY);
+  let candidate: Attribution | null = load(CANDIDATE_KEY);
 
-  function save(next: Attribution | null) {
-    state = next;
+  function write(key: string, next: Attribution | null) {
     try {
-      if (next === null) kv.delete(KEY);
-      else kv.set(KEY, JSON.stringify(next));
+      if (next === null) kv.delete(key);
+      else kv.set(key, JSON.stringify(next));
     } catch {
       // kept in memory for this run
     }
+  }
+
+  function save(next: Attribution | null) {
+    state = next;
+    write(KEY, next);
+    if (candidate !== null) saveCandidate(null); // a code in hand makes any held candidate moot
     listeners.forEach((fn) => fn());
+  }
+
+  function saveCandidate(next: Attribution | null) {
+    candidate = next;
+    write(CANDIDATE_KEY, next);
   }
 
   function valid(a: Attribution) {
@@ -72,22 +85,31 @@ export function createPartnerStore(o: {
   }
 
   return {
-    /** Confirms a pending code against the directory (drops it if absent), and re-announces a valid one. */
+    /** Re-announces a valid code, and confirms a pending one (or a held candidate) against the directory. */
     async start(): Promise<void> {
-      if (state === null) return;
-      if (state.status === 'valid') {
-        valid(state);
-        return;
-      }
+      if (state !== null && state.status === 'valid') valid(state);
+      const waiting = state !== null && state.status === 'pending' ? state : candidate;
+      if (waiting === null) return;
       const dir = await read();
       if (dir === null) return; // still offline: stays pending
-      const hit = dir[state.code];
-      if (!hit) {
-        save(null);
+      if (state?.lockedAt !== undefined) {
+        saveCandidate(null); // a purchase locked the attribution meanwhile
         return;
       }
-      save({ ...state, name: hit.name, status: 'valid' });
-      valid(state as Attribution);
+      const hit = dir[waiting.code];
+      if (!hit) {
+        if (waiting === candidate) saveCandidate(null);
+        else save(null);
+        return;
+      }
+      const confirmed: Attribution = { ...waiting, name: hit.name, status: 'valid' };
+      save(confirmed);
+      valid(confirmed);
+    },
+
+    /** True while a code waits for the directory (offline): the screen can say so, and a foreground return retries. */
+    pending(): boolean {
+      return candidate !== null || (state !== null && state.status === 'pending');
     },
 
     /** `blocked`: the customer already has PRO, so a discount code no longer applies. */
@@ -98,7 +120,10 @@ export function createPartnerStore(o: {
       const dir = await read();
       if (state?.lockedAt !== undefined) return 'locked'; // a purchase landed while the directory loaded
       if (dir === null) {
-        save({ code, name: code, source, appliedAt: now(), status: 'pending' });
+        const waiting: Attribution = { code, name: code, source, appliedAt: now(), status: 'pending' };
+        // A valid attribution is never traded for an unconfirmed code: the new one waits beside it.
+        if (state !== null && state.status === 'valid') saveCandidate(waiting);
+        else save(waiting);
         return 'pending';
       }
       const hit = dir[code];

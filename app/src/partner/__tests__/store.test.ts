@@ -154,3 +154,48 @@ describe('partner store', () => {
     expect(await store.apply('PROFJOAO', 'link')).toBe('applied');
   });
 });
+
+describe('a code applied offline beside a valid attribution', () => {
+  it('does not replace it, and is confirmed later', async () => {
+    const { store, state, onValid } = setup();
+    await store.apply('PROFJOAO', 'link');
+    state.dir = null;
+    expect(await store.apply('MARIA10', 'typed')).toBe('pending');
+    expect(store.active()?.code).toBe('PROFJOAO'); // the discount in hand stays
+    expect(store.pending()).toBe(true);
+    await store.start(); // still offline
+    expect(store.active()?.code).toBe('PROFJOAO');
+    state.dir = DIR;
+    onValid.mockClear();
+    await store.start();
+    expect(store.active()).toMatchObject({ code: 'MARIA10', source: 'typed', status: 'valid' });
+    expect(store.pending()).toBe(false);
+    expect(onValid).toHaveBeenCalledWith(expect.objectContaining({ code: 'MARIA10' }));
+  });
+
+  it('an offline typo is dropped on confirmation and the valid attribution stays', async () => {
+    const { store, state, make } = setup();
+    await store.apply('PROFJOAO', 'link');
+    state.dir = null;
+    await store.apply('TYPO123', 'typed');
+    state.dir = DIR;
+    const again = make(); // the candidate survives a restart
+    expect(again.pending()).toBe(true);
+    await again.start();
+    expect(again.active()?.code).toBe('PROFJOAO');
+    expect(again.pending()).toBe(false);
+  });
+
+  it('a purchase that locked the attribution drops the candidate', async () => {
+    const { store, state } = setup();
+    await store.apply('PROFJOAO', 'link');
+    state.dir = null;
+    await store.apply('MARIA10', 'typed');
+    store.lock();
+    state.dir = DIR;
+    await store.start();
+    expect(store.current()?.code).toBe('PROFJOAO');
+    expect(store.pending()).toBe(false);
+  });
+});
+
