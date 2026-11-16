@@ -248,6 +248,20 @@ class ReplayCameraModule : Module() {
 
     Function("cancelFocus") { clipPath: String -> FocusAnalyzer.cancel(clipPath) }
 
+    // Seguir a Bola, first use: milliseconds for one 19-region frame through the ball model (the JS decides from it).
+    AsyncFunction("probeBall") { promise: Promise ->
+      Thread({
+        try {
+          promise.resolve(expo.modules.replaycamera.ball.BallDetector.probe(context, expo.modules.replaycamera.ball.BallSport.basketball.modelId))
+        } catch (e: expo.modules.replaycamera.ball.BallDetector.NoModel) {
+          promise.reject("BALL_NO_MODEL", "The ball model is missing from this build", null)
+        } catch (e: Throwable) {
+          android.util.Log.e("ReprizeBall", "probe failed", e)
+          promise.reject("BALL_FAILED", "$e", null)
+        }
+      }, "ball-probe").start()
+    }
+
     Function("videoShape") { clipPath: String -> ClipThumbnail.shape(clipPath) }
 
     AsyncFunction("createThumbnail") { clipPath: String, atMs: Double -> ClipThumbnail.make(clipPath, atMs) }
