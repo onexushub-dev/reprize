@@ -5,15 +5,15 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** Port of `BallZoomParams`. */
-class BallZoomParams {
-  var maxUpscale = 2.2
-  var factorLandscape = 1.0
-  var factorPortrait = 1.2
-  var miss = 0.03
-  var minShare = 0.35
-  var fixedLandscape: Double? = null
-  var maxUpscalePortrait: Double? = null
-
+data class BallZoomParams(
+  var maxUpscale: Double = 2.2,
+  var factorLandscape: Double = 1.0,
+  var factorPortrait: Double = 1.2,
+  var miss: Double = 0.03,
+  var minShare: Double = 0.35,
+  var fixedLandscape: Double? = null,
+  var maxUpscalePortrait: Double? = null,
+) {
   companion object {
     /** Beach tennis (test 46d). */
     val beachTennis: BallZoomParams get() = BallZoomParams().apply { fixedLandscape = 1.0; maxUpscalePortrait = 1.5 }

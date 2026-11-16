@@ -5,17 +5,17 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** Port of `BallTrustParams`. */
-class BallTrustParams {
-  var areaMax = 0.003
-  var boxMaxFrac = 0.06
-  var fillMin = 0.45
-  var mainMin = 0.7
-  var aspectMax = 3.0
-  var jumpFrac = 0.09
-  var jumpCap = 8
-  var stillFrac = 0.012
-  var stillWin = 10
-}
+data class BallTrustParams(
+  var areaMax: Double = 0.003,
+  var boxMaxFrac: Double = 0.06,
+  var fillMin: Double = 0.45,
+  var mainMin: Double = 0.7,
+  var aspectMax: Double = 3.0,
+  var jumpFrac: Double = 0.09,
+  var jumpCap: Int = 8,
+  var stillFrac: Double = 0.012,
+  var stillWin: Int = 10,
+)
 
 /**
  * The ball path's points the camera may follow (port of `BallTrust.swift`, the lab's `hybrid.trusted`): a point is

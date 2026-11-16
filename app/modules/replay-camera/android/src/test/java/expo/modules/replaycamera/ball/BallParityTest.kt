@@ -133,4 +133,23 @@ class BallParityTest {
       assertEquals(rhs[i], s, 1e-12)
     }
   }
+
+  /** End to end: candidates → path → trusted → zoom → rects, as the app will run it. */
+  @Test fun endToEnd() {
+    for (c in cases) {
+      val clip = c.getString("clip")
+      val e = c.getJSONObject("expect")
+      val label = size(c, "labelSize")
+      val tr = BallTrust.trusted(path(c), label[0], label[1])
+      val v = size(c, "videoSize")
+      val today = rows(c.getJSONArray("todayPortrait"))
+      val z = BallZoom.zoom(tr, today, rows(c.getJSONArray("todayNative")), v[0], v[1]).zoom
+      assertEquals(clip, e.getDouble("zoom"), z, 1e-9)
+      val rects = BallCamera.rects(tr, today, v[0], v[1], z, BallSport.basketball.camera)
+      val want = rows(e.getJSONArray("rects"))
+      var worst = 0.0
+      for (i in 0 until minOf(want.size, rects.size)) for (j in 0 until 4) worst = maxOf(worst, Math.abs(rects[i][j] - want[i][j]))
+      assertTrue("$clip rect max diff $worst", worst < 1e-5)
+    }
+  }
 }

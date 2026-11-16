@@ -5,16 +5,16 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** Port of `BallCameraParams` (the lab's story camera C). */
-class BallCameraParams {
-  var deadZone = 0.10
-  var smoothA = 3.0
-  var smoothB = 300.0
-  var weightNoBall = 0.2
-  var anchorY = 0.05
-  var top = 0.15
-  var bottom = 0.10
-  var bridge = 10
-
+data class BallCameraParams(
+  var deadZone: Double = 0.10,
+  var smoothA: Double = 3.0,
+  var smoothB: Double = 300.0,
+  var weightNoBall: Double = 0.2,
+  var anchorY: Double = 0.05,
+  var top: Double = 0.15,
+  var bottom: Double = 0.10,
+  var bridge: Int = 10,
+) {
   companion object {
     /** Basketball (test 50). */
     val basketball: BallCameraParams get() = BallCameraParams().apply { smoothA = 1.0; smoothB = 100.0 }

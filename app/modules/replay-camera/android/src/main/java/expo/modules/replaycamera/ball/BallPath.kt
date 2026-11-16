@@ -7,30 +7,30 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** The ball path's numbers (port of `BallPathParams`: the lab's `ball_track.py` `P` + `SPORT_P`). */
-class BallPathParams {
-  var boxMax = 0.06
-  var aspectMax = 2.5
-  var conf = 0.05
-  var stillR = 0.02
-  var stillShare = 0.2
-  var stillWin = 20
-  var s0 = 0.05
-  var vmax = 0.12
-  var moveCost = 1.0
-  var dpGap = 10
-  var stillCost = 0.05
-  var minLen = 3
-  var personRatio = 0.0
-  var personAsp = 0.0
-  var personW = 0.0
-  var personEdge = 0.01
-  var headTop = 0.0
-  var headW = 0.0
-  var flat = 0
-  var flatDy = 0.03
-  var flatDx = 0.04
-  var flatPad = 0.2
-
+data class BallPathParams(
+  var boxMax: Double = 0.06,
+  var aspectMax: Double = 2.5,
+  var conf: Double = 0.05,
+  var stillR: Double = 0.02,
+  var stillShare: Double = 0.2,
+  var stillWin: Int = 20,
+  var s0: Double = 0.05,
+  var vmax: Double = 0.12,
+  var moveCost: Double = 1.0,
+  var dpGap: Int = 10,
+  var stillCost: Double = 0.05,
+  var minLen: Int = 3,
+  var personRatio: Double = 0.0,
+  var personAsp: Double = 0.0,
+  var personW: Double = 0.0,
+  var personEdge: Double = 0.01,
+  var headTop: Double = 0.0,
+  var headW: Double = 0.0,
+  var flat: Int = 0,
+  var flatDy: Double = 0.03,
+  var flatDx: Double = 0.04,
+  var flatPad: Double = 0.2,
+) {
   companion object {
     /** Basketball (tests 35, 50). */
     val basketball: BallPathParams
