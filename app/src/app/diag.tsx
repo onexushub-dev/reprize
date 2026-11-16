@@ -3,7 +3,7 @@ import { File } from 'expo-file-system';
 import { Redirect, router } from 'expo-router';
 import { shareAsync } from 'expo-sharing';
 import { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -17,6 +17,7 @@ import {
   diagText,
   parseLine,
 } from '../diag/diagLog';
+import { labEvalAndroid } from '../../modules/replay-camera';
 import { energyBlocks, energyText } from '../diag/energyTest';
 import { ballDetPath, ballPath } from '../data/ballFile';
 import { focusPath, peoplePath } from '../data/focusFile';
@@ -122,6 +123,34 @@ function LabSwitches() {
       {row('Passe', [[0, 'Lado a lado (padrão)'], [1, 'Um após o outro']], sequential, pickSequential)}
       <Pressable accessibilityRole="button" onPress={resetAll} hitSlop={8} style={styles.labReset}>
         <Text style={styles.linkSoft}>Zerar análises de todos os clipes</Text>
+      </Pressable>
+      {Platform.OS === 'android' ? <AndroidEval /> : null}
+    </View>
+  );
+}
+
+/**
+ * TEMP(lab-android, plan 2026-11-16 task 12): Modo Foco's evaluation on this phone over the clips pushed by
+ * `android_eval.py push` (native LabEval); its lines go to logcat (ReprizeEval), the result here.
+ */
+function AndroidEval() {
+  const [busy, setBusy] = useState(false);
+  const go = (which: 'run' | 'reference') => {
+    if (busy) return;
+    setBusy(true);
+    diag(`Avaliação Android: ${which === 'run' ? 'começou' : 'referência começou'}`);
+    labEvalAndroid(which)
+      .then((line) => diag(line))
+      .catch((e: unknown) => diag(`Avaliação Android falhou: ${String(e)}`))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <View style={styles.labRow}>
+      <Pressable accessibilityRole="button" onPress={() => go('run')} hitSlop={8} style={styles.labReset}>
+        <Text style={styles.linkSoft}>{busy ? 'Avaliando…' : 'Avaliar clipes (Android)'}</Text>
+      </Pressable>
+      <Pressable accessibilityRole="button" onPress={() => go('reference')} hitSlop={8} style={styles.labReset}>
+        <Text style={styles.linkSoft}>Referência (Mac)</Text>
       </Pressable>
     </View>
   );

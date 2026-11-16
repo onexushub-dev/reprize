@@ -281,6 +281,13 @@ export function probeBall(): Promise<number> {
   return probe.call(ReplayCameraModule);
 }
 
+/** TEMP(lab-android): Modo Foco's evaluation on an Android phone (plan 2026-11-16 task 12). Rejects where it is missing. */
+export function labEvalAndroid(which: 'run' | 'reference'): Promise<string> {
+  const run = ReplayCameraModule.labEvalAndroid;
+  if (typeof run !== 'function') return Promise.reject(new Error('no Android evaluation here'));
+  return run.call(ReplayCameraModule, which);
+}
+
 /**
  * Test 43: Apple's scene classifier on 3 frames of the clip between `startMs` and `endMs`: each label's highest
  * confidence (>= 0.01), plus the floor ("_floorSand", "_floorTex"). Android has no scene classifier: the floor keys only.

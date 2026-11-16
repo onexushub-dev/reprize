@@ -283,6 +283,18 @@ class ReplayCameraModule : Module() {
       Thread({ promise.resolve(SportCheck.classify(clipPath, startMs, endMs)) }, "sport-check").start()
     }
 
+    // TEMP(lab-android): the evaluation on this phone (LabEval), from the Diagnóstico screen.
+    AsyncFunction("labEvalAndroid") { which: String, promise: Promise ->
+      Thread({
+        try {
+          promise.resolve(if (which == "reference") LabEval.reference(context) else LabEval.run(context))
+        } catch (e: Throwable) {
+          android.util.Log.e("ReprizeEval", "evaluation failed", e)
+          promise.reject("EVAL_FAILED", "$e", null)
+        }
+      }, "lab-eval").start()
+    }
+
     // Seguir a Bola: the cut's ball analysis and its 9:16 framing (see BallAnalyzer), on its own thread like Jogadores.
     AsyncFunction("analyzeBall") { o: AnalyzeBallOptions, promise: Promise ->
       val sport = expo.modules.replaycamera.ball.BallSport.of(o.sport)
