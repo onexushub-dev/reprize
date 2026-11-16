@@ -20,5 +20,16 @@ object BallMath {
     return Math.rint(v * s) / s
   }
 
-  fun mean(v: List<Double>): Double = v.sum() / v.size
+  fun mean(v: List<Double>): Double {
+    var s = 0.0
+    for (x in v) s += x // in order, as Swift's reduce
+    return s / v.size
+  }
+
+  /** numpy.median; 1 for none (as `BallZoom.median`). */
+  fun median(v: List<Double>): Double {
+    if (v.isEmpty()) return 1.0
+    val s = v.sorted()
+    return if (s.size % 2 == 1) s[s.size / 2] else (s[s.size / 2 - 1] + s[s.size / 2]) / 2
+  }
 }
