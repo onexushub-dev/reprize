@@ -44,4 +44,10 @@ class SportFloorTest {
     assertFalse(SportFloor.isSand(255.0, 128.0, 0.0))
     assertFalse(SportFloor.isSand(60.0, 50.0, 40.0))
   }
+
+  @Test fun theLabelsAreTheMediansRounded() {
+    val m = listOf(SportFloor.Measure(0.91234, 5.126), SportFloor.Measure(0.2, 1.0), SportFloor.Measure(0.8, 4.994))
+    assertEquals(mapOf("_floorSand" to 0.8, "_floorTex" to 4.99), SportFloor.labels(m))
+    assertEquals(emptyMap<String, Double>(), SportFloor.labels(emptyList()))
+  }
 }

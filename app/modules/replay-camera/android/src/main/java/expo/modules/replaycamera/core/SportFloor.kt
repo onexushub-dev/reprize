@@ -91,6 +91,13 @@ object SportFloor {
     return out
   }
 
+  /** The classifier's floor keys (as `SportCheck.swift`): the medians over the frames, 3 and 2 decimals; none without frames. */
+  fun labels(measures: List<Measure>): Map<String, Double> {
+    if (measures.isEmpty()) return emptyMap()
+    return mapOf("_floorSand" to round(median(measures.map { it.sand }) * 1000) / 1000,
+      "_floorTex" to round(median(measures.map { it.texture }) * 100) / 100)
+  }
+
   /** numpy.median; 0 for none. */
   fun median(v: List<Double>): Double {
     if (v.isEmpty()) return 0.0

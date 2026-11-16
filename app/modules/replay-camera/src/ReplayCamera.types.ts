@@ -120,7 +120,7 @@ export type ReplayCameraModuleEvents = {
   onDiag: (e: { message: string }) => void;
   onError: (e: { code: ReplayErrorCode; message: string }) => void;
   /**
-   * Seguir a Bola analysis progress (iOS only): `done` of `total` analysed frames of the cut. `state`: 'cooling' (waiting
+   * Seguir a Bola analysis progress: `done` of `total` analysed frames of the cut. `state`: 'cooling' (waiting
    * for the phone to cool before starting), 'running', 'framing' (computing the 9:16 camera, almost done).
    */
   onBallProgress: (e: { clipPath: string; done: number; total: number; state: 'cooling' | 'running' | 'framing' }) => void;
@@ -231,7 +231,7 @@ export type ExportClipOptions = {
   /** The visible part of the video (0..1 of its size) after a zoom; omit for the whole video. */
   crop?: { x: number; y: number; width: number; height: number };
   /**
-   * Modo Foco: follow this framing file's track (ignored when `crop` is set). iOS only. `fill`: the crop fills the whole
+   * Modo Foco: follow this framing file's track (ignored when `crop` is set). `fill`: the crop fills the whole
    * frame instead of the video's fitted spot (Seguir a Bola's 9:16 crop in a 9:16 frame).
    */
   focus?: { path: string; aspect: 'landscape' | 'portrait'; fill?: boolean };

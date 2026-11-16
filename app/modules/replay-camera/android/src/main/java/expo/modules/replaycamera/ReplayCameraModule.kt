@@ -38,6 +38,8 @@ class ExportCrop : Record {
 class ExportFocus : Record {
   @Field val path: String = ""
   @Field val aspect: String = "landscape"
+  /** Seguir a Bola's 9:16 crop fills the frame: on Android the cropped track is fitted to the output, which already fills it. */
+  @Field val fill: Boolean = false
 }
 
 class AnalyzeFocusOptions : Record {
@@ -275,6 +277,11 @@ class ReplayCameraModule : Module() {
     }
 
     Function("cancelFocus") { clipPath: String -> FocusAnalyzer.cancel(clipPath) }
+
+    // Test 51 on Android: only the floor (no scene classifier): "_floorSand" and "_floorTex" from 3 frames; {} when none decodes.
+    AsyncFunction("classifySport") { clipPath: String, startMs: Double, endMs: Double, promise: Promise ->
+      Thread({ promise.resolve(SportCheck.classify(clipPath, startMs, endMs)) }, "sport-check").start()
+    }
 
     // Seguir a Bola: the cut's ball analysis and its 9:16 framing (see BallAnalyzer), on its own thread like Jogadores.
     AsyncFunction("analyzeBall") { o: AnalyzeBallOptions, promise: Promise ->

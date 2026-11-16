@@ -1,5 +1,5 @@
 import { File } from 'expo-file-system';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import * as camera from '../../modules/replay-camera';
 import { setBallLabVariant } from '../data/ballFile';
@@ -8,11 +8,11 @@ import { onFileRemoved, repo } from '../data/mmkv';
 import { stagesText } from '../diag/clipTimings';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { focusEveryMs } from './appFocusQueue';
+import { ballShownForProbe } from './ballProbe';
 import { createBallQueue } from './ballQueue';
 import { autoSport, ballSportIdOf, inheritedSport, labelSummary, sportNeedsCheck, sportVerdict } from './sportCheck';
 
-/** Seguir a Bola's speed rule (spec 2026-11-09 §4.7, Victor: per typical cut): up to 400 ms per 19-region frame. */
-export const BALL_PROBE_MAX_MS = 400;
+export { BALL_PROBE_MAX_MS } from './ballProbe';
 
 /**
  * Bola's frames are scaled to 1920 wide before the ball search (4K only; Full HD is unchanged): Victor's decision after
@@ -122,12 +122,11 @@ AppState.addEventListener('change', (next) => {
 
 /**
  * Whether this phone shows Seguir a Bola: the native analysis is there and the one-time probe (run on first use) found
- * it fast enough. Unknown yet = shown; the probe decides once it ran.
+ * it fast enough (`ballShownForProbe`; on Android it does not hide the mode yet). Unknown yet = shown.
  */
 export function ballAvailable(): boolean {
   if (!camera.isBallSupported()) return false;
-  const ms = repo.getPrefs().ballProbeMs;
-  return ms === undefined || ms <= BALL_PROBE_MAX_MS;
+  return ballShownForProbe(repo.getPrefs().ballProbeMs, Platform.OS);
 }
 
 let probing = false;

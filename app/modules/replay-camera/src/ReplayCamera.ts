@@ -229,9 +229,8 @@ export function exportClip(opts: ExportClipOptions): Promise<ExportedClip> {
   return ReplayCameraModule.exportClip(opts);
 }
 
-// ---- Modo Foco (iOS only). Without the native functions there is no analysis.
+// ---- Modo Foco (iOS and Android). Without the native functions there is no analysis.
 
-/** Whether this phone can analyse clips for Modo Foco. False on Android and web. */
 /** Whether this phone records `quality` (4K needs a camera that has it); Full HD always. */
 export function supportsQuality(quality: Quality): boolean {
   if (quality !== '2160p30') return true;
@@ -256,7 +255,7 @@ export function cancelFocus(clipPath: string): void {
   if (typeof cancel === 'function') cancel.call(ReplayCameraModule, clipPath);
 }
 
-// ---- Seguir a Bola (iOS only). Without the native functions the option is not shown.
+// ---- Seguir a Bola (iOS and Android). Without the native functions the option is not shown.
 
 export function isBallSupported(): boolean {
   return typeof ReplayCameraModule.analyzeBall === 'function';
@@ -284,7 +283,8 @@ export function probeBall(): Promise<number> {
 
 /**
  * Test 43: Apple's scene classifier on 3 frames of the clip between `startMs` and `endMs`: each label's highest
- * confidence (>= 0.01). Empty where it cannot run.
+ * confidence (>= 0.01), plus the floor ("_floorSand", "_floorTex"). Android has no scene classifier: the floor keys only.
+ * Empty where it cannot run.
  */
 export function classifySport(clipPath: string, startMs: number, endMs: number): Promise<Record<string, number>> {
   const run = ReplayCameraModule.classifySport;
