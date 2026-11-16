@@ -1,5 +1,9 @@
 package expo.modules.replaycamera.ball
 
+import org.json.JSONArray
+import org.json.JSONObject
+import kotlin.math.ceil
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -10,6 +14,115 @@ object BallFraming {
   const val stepMs = 100.0
   /** Analyse every 2nd 100 ms frame (5 fps). */
   const val step = 2
+
+  /** One analysed picture of the clip: its presentation time and its candidates (0..1 of the upright frame). */
+  data class Detection(val tMs: Double, val candidates: List<BallCandidate>, val stale: List<BallCandidate> = emptyList())
+
+  /** The cut's grid: row k at `startMs + k × 100`, for every tick before `endMs`. */
+  fun rows(startMs: Double, endMs: Double): Int = max(0, ceil((endMs - startMs) / stepMs - 1e-9).toInt())
+
+  /** The detection that stands for tick `tick`: the first picture at or after it within its 100 ms. */
+  internal fun detection(tick: Double, sorted: List<Detection>): Detection? {
+    var lo = 0
+    var hi = sorted.size
+    while (lo < hi) {
+      val mid = (lo + hi) / 2
+      if (sorted[mid].tMs < tick - 0.5) lo = mid + 1 else hi = mid
+    }
+    return if (lo < sorted.size && sorted[lo].tMs < tick + stepMs - 0.5) sorted[lo] else null
+  }
+
+  /** Which grid frames to analyse (k ≡ phase mod step): the phase whose ticks the cache covers most; 0 for none. */
+  fun phase(startMs: Double, endMs: Double, cached: List<Detection>): Int {
+    val n = rows(startMs, endMs)
+    val sorted = cached.sortedBy { it.tMs }
+    var best = 0
+    var bestHits = -1
+    for (p in 0 until step) {
+      val hits = (p until n step step).count { detection(startMs + it * stepMs, sorted) != null }
+      if (hits > bestHits) { best = p; bestHits = hits }
+    }
+    return best
+  }
+
+  /** The ticks (ms) of the analysed grid frames that the cache does not have yet. */
+  fun missingTicks(startMs: Double, endMs: Double, phase: Int, cached: List<Detection>): List<Double> {
+    val sorted = cached.sortedBy { it.tMs }
+    if (phase >= rows(startMs, endMs)) return emptyList()
+    return (phase until rows(startMs, endMs) step step).map { startMs + it * stepMs }.filter { detection(it, sorted) == null }
+  }
+
+  /** The grid the path reads (candidates on the analysed frames that have a picture, null elsewhere) and the held evidence. */
+  fun grids(startMs: Double, endMs: Double, phase: Int, detections: List<Detection>): Pair<List<List<BallCandidate>?>, List<List<BallCandidate>?>> {
+    val n = rows(startMs, endMs)
+    val sorted = detections.sortedBy { it.tMs }
+    val out = arrayOfNulls<List<BallCandidate>>(n)
+    val held = arrayOfNulls<List<BallCandidate>>(n)
+    if (phase < n) for (k in phase until n step step) {
+      val d = detection(startMs + k * stepMs, sorted)
+      out[k] = d?.candidates
+      held[k] = d?.stale
+    }
+    return Pair(out.toList(), held.toList())
+  }
+
+  private fun candidateRows(c: List<BallCandidate>) = JSONArray(c.map { JSONArray(listOf(it.cx, it.cy, it.width, it.height, it.score)) })
+
+  /** `<clip>.balldet.json`: every analysed picture's candidates, valid while the model is the same; the screens found. */
+  fun detectionsJSON(dets: List<Detection>, width: Int, height: Int, model: String, screens: List<List<Double>>): JSONObject {
+    val f = JSONObject().put("v", 1).put("model", model).put("size", JSONArray(listOf(width, height)))
+      .put("frames", JSONArray(dets.sortedBy { it.tMs }.map { d ->
+        val fr = JSONObject().put("t", BallMath.roundTo(d.tMs, 3)).put("c", candidateRows(d.candidates))
+        if (d.stale.isNotEmpty()) fr.put("s", candidateRows(d.stale))
+        fr
+      }))
+    if (screens.isNotEmpty()) f.put("screens", JSONArray(screens.map { JSONArray(it) }))
+    return f
+  }
+
+  /** The video screens kept in `<clip>.balldet.json` (none when absent). */
+  fun screens(json: JSONObject?): List<List<Double>> {
+    val s = json?.optJSONArray("screens") ?: return emptyList()
+    return (0 until s.length()).mapNotNull { i -> s.optJSONArray(i)?.let { a -> if (a.length() == 4) (0 until 4).map { a.getDouble(it) } else null } }
+  }
+
+  /** Reads `<clip>.balldet.json`; anything unreadable, another model or another frame size gives an empty cache. */
+  fun detections(json: JSONObject?, width: Int, height: Int, model: String): List<Detection> {
+    val f = json ?: return emptyList()
+    return try {
+      if (f.optInt("v") != 1 || f.optString("model") != model) return emptyList()
+      val size = f.getJSONArray("size")
+      if (size.length() != 2 || size.getInt(0) != width || size.getInt(1) != height) return emptyList()
+      val frames = f.getJSONArray("frames")
+      fun cands(a: JSONArray?): List<BallCandidate> = if (a == null) emptyList() else (0 until a.length()).mapNotNull { i ->
+        val v = a.getJSONArray(i)
+        if (v.length() == 5) BallCandidate(v.getDouble(0), v.getDouble(1), v.getDouble(2), v.getDouble(3), v.getDouble(4)) else null
+      }
+      (0 until frames.length()).mapNotNull { i ->
+        val fr = frames.getJSONObject(i)
+        if (!fr.has("t") || fr.optJSONArray("c") == null) null
+        else Detection(fr.getDouble("t"), cands(fr.getJSONArray("c")), cands(fr.optJSONArray("s")))
+      }
+    } catch (e: Exception) {
+      emptyList()
+    }
+  }
+
+  /** Swift's `.rounded()`: half away from zero. */
+  private fun r4(v: Double): Double = (if (v >= 0) Math.floor(v * 10000 + 0.5) else -Math.floor(-v * 10000 + 0.5)) / 10000
+
+  /** `<clip>.ball.json`: the Modo Foco file's format (v1, 100 ms rows) with the 9:16 track under "portrait". */
+  fun framingJSON(r: Result, startMs: Double, width: Double, height: Double, rules: String): JSONObject {
+    val f = JSONObject().put("v", 1).put("rules", rules).put("stepMs", stepMs).put("startMs", startMs)
+      .put("size", JSONArray(listOf(width, height)))
+      .put("portrait", JSONArray(r.rects.map { row -> JSONArray(row.map { r4(it) }) })).put("landscape", JSONArray())
+      .put("zoom", r.zoom.zoom).put("ballShare", BallMath.roundTo(r.zoom.share, 3))
+    r.verdict?.let { v ->
+      f.put("verdict", JSONObject().put("apply", v.reason == null).put("reason", v.reason?.raw ?: "")
+        .put("share", BallMath.roundTo(v.share, 3)).put("ballPx", BallMath.roundTo(v.ballPx, 1)).put("pan", BallMath.roundTo(v.pan, 2)))
+    }
+    return f
+  }
 
   data class Result(
     val rects: List<List<Double>>,
