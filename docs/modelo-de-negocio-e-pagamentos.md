@@ -2,7 +2,7 @@
 
 > **Fonte da verdade** das regras de plano. Detalhes técnicos da cobrança: `docs/superpowers/specs/2026-10-20-payments-revenuecat-design.md`. Textos e visual do paywall: `docs/brand/paywall-reprize.md`.
 >
-> **Status:** implementado no app (branch `feat/freemium-pro-billing`); faltam a configuração do RevenueCat e das lojas e desligar o teste de campo antes de publicar ([Implementação](#implementação)).
+> **Status:** implementado no app (branch `feat/freemium-pro-billing`); faltam a configuração do RevenueCat e das lojas e desligar o teste de campo antes de publicar ([Implementação](#implementação)). O [compartilhamento](#compartilhamento) está especificado e ainda não implementado.
 
 ## Resumo
 
@@ -12,6 +12,7 @@ Gravações **ilimitadas** no grátis. Dentro do app, todo jogador vê e usa tud
 2. **o que sai do app** ao salvar ou enviar (grátis: HD, sem som, sem Modo Foco e com marca d'água);
 3. **compilar clipes**;
 4. o gatilho **Apple Watch**.
+5. **compartilhar** gravações e clipes por link: só o PRO envia; quem recebe sempre assiste, e exportar o que recebeu depende do plano ([Compartilhamento](#compartilhamento)).
 
 Antes de exportar no grátis, o jogador sempre vê o que o PRO coloca no vídeo (Full HD, som, Modo Foco, sem marca d'água): um painel destacado na primeira exportação de cada gravação; as seguintes seguem sem aviso. O painel mostra o próprio clipe como sai no grátis e no PRO. Nenhuma trava aparece de surpresa.
 
@@ -27,9 +28,13 @@ Antes de exportar no grátis, o jogador sempre vê o que o PRO coloca no vídeo 
 | Prévia e editor no app | Tudo funciona: som, Modo Foco, velocidade, zoom, girar, cortar | Igual |
 | Exportação (salvar, enviar, em lote) | **HD** (720×1280; 1280×720 deitado), **sem som**, **sem Modo Foco**, **com marca d'água discreta**; a velocidade escolhida vai no vídeo | Full HD (4K ou 2K num clipe gravado em 4K), som, Modo Foco, velocidade, sem marca |
 | Compilar clipes | Bloqueado (abre o paywall) | Liberado |
+| Compartilhar gravação ou clipe por link | Bloqueado (cadeado "PRO", abre o paywall) | Liberado |
+| Gravação recebida: assistir no app | Tudo, na qualidade gravada, com som e Modo Foco | Igual |
+| Gravação recebida: salvar e enviar | **3 gravações de cortesia no total** (não renova): Full HD, som, Modo Foco, **com marca d'água**; depois delas, bloqueado (abre o paywall) | Full HD (4K ou 2K num clipe gravado em 4K), som, Modo Foco, sem marca |
+| Gravação recebida: compilar | Bloqueado (abre o paywall) | Liberado |
 | Gatilhos | Tela, voz, gesto, controle Bluetooth, celular controle | Todos, **incluindo o Apple Watch** |
 
-Livres nos dois planos, inclusive no vídeo exportado: velocidade (câmera lenta e acelerada), zoom, girar, cortar, salvar e enviar (um clipe ou em lote).
+Livres nos dois planos, inclusive no vídeo exportado: velocidade (câmera lenta e acelerada), zoom, girar, cortar, salvar e enviar (um clipe ou em lote). Vale para as gravações próprias; as recebidas seguem [Compartilhamento](#compartilhamento).
 
 **Nome do gatilho:** o gatilho do relógio se chama **Apple Watch** em todos os textos do iPhone.
 
@@ -59,6 +64,34 @@ O jogador vê o que é PRO antes de exportar, em quatro lugares:
 
 Compilar no grátis abre o paywall direto.
 
+## Compartilhamento
+
+Detalhes técnicos: `docs/superpowers/specs/2026-11-16-recording-sharing-design.md`. Só no iPhone; o Android entra depois que o app estiver publicado na Google Play.
+
+### Envio
+
+- **Só o PRO** cria link de uma gravação ou de um clipe. No grátis, o botão Compartilhar tem cadeado e selo "PRO" e abre o paywall.
+- O link é `www.reprizeapp.com/g/<código>` (gravação) ou `www.reprizeapp.com/c/<código>` (clipe), mostrado também como QR code. Quem tem o link pode abrir.
+- Vai o arquivo original de cada clipe, com os dados de edição e de foco. Nada é exportado de novo no aparelho de quem envia.
+- **O link vale 24 horas** a partir da criação. Depois disso ele para de funcionar e os vídeos são apagados da nuvem. Quem gravou pode compartilhar de novo, o que gera outro link.
+- No primeiro compartilhamento, a pessoa aceita um **termo de responsabilidade** (ciente de que responde pelo conteúdo e de que o Reprize não controla o que foi gravado). Sem o aceite, o link não é criado.
+- Quem gravou pode desligar o link antes do prazo e ver quem entrou.
+
+### Recebimento
+
+- A página do link, na web, mostra só o clipe de capa como prévia (HD, sem som, com marca d'água). O resto abre no app.
+- No app, **assistir é livre em qualquer plano**, na qualidade gravada, com som, Modo Foco e os ajustes de quem enviou. Abrir a gravação dentro das 24 horas baixa os vídeos para o aparelho; eles ficam dentro do app, fora da galeria.
+- Toda gravação recebida leva o marcador "Compartilhada por <nome>".
+- **PRO que recebe:** tudo liberado, como numa gravação própria.
+- **Grátis que recebe:** **3 gravações de cortesia**, no total, sem renovação mensal. A cortesia é gasta no primeiro Salvar ou Enviar de uma gravação, depois de uma confirmação, e libera todos os clipes daquela gravação: Full HD, som, Modo Foco, **com marca d'água**. Depois das 3, Salvar e Enviar abrem o paywall. Compilar é sempre do PRO.
+- O contador de cortesias fica no servidor, ligado à conta; por isso exportar uma gravação recebida exige conta.
+- O **Passe Avulso não se aplica** a gravações recebidas.
+- Quem recebe edita a própria cópia; nada volta para quem enviou. Quem recebe não cria link da gravação dos outros.
+
+### Captura de tela
+
+Nas gravações recebidas, em qualquer plano, o vídeo não aparece em print nem em gravação de tela: no lugar dele, uma tela escura com a mensagem "Este lance não pode ser capturado. Para guardar, toque em Salvar." Nas gravações próprias nada muda.
+
 ## Como se paga
 
 - **PRO** (assinatura, entitlement `pro`): `pro_monthly` **R$ 14,90/mês** e `pro_annual` **R$ 119,90/ano** (≈ R$ 9,99/mês, 33% abaixo de 12 mensalidades). Nos EUA: **$6.90/mês** e **$49.90/ano** (≈ $4.16/mês, 40% abaixo de 12 mensalidades). **Teste grátis de 7 dias no anual e no mensal; a loja cobra no oitavo dia.**
@@ -66,6 +99,7 @@ Compilar no grátis abre o paywall direto.
   - é usado **só quando o jogador escolhe**, numa gravação grátis já feita; nunca é gasto sozinho ao começar uma gravação;
   - libera nessa gravação a exportação em Full HD, com som, com Modo Foco, sem marca, e compilar os clipes dela;
   - não libera duração acima de 15 s nem 4K, porque a gravação foi feita em 15 s e Full HD;
+  - não se aplica a gravações recebidas: nelas valem as cortesias ou o PRO;
   - um Passe comprado e ainda não usado fica guardado para a próxima vez que o jogador escolher liberar uma gravação.
 - **Paywall** (RevenueCat): a oferta `default` tem só Anual (pré-selecionado, com preço mensal equivalente e selo de economia calculado pelo painel) e Mensal. O Passe fica numa oferta própria (`pass`), aberta por "Só para esta gravação", com o mesmo visual. Textos e prompts do painel: `docs/brand/paywall-reprize.md`.
 - Preço e moeda vêm sempre da loja; nenhum valor no código.
@@ -75,6 +109,7 @@ Compilar no grátis abre o paywall direto.
 - **Ao começar uma gravação** (`startPlan`): PRO ativo → gravação paga; senão → gravação grátis. O plano nunca impede de começar.
 - O plano da gravação fica **fixado no início** (`Session.paid`). Com PRO ativo, todas as gravações exportam como pagas enquanto ele durar (`useViewPlan`); uma gravação grátis liberada com o Passe passa a ser paga.
 - Nada de cobrança durante a gravação.
+- **Gravação recebida** (`Session.received`): com PRO ativo, exporta como paga. Sem PRO, exporta como paga e com marca d'água se tiver cortesia aplicada; sem cortesia, Salvar, Enviar e Compilar ficam bloqueados. O Passe não se aplica.
 
 ## Depois de publicar
 
@@ -99,6 +134,10 @@ Tudo é teste até a publicação. Depois de publicar, os números (conversão p
 - [ ] RevenueCat e lojas: oferta `default` com Anual (pré-selecionado) e Mensal; oferta `pass` com o `single_pass`; teste de 7 dias no `pro_annual` e no `pro_monthly`; paywall e descrições conforme `docs/brand/paywall-reprize.md`.
 - [ ] `FIELD_TEST_UNLOCK_ALL` em `false` antes de publicar.
 - [x] Rodar `npx jest`, `npx tsc --noEmit` e `npx expo lint` em `app/`.
+- [ ] Compartilhamento (spec `2026-11-16-recording-sharing-design.md`): `canShare` em `payments/limits.ts` e cadeado "PRO" no botão Compartilhar da gravação e do clipe.
+- [ ] Gravação recebida: `Session.received`, exportação conforme PRO ou cortesia, bloqueio de Salvar, Enviar e Compilar sem cortesia, contador de cortesias no servidor e painel "Usar cortesia" / "Assinar o PRO".
+- [ ] Termo de responsabilidade no primeiro compartilhamento e proteção contra print e gravação de tela nas gravações recebidas.
+- [ ] Alinhar `docs/brand/paywall-reprize.md` (item "Compartilhar gravações" na grade do PRO), o spec de pagamentos e a seção de monetização de `docs/superpowers/specs/2026-10-17-lance-design.md`.
 
 ## Onde fica cada regra
 
@@ -114,6 +153,8 @@ Tudo é teste até a publicação. Depois de publicar, os números (conversão p
 | Compilar pago | `share/useBatchActions.ts` (`compile`) e `canCompile` em `payments/limits.ts` |
 | Liberar recursos PRO numa gravação (Passe) | `payments/unlock.ts` |
 | Plano na tela | `usePlan` e `useViewPlan`, em `share/entitlement.ts` |
+| Compartilhar só no PRO (a implementar) | `payments/limits.ts` (`canShare`) |
+| Exportação de gravação recebida e cortesias (a implementar) | `share/exportOptions.ts` e `components/useFreeExportGate.tsx`; contador de cortesias no servidor |
 
 ## Ao mudar uma regra
 
