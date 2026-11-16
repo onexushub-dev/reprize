@@ -45,7 +45,11 @@ class AnalyzeFocusOptions : Record {
   @Field val startMs: Double = 0.0
   @Field val endMs: Double = 0.0
   @Field val outPath: String = ""
+  /** Where the people of each analysed picture are kept, so a stopped analysis goes on from there ("" = not kept). */
+  @Field val peoplePath: String = ""
   @Field val debug: Boolean = false
+  /** One picture every `everyMs` (the file keeps 100 ms rows). */
+  @Field val everyMs: Double = 100.0
 }
 
 class AnalyzeBallOptions : Record {
@@ -255,11 +259,14 @@ class ReplayCameraModule : Module() {
     AsyncFunction("analyzeFocus") { o: AnalyzeFocusOptions, promise: Promise ->
       Thread({
         try {
-          val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.debug)
-          promise.resolve(mapOf("status" to if (r.ready) "ready" else "none", "frames" to r.frames, "framesWithPeople" to r.framesWithPeople,
-            "meanPeople" to r.meanPeople, "elapsedMs" to r.elapsedMs))
-        } catch (e: FocusAnalyzer.Cancelled) {
+          val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.peoplePath, o.debug, o.everyMs)
+          promise.resolve(mapOf("status" to if (r.ready) "ready" else "none", "frames" to r.frames, "reused" to r.reused,
+            "framesWithPeople" to r.framesWithPeople, "meanPeople" to r.meanPeople, "elapsedMs" to r.elapsedMs,
+            "stages" to r.stages.json(), "panP95" to r.panP95, "turnsPer10s" to r.turnsPer10s))
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Cancelled) {
           promise.reject("CANCELLED", "Focus analysis cancelled", null)
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Interrupted) {
+          promise.reject("FOCUS_INTERRUPTED", "Focus analysis interrupted: ${e.message}", null)
         } catch (e: Throwable) {
           android.util.Log.e("ReprizeFocus", "analysis failed", e)
           promise.reject("FOCUS_FAILED", "${e.cause ?: e}", null)

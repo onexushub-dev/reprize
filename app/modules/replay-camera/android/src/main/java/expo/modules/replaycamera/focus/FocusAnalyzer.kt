@@ -1,210 +1,156 @@
 package expo.modules.replaycamera.focus
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Matrix
-import android.media.MediaMetadataRetriever
-import android.os.Build
 import android.os.Process
 import android.util.Log
-import com.google.mediapipe.framework.image.BitmapImageBuilder
-import com.google.mediapipe.tasks.core.BaseOptions
-import com.google.mediapipe.tasks.core.Delegate
-import com.google.mediapipe.tasks.vision.core.RunningMode
-import com.google.mediapipe.tasks.vision.objectdetector.ObjectDetector
+import expo.modules.replaycamera.core.FramingMotion
+import expo.modules.replaycamera.core.ScanTicks
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.Collections
 
 /**
- * Modo Foco analysis, the Android port of FocusAnalyzer.swift: one frame every 100 ms between `startMs` and `endMs`,
- * people found with an on-device detector (EfficientDet-Lite0 through MediaPipe, "person" only), the framing computed by
- * the same rules as the iPhone (`FocusPath`) and written next to the clip (<clip>.focus.json, same format).
- * One analysis at a time, at background priority. Every step logs to logcat (tag `ReprizeFocus`).
+ * Modo Foco: Jogadores (the Android side of `FocusAnalyzer.swift`). One picture every `everyMs` between `startMs` and
+ * `endMs` through the shared pass (`ClipScan`), people found by `PeopleDetector` on the whole frame and the nine
+ * half-frame tiles, the framing computed by the iPhone's rules (`FocusPath`) and written next to the clip
+ * (<clip>.focus.json, the same format: tracks, person boxes per row, the players' median height). The people of each
+ * analysed picture are kept in <clip>.people.json, so an analysis that was stopped goes on from where it was. One
+ * analysis at a time across Jogadores and Bola (`ClipScan.lock`). Logs to logcat (tag `ReprizeFocus`).
  */
 object FocusAnalyzer {
   private const val TAG = "ReprizeFocus"
   /** Below the UI and playback, but not THREAD_PRIORITY_BACKGROUND (10), which pins the work to the little cores (3x slower). */
   private const val ANALYSIS_PRIORITY = 5
-  private const val MODEL = "efficientdet_lite0_int8.tflite"
-  /**
-   * One frame every 200 ms (the iPhone: 100 ms). The framing is smoothed over 0.6-1.2 s, so analysing half the frames moves the
-   * framing by 1-4% of the width and 0.2 of zoom at most on the test clips, less than the two detectors differ, in half the time.
-   */
-  const val STEP_MS = 200.0
   /** The file's rows: one every 100 ms whatever the analysis interval (as the iPhone's). */
   const val stepMs = 100.0
-  private const val MIN_CONFIDENCE = 0.3f
-  /** The longest side of the frame given to the detector; a half-frame tile of it is what the detector sees up close. */
-  private const val FRAME_LONG_SIDE = 1280
-  /** Tiles scanned per sample, round-robin over the nine (the iPhone scans all nine; on a phone CPU that is ~1 s a frame). */
-  private const val TILES_PER_SAMPLE = 1
-  private val lock = Any()
   private val cancelled: MutableSet<String> = Collections.synchronizedSet(HashSet())
 
-  class Cancelled : Exception()
-  class Unreadable(message: String) : Exception(message)
+  data class Outcome(
+    val ready: Boolean, val frames: Int, val reused: Int, val framesWithPeople: Int, val meanPeople: Double, val elapsedMs: Double,
+    val stages: ClipScan.Stages, val panP95: Double, val turnsPer10s: Double,
+  )
 
-  data class Outcome(val ready: Boolean, val frames: Int, val framesWithPeople: Int, val meanPeople: Double, val elapsedMs: Double)
-
-  /** Stops the analysis of this clip if it is waiting or running; it then fails with `Cancelled`. */
+  /** Stops the analysis of this clip if it is waiting or running; it then fails with `ClipScan.Cancelled`. */
   fun cancel(clipPath: String) { cancelled.add(clipPath) }
 
   private fun isCancelled(clipPath: String) = cancelled.contains(clipPath)
 
-  /** The Jogadores file of a range from its analysed pictures (Bola's pass makes it). Until the shared pass: not made. */
-  fun write(frames: List<FocusSample>, startMs: Double, endMs: Double, everyMs: Double, width: Double, height: Double,
-            outPath: String, debug: Boolean): Pair<Boolean, List<FocusRect>> = Pair(false, emptyList())
-
-  /** The kept pictures that belong to a range. */
-  fun inRange(frames: List<FocusSample>, startMs: Double, endMs: Double): List<FocusSample> =
-    frames.filter { it.tMs >= startMs - 0.5 && it.tMs < endMs }
-
-  fun analyze(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Boolean): Outcome =
-    synchronized(lock) {
+  /** `peoplePath`: where the people of each analysed picture are kept ("" = not kept). */
+  fun analyze(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, peoplePath: String, debug: Boolean,
+              everyMs: Double): Outcome =
+    synchronized(ClipScan.lock) {
       try {
         Process.setThreadPriority(ANALYSIS_PRIORITY)
-        run(context, clipPath, startMs, endMs, outPath, debug)
+        run(context, clipPath, startMs, endMs, outPath, peoplePath, debug, everyMs)
       } finally {
         cancelled.remove(clipPath)
       }
     }
 
-  private fun run(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Boolean): Outcome {
+  private fun run(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, peoplePath: String,
+                  debug: Boolean, everyMs: Double): Outcome {
     val started = System.nanoTime()
-    if (isCancelled(clipPath)) throw Cancelled()
-    val retriever = MediaMetadataRetriever()
-    try {
-      retriever.setDataSource(clipPath)
-      val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
-      val storedW = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
-      val storedH = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
-      val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toDoubleOrNull() ?: 0.0
-      if (storedW <= 0 || storedH <= 0 || durationMs <= 0) throw Unreadable("no video")
-      val quarter = rotation == 90 || rotation == 270
-      val width = (if (quarter) storedH else storedW).toDouble()
-      val height = (if (quarter) storedW else storedH).toDouble()
-      val stop = if (endMs > startMs) minOf(endMs, durationMs) else durationMs
-
-      val detector = PeopleDetector(context, TILES_PER_SAMPLE)
-      val frames = ArrayList<FocusSample>()
-      var detectNs = 0L
-      var people = 0
-      // One thread fetches the frames while this one finds the people in the previous one: about half the time.
-      val queue = java.util.concurrent.ArrayBlockingQueue<Pair<Double, Bitmap?>>(2)
-      val end = Pair(-1.0, null as Bitmap?)
-      val stopFetching = java.util.concurrent.atomic.AtomicBoolean(false)
-      val fetchFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
-      val fetcher = Thread({
-        Process.setThreadPriority(ANALYSIS_PRIORITY)
-        var delivered = 0
-        fun put(item: Pair<Double, Bitmap?>): Boolean {
-          while (!queue.offer(item, 200, java.util.concurrent.TimeUnit.MILLISECONDS)) if (stopFetching.get()) return false
-          return true
-        }
-        try {
-          try {
-            var next = startMs
-            FrameDecoder(clipPath, startMs, stop, rotation).run({ stopFetching.get() }, { pts ->
-              // the first frame at or after each tick
-              if (pts + 0.5 >= next) { while (next <= pts + 0.5) next += STEP_MS; true } else false
-            }) { pts, frame ->
-              delivered += 1
-              put(Pair(pts, frame.pixels(FRAME_LONG_SIDE).toBitmap()))
-            }
-          } catch (e: Throwable) {
-            // A phone whose decoder does not give frames this way: ask for them one by one (slow, but it works).
-            if (delivered > 0) throw e
-            Log.w(TAG, "sequential decoding failed (${e.message}), using the frame by frame fallback")
-            var tick = startMs
-            while (tick < stop && !stopFetching.get()) {
-              if (!put(Pair(tick, frameAt(retriever, tick, rotation, storedW, storedH)))) break
-              tick += STEP_MS
-            }
-          }
-        } catch (e: Throwable) {
-          fetchFailure.set(e)
-        } finally {
-          while (!stopFetching.get() && !queue.offer(end, 200, java.util.concurrent.TimeUnit.MILLISECONDS)) Unit
-        }
-      }, "focus-frames")
+    if (isCancelled(clipPath)) throw ClipScan.Cancelled()
+    val video = ClipScan.Video.load(clipPath)
+    val every = maxOf(stepMs, everyMs)
+    val end = if (endMs > startMs) endMs else video.durationMs
+    val kept = FocusFrames.read(readJSON(peoplePath), video.width, video.height)
+    val missing = ScanTicks.missing(ScanTicks.ticks(startMs, end, every), kept.map { it.tMs }, every)
+    val stages = ClipScan.Stages()
+    val found = ArrayList<FocusSample>()
+    fun keep() {
+      if (peoplePath.isEmpty()) return
       try {
-        fetcher.start()
-        var index = 0
-        while (true) {
-          if (isCancelled(clipPath)) throw Cancelled()
-          val (tick, bitmap) = queue.poll(200, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
-          if (tick < 0) break
-          if (bitmap != null) {
-            val t1 = System.nanoTime()
-            val found = detector.detect(bitmap, index)
-            detectNs += System.nanoTime() - t1
-            if (bitmap.isRecycled.not()) bitmap.recycle()
-            people += found.size
-            frames.add(FocusSample(tick, found))
-          }
-          index += 1
-        }
-        fetchFailure.get()?.let { throw Unreadable("frames: $it") }
-      } finally {
-        stopFetching.set(true)
-        fetcher.join(2000)
-        queue.forEach { it.second?.recycle() }
-        detector.close()
+        writeAtomic(FocusFrames.json(FocusFrames.merged(kept, found), video.width, video.height).toString(), peoplePath)
+      } catch (e: Exception) {
+        Log.w(TAG, "cannot keep $peoplePath: $e")
       }
-      if (frames.isEmpty()) throw Unreadable("no frames")
-
-      val samples = FocusGrid.samples(frames, startMs, if (endMs > startMs) endMs else Double.POSITIVE_INFINITY, STEP_MS)
-      val landscape = width >= height
-      val main = if (landscape) FocusAspect.LANDSCAPE else FocusAspect.PORTRAIT
-      val other = if (landscape) FocusAspect.PORTRAIT else FocusAspect.LANDSCAPE
-      val mainRects = FocusPath.compute(samples, width, height, main, zoom = true, t = FocusTuning.ACTION)
-      val otherRects = if (mainRects == null) null else FocusPath.compute(samples, width, height, other, zoom = false, t = FocusTuning.ACTION)
-
-      val file = JSONObject()
-        .put("v", 1).put("rules", "v15-acao-zoom110").put("stepMs", STEP_MS).put("startMs", startMs)
-        .put("size", JSONArray().put(width).put(height))
-        .put("landscape", rows(if (landscape) mainRects else otherRects))
-        .put("portrait", rows(if (landscape) otherRects else mainRects))
-      if (debug) {
-        file.put("samples", JSONArray(samples.map { s ->
-          JSONArray().put(s.tMs).put(JSONArray(s.boxes.map { JSONArray(listOf(r4(it.x), r4(it.y), r4(it.width), r4(it.height))) }))
-        }))
-      }
-      val tmp = File("$outPath.tmp")
-      tmp.writeText(file.toString())
-      if (!tmp.renameTo(File(outPath))) { tmp.delete(); throw Unreadable("cannot write $outPath") } // never a half-written file to read
-
-      val elapsed = (System.nanoTime() - started) / 1e6
-      val withPeople = frames.count { it.boxes.isNotEmpty() }
-      Log.i(TAG, "timing: detection ${detectNs / 1_000_000 / frames.size} ms a frame")
-      Log.i(TAG, "${File(clipPath).name}: ${frames.size} frames, $withPeople with people, ${"%.1f".format(people.toDouble() / frames.size)} per frame, " +
-        "${"%.1f".format(elapsed / 1000)} s, ready=${mainRects != null}")
-      return Outcome(mainRects != null, frames.size, withPeople, people.toDouble() / frames.size, elapsed)
-    } finally {
-      retriever.release()
     }
+    try {
+      ClipScan.run(context, video, missing, every, null, false, stages, { isCancelled(clipPath) }, { false }) { f ->
+        f.people?.let {
+          found.add(it)
+          if (found.size % 25 == 0) keep()
+        }
+      }
+    } finally {
+      if (found.isNotEmpty()) keep() // whatever happened, keep what was found
+    }
+    val frames = inRange(FocusFrames.merged(kept, found), startMs, end)
+    if (frames.isEmpty()) throw ClipScan.Unreadable("no frames")
+    val framed = System.nanoTime()
+    val file = write(frames, startMs, endMs, every, video.width.toDouble(), video.height.toDouble(), outPath, debug)
+    stages.path += (System.nanoTime() - framed) / 1e6
+    val motion = FramingMotion.stats(file.second.map { listOf(it.x, it.y, it.width, it.height) }, stepMs)
+    val people = frames.sumOf { it.boxes.size }
+    val outcome = Outcome(file.first, frames.size, frames.size - found.size, frames.count { it.boxes.isNotEmpty() },
+      people.toDouble() / frames.size, (System.nanoTime() - started) / 1e6, stages, motion.first, motion.second)
+    Log.i(TAG, "${File(clipPath).name}: ${frames.size} frames (${outcome.reused} kept), ${outcome.framesWithPeople} with people, " +
+      "${"%.1f".format(outcome.meanPeople)} per frame, ${"%.1f".format(outcome.elapsedMs / 1000)} s, ready=${file.first}")
+    return outcome
   }
+
+  /** The kept pictures that belong to a range. */
+  fun inRange(frames: List<FocusSample>, startMs: Double, endMs: Double): List<FocusSample> =
+    frames.filter { it.tMs >= startMs - 0.5 && it.tMs < endMs }
+
+  /**
+   * The Jogadores file of a range from its analysed pictures (in time order). `endMs` as the analysis was asked (at or
+   * before `startMs` = to the end of the clip). Returns whether there is a framing, and its rects in the video's own
+   * orientation.
+   */
+  fun write(frames: List<FocusSample>, startMs: Double, endMs: Double, everyMs: Double, width: Double, height: Double,
+            outPath: String, debug: Boolean): Pair<Boolean, List<FocusRect>> {
+    // Row k of the file is at startMs + k × 100 ms, whatever gaps the frames had.
+    val samples = FocusGrid.samples(frames, startMs, if (endMs > startMs) endMs else Double.POSITIVE_INFINITY, stepMs).toMutableList()
+    // At 5 fps the last analysed frame can be up to 200 ms before the end; its people are held to the end so the file
+    // has as many rows as at 10 fps (Bola reads them row by row).
+    val last = samples.lastOrNull()
+    if (everyMs > stepMs && endMs > startMs && last != null) {
+      var tick = last.tMs + stepMs
+      while (tick < endMs - 0.5) { samples.add(FocusSample(tick, last.boxes)); tick += stepMs }
+    }
+    val landscape = width >= height
+    val main = if (landscape) FocusAspect.LANDSCAPE else FocusAspect.PORTRAIT
+    val other = if (landscape) FocusAspect.PORTRAIT else FocusAspect.LANDSCAPE
+    val mainRects = FocusPath.compute(samples, width, height, main, zoom = true, t = FocusTuning.ACTION)
+    val otherRects = if (mainRects == null) null else FocusPath.compute(samples, width, height, other, zoom = false, t = FocusTuning.ACTION)
+    val file = JSONObject()
+      .put("v", 1).put("rules", "v15-acao-zoom110").put("stepMs", stepMs).put("startMs", startMs)
+      .put("size", JSONArray(listOf(width, height)))
+      .put("landscape", rows(if (landscape) mainRects else otherRects))
+      .put("portrait", rows(if (landscape) otherRects else mainRects))
+    // Test 47a: the players' median height (share of the frame height, every box of every frame), for Bola's verdict.
+    val heights = frames.flatMap { f -> f.boxes.map { it.height } }.sorted()
+    if (heights.isNotEmpty()) {
+      val mid = heights.size / 2
+      file.put("playersHeight", r4(if (heights.size % 2 == 1) heights[mid] else (heights[mid - 1] + heights[mid]) / 2))
+    }
+    // Test 49: the person boxes per row (x, y, width, height, top-left), for Bola's rules.
+    file.put("people", JSONArray(samples.map { s -> JSONArray(s.boxes.map { box(it) }) }))
+    if (debug) file.put("samples", JSONArray(samples.map { s -> JSONArray().put(s.tMs).put(JSONArray(s.boxes.map { box(it) })) }))
+    writeAtomic(file.toString(), outPath)
+    return Pair(mainRects != null, mainRects ?: emptyList())
+  }
+
+  private fun box(b: FocusBox) = JSONArray(listOf(r4(b.x), r4(b.y), r4(b.width), r4(b.height)))
 
   private fun rows(rects: List<FocusRect>?): JSONArray =
     JSONArray((rects ?: emptyList()).map { JSONArray(listOf(r4(it.x), r4(it.y), r4(it.width), r4(it.height))) })
 
-  private fun r4(v: Double) = Math.round(v * 10000.0) / 10000.0
+  /** Swift's `.rounded()` (half away from zero) to 4 decimals. */
+  private fun r4(v: Double) = (if (v >= 0) Math.floor(v * 10000 + 0.5) else -Math.floor(-v * 10000 + 0.5)) / 10000
 
-  /** The upright frame at `tMs`, scaled down. Turned like ClipThumbnail: only when the device did not already do it. */
-  private fun frameAt(retriever: MediaMetadataRetriever, tMs: Double, rotation: Int, storedW: Int, storedH: Int): Bitmap? {
-    val timeUs = (tMs * 1000).toLong()
-    val frame = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1)
-      retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST, FRAME_LONG_SIDE, FRAME_LONG_SIDE)
-    else retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST)) ?: return null
-    val quarter = rotation == 90 || rotation == 270
-    val alreadyTurned = quarter && storedW != storedH && (frame.width > frame.height) == (storedH > storedW)
-    val upright = if (rotation == 0 || alreadyTurned) frame else
-      Bitmap.createBitmap(frame, 0, 0, frame.width, frame.height, Matrix().apply { postRotate(rotation.toFloat()) }, true)
-    // The detector only takes ARGB_8888; the retriever may hand back RGB_565 or a hardware bitmap.
-    if (upright.config == Bitmap.Config.ARGB_8888) return upright
-    return upright.copy(Bitmap.Config.ARGB_8888, false).also { if (upright !== frame) upright.recycle(); frame.recycle() }
+  private fun readJSON(path: String): JSONObject? {
+    if (path.isEmpty()) return null
+    return try { JSONObject(File(path).readText()) } catch (e: Exception) { null }
   }
 
+  /** Never a half-written file to read. */
+  private fun writeAtomic(text: String, path: String) {
+    val tmp = File("$path.tmp")
+    tmp.writeText(text)
+    if (!tmp.renameTo(File(path))) { tmp.delete(); throw ClipScan.Unreadable("cannot write $path") }
+  }
 }
