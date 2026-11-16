@@ -77,7 +77,7 @@ object FocusAnalyzer {
       val height = (if (quarter) storedW else storedH).toDouble()
       val stop = if (endMs > startMs) minOf(endMs, durationMs) else durationMs
 
-      val detector = createDetector(context)
+      val detector = PeopleDetector(context, TILES_PER_SAMPLE)
       val frames = ArrayList<FocusSample>()
       var detectNs = 0L
       var people = 0
@@ -95,9 +95,13 @@ object FocusAnalyzer {
         }
         try {
           try {
-            FrameDecoder(clipPath, startMs, stop, STEP_MS, rotation, FRAME_LONG_SIDE).run({ stopFetching.get() }) { pts, bitmap ->
+            var next = startMs
+            FrameDecoder(clipPath, startMs, stop, rotation).run({ stopFetching.get() }, { pts ->
+              // the first frame at or after each tick
+              if (pts + 0.5 >= next) { while (next <= pts + 0.5) next += STEP_MS; true } else false
+            }) { pts, frame ->
               delivered += 1
-              put(Pair(pts, bitmap))
+              put(Pair(pts, frame.pixels(FRAME_LONG_SIDE).toBitmap()))
             }
           } catch (e: Throwable) {
             // A phone whose decoder does not give frames this way: ask for them one by one (slow, but it works).
@@ -124,7 +128,7 @@ object FocusAnalyzer {
           if (tick < 0) break
           if (bitmap != null) {
             val t1 = System.nanoTime()
-            val found = detect(detector, bitmap, index)
+            val found = detector.detect(bitmap, index)
             detectNs += System.nanoTime() - t1
             if (bitmap.isRecycled.not()) bitmap.recycle()
             people += found.size
@@ -173,19 +177,6 @@ object FocusAnalyzer {
     }
   }
 
-  /**
-   * CPU only: the GPU delegate (MediaPipe's own GL thread) crashed the whole app on the test phone, and a native crash
-   * cannot be caught. Speed comes from fewer tiles per frame instead.
-   */
-  private fun createDetector(context: Context): ObjectDetector =
-    ObjectDetector.createFromOptions(context, ObjectDetector.ObjectDetectorOptions.builder()
-      .setBaseOptions(BaseOptions.builder().setModelAssetPath(MODEL).setDelegate(Delegate.CPU).build())
-      .setRunningMode(RunningMode.IMAGE)
-      .setScoreThreshold(MIN_CONFIDENCE)
-      .setCategoryAllowlist(listOf("person"))
-      .setMaxResults(30)
-      .build())
-
   private fun rows(rects: List<FocusRect>?): JSONArray =
     JSONArray((rects ?: emptyList()).map { JSONArray(listOf(r4(it.x), r4(it.y), r4(it.width), r4(it.height))) })
 
@@ -206,35 +197,4 @@ object FocusAnalyzer {
     return upright.copy(Bitmap.Config.ARGB_8888, false).also { if (upright !== frame) upright.recycle(); frame.recycle() }
   }
 
-  /** The whole frame plus the nine half-frame tiles (so far players are found), merged into one box per person. */
-  private fun detect(detector: ObjectDetector, frame: Bitmap, index: Int): List<FocusBox> {
-    val w = frame.width
-    val h = frame.height
-    val found = ArrayList<Pair<FocusBox, Double>>()
-    fun run(bitmap: Bitmap, x0: Double, y0: Double, sw: Double, sh: Double, tile: Boolean) {
-      val result = detector.detect(BitmapImageBuilder(bitmap).build())
-      for (d in result.detections()) {
-        val score = d.categories().firstOrNull()?.score()?.toDouble() ?: continue
-        if (score < MIN_CONFIDENCE) continue
-        val b = d.boundingBox()
-        // Back to 0..1 of the whole frame, origin top-left.
-        val box = FocusBox(x0 + b.left / bitmap.width * sw, y0 + b.top / bitmap.height * sh,
-          (b.right - b.left) / bitmap.width * sw, (b.bottom - b.top) / bitmap.height * sh)
-        if (box.width <= 0 || box.height <= 0) continue
-        if (!tile) { found.add(Pair(box, score)); continue }
-        val midX = box.x + box.width / 2
-        val midY = box.y + box.height / 2
-        val inside = midX >= x0 - 0.02 && midX <= x0 + sw + 0.02 && midY >= y0 - 0.02 && midY <= y0 + sh + 0.02
-        if (inside && ScanTiles.plausible(box, score, w.toDouble(), h.toDouble())) found.add(Pair(box, score))
-      }
-    }
-    run(frame, 0.0, 0.0, 1.0, 1.0, false)
-    for (r in ScanTiles.tiles(index, TILES_PER_SAMPLE)) {
-      val top = 1 - r.yBottom - r.height // the regions are given with the origin at the bottom-left
-      val tile = Bitmap.createBitmap(frame, (r.x * w).toInt(), (top * h).toInt(), (r.width * w).toInt(), (r.height * h).toInt())
-      run(tile, r.x, top, r.width, r.height, true)
-      tile.recycle()
-    }
-    return PersonBoxes.merge(found)
-  }
 }
