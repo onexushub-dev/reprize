@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 export type Lens = 'ultraWide' | 'wide';
@@ -347,6 +348,21 @@ export type FocusAnalysis = {
 
 export type ReplayCameraViewProps = {
   style?: StyleProp<ViewStyle>;
+};
+
+/**
+ * What the capture shield reports (iOS). `protected`: the children sit in the system's secure canvas and the shield is
+ * on. `capturing`: the screen is being recorded or mirrored. `canvas`: the canvas's class name, empty when none was
+ * found. `screenshots`: how many were taken since the view was created.
+ */
+export type CaptureShieldState = { protected: boolean; capturing: boolean; canvas: string; screenshots: number };
+
+export type CaptureShieldViewProps = {
+  style?: StyleProp<ViewStyle>;
+  /** False: the same view without the protection, to compare a capture with and without it. Default true. */
+  enabled?: boolean;
+  onShieldState?: (e: { nativeEvent: CaptureShieldState }) => void;
+  children?: ReactNode;
 };
 
 /** How the Bluetooth stands for the app: "notDetermined" = never asked (nothing was looked at). */

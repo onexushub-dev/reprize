@@ -488,5 +488,11 @@ public class ReplayCameraModule: Module {
     }
 
     View(ReplayCameraView.self) {}
+
+    // Spike 3 of the sharing design: children kept out of screenshots and screen recordings (CaptureShield.swift).
+    View(CaptureShieldView.self) {
+      Events("onShieldState")
+      Prop("enabled") { (view: CaptureShieldView, on: Bool) in view.enabled = on }
+    }
   }
 }
