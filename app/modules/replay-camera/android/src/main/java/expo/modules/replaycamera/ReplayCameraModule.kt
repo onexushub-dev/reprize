@@ -48,6 +48,24 @@ class AnalyzeFocusOptions : Record {
   @Field val debug: Boolean = false
 }
 
+class AnalyzeBallOptions : Record {
+  @Field val clipPath: String = ""
+  @Field val startMs: Double = 0.0
+  @Field val endMs: Double = 0.0
+  @Field val detPath: String = ""
+  @Field val outPath: String = ""
+  @Field val focusPath: String = ""
+  @Field val sport: String = "basquete"
+  @Field val maxWidth: Int = 0
+  @Field val focusStartMs: Double = 0.0
+  @Field val focusEndMs: Double = 0.0
+  @Field val focusEveryMs: Double = 100.0
+  @Field val peoplePath: String = ""
+  @Field val sequential: Boolean = false
+  /** iPhone only (motion-gated tiles, a Diagnóstico switch): ignored here. */
+  @Field val motionTiles: Boolean = false
+}
+
 class ExportClipOptions : Record {
   @Field val clipPath: String = ""
   @Field val startMs: Double = 0.0
@@ -96,9 +114,12 @@ class ReplayCameraModule : Module() {
     Name("ReplayCamera")
 
     Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus", "onDiag",
-      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton")
+      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton", "onBallProgress")
 
     OnCreate {
+      expo.modules.replaycamera.ball.BallAnalyzer.emit = { clipPath, done, total, state ->
+        sendEvent("onBallProgress", mapOf("clipPath" to clipPath, "done" to done, "total" to total, "state" to state))
+      }
       ReplayEngine.emit = { name, body -> sendEvent(name, body) }
       remote().emit = { name, body -> sendEvent(name, body) }
       host().emit = { name, body -> sendEvent(name, body) }
@@ -247,6 +268,39 @@ class ReplayCameraModule : Module() {
     }
 
     Function("cancelFocus") { clipPath: String -> FocusAnalyzer.cancel(clipPath) }
+
+    // Seguir a Bola: the cut's ball analysis and its 9:16 framing (see BallAnalyzer), on its own thread like Jogadores.
+    AsyncFunction("analyzeBall") { o: AnalyzeBallOptions, promise: Promise ->
+      val sport = expo.modules.replaycamera.ball.BallSport.of(o.sport)
+      if (sport == null) {
+        promise.reject("BALL_FAILED", "No Seguir a Bola for the sport ${o.sport}", null)
+        return@AsyncFunction
+      }
+      Thread({
+        try {
+          val r = expo.modules.replaycamera.ball.BallAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.detPath, o.outPath,
+            o.focusPath, sport, o.maxWidth,
+            expo.modules.replaycamera.ball.BallAnalyzer.Players(o.focusStartMs, o.focusEndMs, o.focusEveryMs, o.peoplePath), !o.sequential)
+          promise.resolve(mapOf("status" to if (r.verdict.isEmpty()) "ready" else "unsuitable", "reason" to r.verdict,
+            "analysed" to r.analysed, "reused" to r.reused, "ballFrames" to r.ballFrames, "trustedFrames" to r.trustedFrames,
+            "ballShare" to r.ballShare, "zoom" to r.zoom, "elapsedMs" to r.elapsedMs, "focus" to r.focus, "stages" to r.stages.json(),
+            "panP95" to r.panP95, "turnsPer10s" to r.turnsPer10s, "playSeconds" to r.playSeconds))
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Cancelled) {
+          promise.reject("CANCELLED", "Ball analysis cancelled", null)
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Hot) {
+          promise.reject("BALL_HOT", "Ball analysis stopped: the phone is too hot", null)
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Interrupted) {
+          promise.reject("BALL_INTERRUPTED", "Ball analysis interrupted: ${e.message}", null)
+        } catch (e: expo.modules.replaycamera.ball.BallDetector.NoModel) {
+          promise.reject("BALL_NO_MODEL", "The ball model is missing from this build", null)
+        } catch (e: Throwable) {
+          android.util.Log.e("ReprizeBall", "analysis failed", e)
+          promise.reject("BALL_FAILED", "$e", null)
+        }
+      }, "ball-analysis").start()
+    }
+
+    Function("cancelBall") { clipPath: String -> expo.modules.replaycamera.ball.BallAnalyzer.cancel(clipPath) }
 
     // Seguir a Bola, first use: milliseconds for one 19-region frame through the ball model (the JS decides from it).
     AsyncFunction("probeBall") { promise: Promise ->

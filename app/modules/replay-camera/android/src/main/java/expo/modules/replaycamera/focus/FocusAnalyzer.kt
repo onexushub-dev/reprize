@@ -33,6 +33,8 @@ object FocusAnalyzer {
    * framing by 1-4% of the width and 0.2 of zoom at most on the test clips, less than the two detectors differ, in half the time.
    */
   const val STEP_MS = 200.0
+  /** The file's rows: one every 100 ms whatever the analysis interval (as the iPhone's). */
+  const val stepMs = 100.0
   private const val MIN_CONFIDENCE = 0.3f
   /** The longest side of the frame given to the detector; a half-frame tile of it is what the detector sees up close. */
   private const val FRAME_LONG_SIDE = 1280
@@ -50,6 +52,14 @@ object FocusAnalyzer {
   fun cancel(clipPath: String) { cancelled.add(clipPath) }
 
   private fun isCancelled(clipPath: String) = cancelled.contains(clipPath)
+
+  /** The Jogadores file of a range from its analysed pictures (Bola's pass makes it). Until the shared pass: not made. */
+  fun write(frames: List<FocusSample>, startMs: Double, endMs: Double, everyMs: Double, width: Double, height: Double,
+            outPath: String, debug: Boolean): Pair<Boolean, List<FocusRect>> = Pair(false, emptyList())
+
+  /** The kept pictures that belong to a range. */
+  fun inRange(frames: List<FocusSample>, startMs: Double, endMs: Double): List<FocusSample> =
+    frames.filter { it.tMs >= startMs - 0.5 && it.tMs < endMs }
 
   fun analyze(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, debug: Boolean): Outcome =
     synchronized(lock) {
