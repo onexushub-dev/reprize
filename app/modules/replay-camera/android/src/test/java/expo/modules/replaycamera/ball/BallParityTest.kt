@@ -98,4 +98,39 @@ class BallParityTest {
     assertNotNull(off[0])
     assertEquals(0.30, off[0]!!.cx, 1e-9)
   }
+
+  @Test fun zoomAndCameraMatchLab() {
+    for (c in cases) {
+      val clip = c.getString("clip")
+      val e = c.getJSONObject("expect")
+      val ball = optRows(e.getJSONArray("trusted")).map { it?.let { p -> BallXY(p[0], p[1]) } }
+      val v = size(c, "videoSize")
+      val today = rows(c.getJSONArray("todayPortrait"))
+      val z = BallZoom.zoom(ball, today, rows(c.getJSONArray("todayNative")), v[0], v[1])
+      assertEquals(clip, e.getDouble("zoom"), z.zoom, 1e-9)
+      val rects = BallCamera.rects(ball, today, v[0], v[1], e.getDouble("zoom"), BallCameraParams.basketball)
+      val want = rows(e.getJSONArray("rects"))
+      assertEquals(clip, want.size, rects.size)
+      var worst = 0.0
+      for (i in want.indices) for (j in 0 until 4) worst = maxOf(worst, Math.abs(rects[i][j] - want[i][j]))
+      assertTrue("$clip rect max diff $worst", worst < 1e-5)
+    }
+  }
+
+  @Test fun pentaSolveMatchesDense() {
+    val n = 7
+    val d0 = DoubleArray(n) { 10.0 + it }
+    val d1 = DoubleArray(n - 1) { -2 - 0.1 * it }
+    val d2 = DoubleArray(n - 2) { 0.5 + 0.05 * it }
+    val rhs = DoubleArray(n) { Math.sin(it.toDouble()) }
+    val x = BallCamera.solvePenta(d0.toList(), d1.toList(), d2.toList(), rhs.toList())
+    for (i in 0 until n) {
+      var s = d0[i] * x[i]
+      if (i >= 1) s += d1[i - 1] * x[i - 1]
+      if (i + 1 < n) s += d1[i] * x[i + 1]
+      if (i >= 2) s += d2[i - 2] * x[i - 2]
+      if (i + 2 < n) s += d2[i] * x[i + 2]
+      assertEquals(rhs[i], s, 1e-12)
+    }
+  }
 }
