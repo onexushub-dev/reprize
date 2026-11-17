@@ -42,6 +42,22 @@
  *   REPRIZE_FIELD_TEST_UNLOCK=1            every paid feature works on the free plan; off when unset
  *
  * EAS production builds never carry it either: the store build always locks and shows the paywall.
+ *
+ * Supabase (sharing recordings), read into extra.supabase. Both values are public:
+ *
+ *   REPRIZE_SUPABASE_URL=https://<ref>.supabase.co
+ *   REPRIZE_SUPABASE_KEY=sb_publishable_...
+ *
+ * Accounts (sharing): Sign in with Apple needs nothing here. Google, read into extra.google:
+ *
+ *   REPRIZE_GOOGLE_IOS_CLIENT_ID=<id>.apps.googleusercontent.com   the iOS OAuth client of the bundle id being built
+ *   REPRIZE_GOOGLE_WEB_CLIENT_ID=<id>.apps.googleusercontent.com   the Web OAuth client set in Supabase's Google provider
+ *
+ * Each bundle id (app.reprize.mobile, app.reprize.develop) has its own iOS client. Without them Google sign-in is off.
+ *
+ * Sharing spike 1 (background upload, /spike-upload), for local diagnostics builds only:
+ *
+ *   REPRIZE_SPIKE_KEY=...                  same value as the SPIKE_KEY secret of the spike-sign function
  */
 module.exports = ({ config }) => {
   const bundleId = process.env.REPRIZE_BUNDLE_ID || process.env.REPPLAY_BUNDLE_ID || process.env.LANCE_BUNDLE_ID;
@@ -56,6 +72,15 @@ module.exports = ({ config }) => {
   }
   if (teamId) {
     ios.appleTeamId = teamId;
+  }
+  ios.usesAppleSignIn = true;
+
+  const googleIos = process.env.REPRIZE_GOOGLE_IOS_CLIENT_ID;
+  const plugins = (config.plugins || []).concat(['expo-apple-authentication']);
+  if (googleIos) {
+    // The iOS client id reversed: Google sends the sign-in back to the app through this URL scheme.
+    const scheme = 'com.googleusercontent.apps.' + googleIos.replace('.apps.googleusercontent.com', '');
+    plugins.push(['@react-native-google-signin/google-signin', { iosUrlScheme: scheme }]);
   }
 
   // The test_ key is development-only (see pickApiKey), so EAS production builds do not carry it at all.
@@ -72,7 +97,16 @@ module.exports = ({ config }) => {
     },
     diagnostics: !production && process.env.REPRIZE_DIAGNOSTICS === '1',
     fieldTestUnlockAll: !production && process.env.REPRIZE_FIELD_TEST_UNLOCK === '1',
+    supabase: {
+      url: process.env.REPRIZE_SUPABASE_URL,
+      key: process.env.REPRIZE_SUPABASE_KEY,
+    },
+    google: {
+      iosClientId: googleIos,
+      webClientId: process.env.REPRIZE_GOOGLE_WEB_CLIENT_ID,
+    },
+    spikeKey: !production && process.env.REPRIZE_DIAGNOSTICS === '1' ? process.env.REPRIZE_SPIKE_KEY : undefined,
   });
 
-  return Object.assign({}, config, { ios: ios, android: android, extra: extra });
+  return Object.assign({}, config, { ios: ios, android: android, extra: extra, plugins: plugins });
 };

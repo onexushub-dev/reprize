@@ -1,0 +1,5 @@
+# Midia pesada fica local: so o spec e os scripts vao para o git.
+out/
+*.mp4
+*.mp3
+*.mov

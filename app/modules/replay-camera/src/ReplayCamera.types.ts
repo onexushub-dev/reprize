@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 export type Lens = 'ultraWide' | 'wide';
@@ -63,7 +64,28 @@ export type RemotePairing = { url: string; code: string; expiresAt: number; qrPa
 /** `expired` is only about time. `used`: another remote is pairing with this code. `closed`: the camera phone is not offering a pairing. */
 export type RemotePairFailure = 'expired' | 'locked' | 'notFound' | 'wrong' | 'denied' | 'full' | 'used' | 'closed';
 
+/** One file to upload with a presigned PUT URL (sharing design §5.4). */
+export type UploadItem = { id: string; path: string; url: string; contentType?: string };
+
+/** What the uploader knows about one file. Times are ms since 1970. */
+export type UploadEntry = {
+  id: string;
+  path: string;
+  status: 'running' | 'done' | 'failed';
+  bytes: number;
+  sent: number;
+  attempts: number;
+  queuedAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  httpStatus?: number;
+  error?: string;
+};
+
 export type ReplayCameraModuleEvents = {
+  onUploadProgress: (e: { id: string; sent: number; total: number }) => void;
+  onUploadDone: (e: UploadEntry & { ok: boolean }) => void;
+  onUploadRetry: (e: { id: string; attempt: number; error: string }) => void;
   onTrigger: (e: { source: TriggerSource; at: number }) => void;
   onWatchStatus: (e: { status: WatchStatus }) => void;
   /**
@@ -351,6 +373,21 @@ export type FocusAnalysis = {
 
 export type ReplayCameraViewProps = {
   style?: StyleProp<ViewStyle>;
+};
+
+/**
+ * What the capture shield reports (iOS). `protected`: the children sit in the system's secure canvas and the shield is
+ * on. `capturing`: the screen is being recorded or mirrored. `canvas`: the canvas's class name, empty when none was
+ * found. `screenshots`: how many were taken since the view was created.
+ */
+export type CaptureShieldState = { protected: boolean; capturing: boolean; canvas: string; screenshots: number };
+
+export type CaptureShieldViewProps = {
+  style?: StyleProp<ViewStyle>;
+  /** False: the same view without the protection, to compare a capture with and without it. Default true. */
+  enabled?: boolean;
+  onShieldState?: (e: { nativeEvent: CaptureShieldState }) => void;
+  children?: ReactNode;
 };
 
 /** How the Bluetooth stands for the app: "notDetermined" = never asked (nothing was looked at). */

@@ -30,6 +30,9 @@
         ]
       },
       "appleTeamId": "R885ZD42ZG",
+      "associatedDomains": [
+        "applinks:www.reprizeapp.com"
+      ],
       "config": {
         "usesNonExemptEncryption": false
       },
