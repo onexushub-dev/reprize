@@ -282,7 +282,7 @@ export function probeBall(): Promise<number> {
 }
 
 /** TEMP(lab-android): Modo Foco's evaluation on an Android phone (plan 2026-11-16 task 12). Rejects where it is missing. */
-export function labEvalAndroid(which: 'run' | 'reference'): Promise<string> {
+export function labEvalAndroid(which: 'run' | 'reference' | 'backends'): Promise<string> {
   const run = ReplayCameraModule.labEvalAndroid;
   if (typeof run !== 'function') return Promise.reject(new Error('no Android evaluation here'));
   return run.call(ReplayCameraModule, which);

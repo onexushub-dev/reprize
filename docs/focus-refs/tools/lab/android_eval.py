@@ -203,7 +203,7 @@ def report(handoff: str, out: str) -> None:
     rows = []
     for c in clips(handoff):
         base = os.path.join(out, os.path.splitext(c["video"])[0])
-        res = base + ".result.json"
+        res = os.path.join(out, c["name"] + ".result.json")  # LabEval writes results at the folder's top
         if not os.path.exists(res):
             continue
         r = json.load(open(res))

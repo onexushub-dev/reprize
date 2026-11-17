@@ -118,6 +118,50 @@ object LabEval {
     .put("elapsedMs", b.elapsedMs).put("verdict", b.verdict).put("focus", b.focus).put("stages", JSONObject(b.stages.json()))
     .put("panP95", b.panP95).put("turnsPer10s", b.turnsPer10s).put("playSeconds", b.playSeconds)
 
+  /**
+   * Which backend reproduces the Mac's detections: the frames of a few clips (at the Mac's reference times) through the
+   * model on the GPU in fp16, the GPU in fp32 and the CPU, written as `<clip>.bk-<backend>.balldet.json`.
+   */
+  fun backends(context: Context): String {
+    val d = dir(context)
+    var n = 0
+    for (line in File(d, "clips.txt").readLines()) {
+      if (line.isBlank() || line.startsWith("#")) continue
+      val parts = line.trim().split("|")
+      val clip = File(d, parts[1])
+      val ref = side(clip, ".ref.balldet.json")
+      val sport = BallSport.of(parts[4]) ?: continue
+      // the clips where the phone lost the most against the reference (2026-11-16)
+      if (!ref.exists() || parts[0] !in setOf("basket-app-1108-d", "basket-app-1108-a", "basket-app-1108-g", "basket-app-1108-c")) continue
+      val refJson = JSONObject(ref.readText())
+      val ticks = refJson.getJSONArray("frames").let { a -> (0 until a.length()).map { a.getJSONObject(it).getDouble("t") } }
+      val video = ClipScan.Video.load(clip.path)
+      val (w, h) = ClipScan.ballSize(video.width, video.height, 1920)
+      val regions = expo.modules.replaycamera.ball.BallDetect.regions(w, h, 416, 416)
+      for (b in expo.modules.replaycamera.ball.BallDetector.Backend.values()) {
+        expo.modules.replaycamera.ball.BallDetector(context, sport.modelId, b).use { det ->
+          val cursor = expo.modules.replaycamera.core.ScanTicks.Cursor(ticks.map { it - 0.4 }, 1.0)
+          val dets = ArrayList<expo.modules.replaycamera.ball.BallFraming.Detection>()
+          var ms = 0.0
+          expo.modules.replaycamera.focus.FrameDecoder(clip.path, maxOf(0.0, ticks.first() - 50), ticks.last() + 50, video.rotation)
+            .run({ false }, { t -> cursor.take(t) }) { t, f ->
+              val px = f.pixels(w, h)
+              val t0 = System.nanoTime()
+              val boxes = det.detect(px.argb, px.width, px.height, regions)
+              ms += (System.nanoTime() - t0) / 1e6
+              dets.add(expo.modules.replaycamera.ball.BallFraming.Detection(t, expo.modules.replaycamera.ball.BallDetect.frameCandidates(boxes, w, h)))
+              !cursor.done
+            }
+          side(clip, ".bk-${det.backend}.balldet.json").writeText(
+            expo.modules.replaycamera.ball.BallFraming.detectionsJSON(dets, video.width, video.height, refJson.getString("model"), emptyList()).toString())
+          Log.i(TAG, "${parts[0]}: ${det.backend} ${dets.size} frames, ${"%.0f".format(ms / maxOf(1, dets.size))} ms a frame")
+        }
+      }
+      n += 1
+    }
+    return "backends: $n clipes"
+  }
+
   /** The reference: Bola again on each clip with the Mac's ONNX detections (`<name>.ref.balldet.json`) in place of the phone's. */
   fun reference(context: Context): String {
     val say = { m: String -> Log.i(TAG, m); Unit }

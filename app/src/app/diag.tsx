@@ -135,10 +135,10 @@ function LabSwitches() {
  */
 function AndroidEval() {
   const [busy, setBusy] = useState(false);
-  const go = (which: 'run' | 'reference') => {
+  const go = (which: 'run' | 'reference' | 'backends') => {
     if (busy) return;
     setBusy(true);
-    diag(`Avaliação Android: ${which === 'run' ? 'começou' : 'referência começou'}`);
+    diag(`Avaliação Android: ${which} começou`);
     labEvalAndroid(which)
       .then((line) => diag(line))
       .catch((e: unknown) => diag(`Avaliação Android falhou: ${String(e)}`))
@@ -151,6 +151,9 @@ function AndroidEval() {
       </Pressable>
       <Pressable accessibilityRole="button" onPress={() => go('reference')} hitSlop={8} style={styles.labReset}>
         <Text style={styles.linkSoft}>Referência (Mac)</Text>
+      </Pressable>
+      <Pressable accessibilityRole="button" onPress={() => go('backends')} hitSlop={8} style={styles.labReset}>
+        <Text style={styles.linkSoft}>GPU/CPU</Text>
       </Pressable>
     </View>
   );

@@ -17,10 +17,13 @@ import java.nio.ByteOrder
  * whole app down on a test phone: `gpuTrying` is written before the first GPU inference of the process and cleared once
  * it returns; found set at the next start, the app died there, and this phone uses the CPU from then on (`gpuBad`).
  */
-class BallDetector(context: Context, val modelId: String) : Closeable {
+class BallDetector(context: Context, val modelId: String, private val force: Backend? = null) : Closeable {
+  /** How the model runs: the GPU in fp16 (precision loss allowed), the GPU in fp32, or the CPU (XNNPACK, 4 threads). */
+  enum class Backend { GPU16, GPU32, CPU }
+
   class NoModel(modelId: String) : Exception("no model $modelId")
 
-  /** "gpu" or "cpu". */
+  /** "gpu16", "gpu32" or "cpu". */
   val backend: String
   /** Milliseconds the last `detect` spent preparing the regions and in the model. */
   var lastPrepMs = 0.0
@@ -51,9 +54,10 @@ class BallDetector(context: Context, val modelId: String) : Closeable {
       prefs.edit().putBoolean(GPU_BAD, true).putBoolean(GPU_TRYING, false).commit()
     }
     var made: Interpreter? = null
-    if (!prefs.getBoolean(GPU_BAD, false)) {
+    val wanted = force ?: DEFAULT
+    if (wanted != Backend.CPU && !prefs.getBoolean(GPU_BAD, false)) {
       try {
-        val d = GpuDelegate(GpuDelegate.Options().setPrecisionLossAllowed(true))
+        val d = GpuDelegate(GpuDelegate.Options().setPrecisionLossAllowed(wanted == Backend.GPU16))
         made = Interpreter(model, Interpreter.Options().addDelegate(d))
         gpu = d
       } catch (e: Throwable) {
@@ -63,7 +67,7 @@ class BallDetector(context: Context, val modelId: String) : Closeable {
       }
     }
     interpreter = made ?: Interpreter(model, Interpreter.Options().setNumThreads(4))
-    backend = if (gpu != null) "gpu" else "cpu"
+    backend = if (gpu == null) "cpu" else if (wanted == Backend.GPU16) "gpu16" else "gpu32"
     Log.i(TAG, "$modelId on the $backend")
   }
 
@@ -111,6 +115,8 @@ class BallDetector(context: Context, val modelId: String) : Closeable {
 
   companion object {
     const val TAG = "ReprizeBall"
+    /** What runs when nothing is forced. */
+    val DEFAULT = Backend.GPU16
     const val SIDE = 416
     const val TILE = 416
     const val CONF = 0.05f

@@ -287,7 +287,7 @@ class ReplayCameraModule : Module() {
     AsyncFunction("labEvalAndroid") { which: String, promise: Promise ->
       Thread({
         try {
-          promise.resolve(if (which == "reference") LabEval.reference(context) else LabEval.run(context))
+          promise.resolve(when (which) { "reference" -> LabEval.reference(context); "backends" -> LabEval.backends(context); else -> LabEval.run(context) })
         } catch (e: Throwable) {
           android.util.Log.e("ReprizeEval", "evaluation failed", e)
           promise.reject("EVAL_FAILED", "$e", null)

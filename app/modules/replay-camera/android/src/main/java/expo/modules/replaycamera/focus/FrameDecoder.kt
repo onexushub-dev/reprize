@@ -29,8 +29,7 @@ internal class FrameDecoder(
 
     /** The upright frame no longer than `longSide` (0 = its own size). */
     fun pixels(longSide: Int): Pixels {
-      val w = image.width
-      val h = image.height
+      val (_, _, w, h) = window(image)
       val s = if (longSide <= 0) 1.0 else minOf(1.0, longSide.toDouble() / maxOf(w, h))
       val ow = maxOf(2, (w * s).toInt() / 2 * 2)
       val oh = maxOf(2, (h * s).toInt() / 2 * 2)
@@ -93,14 +92,24 @@ internal class FrameDecoder(
   }
 
   companion object {
+    /** The source row (or column) for output index `o` of `outSize`, inside a window of `size` starting at `offset`. */
+    internal fun sourceIndex(o: Int, outSize: Int, offset: Int, size: Int): Int =
+      offset + minOf(size - 1, (o.toLong() * size / outSize).toInt())
+
+    /** The picture inside the decoded buffer: left, top, width, height (the whole buffer when the crop is unset). */
+    private fun window(image: Image): IntArray {
+      val c = image.cropRect
+      return if (c == null || c.isEmpty) intArrayOf(0, 0, image.width, image.height) else intArrayOf(c.left, c.top, c.width(), c.height())
+    }
+
     /**
      * YUV_420_888 (video range, BT.601) to ARGB at `outW` × `outH` of the stored frame: each output pixel the mean of
      * the 2 × 2 block when the frame is exactly halved (4K → 1920, so a small ball is not lost to sampling), else the
      * nearest pixel.
      */
     fun convert(image: Image, outW: Int, outH: Int): Pixels {
-      val w = image.width
-      val h = image.height
+      // only the decoder's crop window is the picture (1080p comes in a 1088-row buffer)
+      val (x0, y0, w, h) = window(image)
       val yPlane = image.planes[0]
       val uPlane = image.planes[1]
       val vPlane = image.planes[2]
@@ -113,14 +122,14 @@ internal class FrameDecoder(
       val uvPixel = uPlane.pixelStride
       val half = outW * 2 == w && outH * 2 == h
       val pixels = IntArray(outW * outH)
-      val srcX = IntArray(outW) { minOf(w - 1, (it * w.toLong() / outW).toInt()) }
+      val srcX = IntArray(outW) { sourceIndex(it, outW, x0, w) }
       fun luma(x: Int, y: Int) = yBuf.get(y * yRow + x * yPix).toInt() and 0xFF
       var o = 0
       for (y in 0 until outH) {
-        val sy = if (half) y * 2 else minOf(h - 1, (y * h.toLong() / outH).toInt())
+        val sy = sourceIndex(y, outH, y0, h)
         val uvBase = (sy shr 1) * uvRow
         for (x in 0 until outW) {
-          val sx = if (half) x * 2 else srcX[x]
+          val sx = srcX[x]
           val l = if (half) (luma(sx, sy) + luma(sx + 1, sy) + luma(sx, sy + 1) + luma(sx + 1, sy + 1) + 2) / 4 else luma(sx, sy)
           val yy = l - 16
           val uvIndex = uvBase + (sx shr 1) * uvPixel
