@@ -42,6 +42,15 @@
  *   REPRIZE_FIELD_TEST_UNLOCK=1            every paid feature works on the free plan; off when unset
  *
  * EAS production builds never carry it either: the store build always locks and shows the paywall.
+ *
+ * Supabase (sharing recordings), read into extra.supabase. Both values are public:
+ *
+ *   REPRIZE_SUPABASE_URL=https://<ref>.supabase.co
+ *   REPRIZE_SUPABASE_KEY=sb_publishable_...
+ *
+ * Sharing spike 1 (background upload, /spike-upload), for local diagnostics builds only:
+ *
+ *   REPRIZE_SPIKE_KEY=...                  same value as the SPIKE_KEY secret of the spike-sign function
  */
 module.exports = ({ config }) => {
   const bundleId = process.env.REPRIZE_BUNDLE_ID || process.env.REPPLAY_BUNDLE_ID || process.env.LANCE_BUNDLE_ID;
@@ -72,6 +81,11 @@ module.exports = ({ config }) => {
     },
     diagnostics: !production && process.env.REPRIZE_DIAGNOSTICS === '1',
     fieldTestUnlockAll: !production && process.env.REPRIZE_FIELD_TEST_UNLOCK === '1',
+    supabase: {
+      url: process.env.REPRIZE_SUPABASE_URL,
+      key: process.env.REPRIZE_SUPABASE_KEY,
+    },
+    spikeKey: !production && process.env.REPRIZE_DIAGNOSTICS === '1' ? process.env.REPRIZE_SPIKE_KEY : undefined,
   });
 
   return Object.assign({}, config, { ios: ios, android: android, extra: extra });

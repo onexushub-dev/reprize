@@ -1,9 +1,19 @@
 {
-  "platforms": ["apple", "android"],
+  "platforms": [
+    "apple",
+    "android"
+  ],
   "apple": {
-    "modules": ["ReplayCameraModule"]
+    "modules": [
+      "ReplayCameraModule"
+    ],
+    "appDelegateSubscribers": [
+      "UploadAppDelegateSubscriber"
+    ]
   },
   "android": {
-    "modules": ["expo.modules.replaycamera.ReplayCameraModule"]
+    "modules": [
+      "expo.modules.replaycamera.ReplayCameraModule"
+    ]
   }
 }

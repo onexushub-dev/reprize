@@ -22,8 +22,7 @@ original quality, and the link brings the athlete into the app and towards PRO.
    and the clips upload in a background queue.
 4. **The original clip file travels**, with its edit and focus data. Nothing is re-encoded on the sender's phone.
 5. **Links live 24 hours** from creation. After that the link stops working and the files are deleted from the cloud.
-   The owner can share the same recording again (a new link, a new upload). For a link created before the match
-   (Phase 2), the 24 hours count from the end of the recording.
+   The owner can share the same recording again (a new link, a new upload).
 6. **The web page shows only the cover clip** as a preview (HD, no sound, watermark). Everything else opens in the app.
 7. **Watching in the app is free on every plan**, at the recorded quality, with sound, Modo Foco and the sender's edits.
    Opening a share in the app within the 24 hours downloads the videos into the app (not into the photo library).
@@ -42,6 +41,9 @@ original quality, and the link brings the athlete into the app and towards PRO.
     phone the web page shows the cover preview and "Em breve no Android".
 14. **Individual users only.** No team or organisation accounts.
 15. **Link host:** `www.reprizeapp.com` (see §7).
+16. **Only an ended recording can be shared, and nothing uploads while recording.** The Share button appears once the
+    recording has ended. If a new recording starts with uploads pending, the queue pauses and resumes when that
+    recording ends. Reason: battery, performance and heat during a recording.
 
 Not in this feature: the watermark on PRO exports (a later, separate decision), event pages, an event pass, sending to
 Reprize usernames.
@@ -50,13 +52,13 @@ Reprize usernames.
 
 ### 3.1 Sender (PRO)
 
-1. Recording screen → **Compartilhar gravação**. First time: sign in (Apple or Google), then the liability notice (§8.4).
+1. Recording screen of an **ended** recording → **Compartilhar gravação**. First time: sign in (Apple or Google), then the liability notice (§8.4).
 2. The app asks the server for a share; the sheet shows the QR code, Copy link, WhatsApp, More.
-3. Athletes scan the QR code with the phone camera. The sender can start the next recording.
+3. Athletes scan the QR code with the phone camera. The sender can start the next recording; the upload then pauses
+   until that recording ends.
 4. The queue uploads thumbnails and the cover preview first, then the clips in order. The recording shows progress
    ("7 de 12 enviados").
-5. Clips saved later to the same recording join the same share while it is active.
-6. The sheet also shows who joined, the time left, restricted mode and **Desligar link**.
+5. The sheet also shows who joined, the time left, restricted mode and **Desligar link**.
 
 ### 3.2 Recipient
 
@@ -131,9 +133,14 @@ recording and never decides by itself.
 ### 5.4 Upload
 
 - Queue persisted on the phone; order: thumbnails, cover preview, clips.
-- System background session: continues with the app in the background or the screen locked, in parts, resuming after a
-  signal drop.
+- System background session (`BackgroundUpload.swift`): continues with the app in the background or the screen locked;
+  iOS wakes the app when a transfer ends. One clip is one presigned PUT; a clip that fails starts again from its first
+  byte (clips are tens of MB), up to 5 attempts; a 4xx is not retried. Finished clips are never sent again.
+- iOS cancels every background transfer when the user swipes the app away in the app switcher. On the next launch the
+  queue starts those clips again.
 - Setting "Enviar pelos dados móveis" (on by default). Pause on critical heat.
+- Never while recording: the queue checks the session state, pauses when a recording starts and resumes when it ends.
+  The recording shows "Envio pausado durante a gravação".
 - The cover preview is one export through the existing free path (HD, no sound, watermark): one export per share.
 - Example: an 11 MB clip (15 s, Full HD, estimated from the backlog's 90 MB per 120 s) takes about 9 s at 10 Mbps up.
   Real sizes for Full HD and 4K, 15–60 s, are measured in Phase 0.
@@ -232,8 +239,8 @@ Headline numbers: new users per share created, revenue per share created, GB sto
 
 | # | Spike | Passes when |
 |---|---|---|
-| 1 | Background upload | A 12-clip recording uploads with the screen locked and the signal dropping, and resumes without restarting finished parts |
-| 2 | Upload while recording | No dropped frames, no extra thermal level and acceptable battery cost against a recording with no upload; otherwise the queue runs only between recordings |
+| 1 | Background upload | A 12-clip recording uploads with the screen locked and the signal dropping, and resumes without sending finished clips again. Screen `/spike-upload`, function `supabase/functions/spike-sign` |
+| 2 | Upload while recording | Cancelled (decision 16): nothing uploads while recording |
 | 3 | Capture protection | Screenshot shows black over the video and screen recording triggers the message, on the current iOS, with the app's player and Modo Foco overlay |
 
 Also in Phase 0: measure real clip sizes (Full HD and 4K, 15–60 s); choose account, database and storage services;
@@ -246,7 +253,7 @@ set up Universal Links on `www.reprizeapp.com`; define the courtesy counter and 
   link"; Recebidas filter and markers; stream plus automatic download; `canShare`; courtesies with the server counter;
   capture protection; turn off, expiry, new link, who joined; Terms, privacy policy, store labels; analytics; field test
   at a real tournament against the 10-second target.
-- **Phase 2:** link created before the match; push (new clips, expiry warning); "Quer ser marcado? Deixe seu @" and
+- **Phase 2:** push (expiry warning); "Quer ser marcado? Deixe seu @" and
   the handle list on the recording; single-clip links; restricted mode with approval; report review queue.
 - **Phase 3:** event pages (one QR per tournament or court); event pass; sending to people; Android once the app is on
   Google Play; App Clip study.
@@ -258,6 +265,8 @@ set up Universal Links on `www.reprizeapp.com`; define the courtesy counter and 
 - **Capture protection** rests on an undocumented system behaviour (spike 3).
 - **New accounts for more courtesies:** possible, costly for the user; measure before acting.
 - **Reach:** only subscribers create links.
+- **Back-to-back matches:** with no upload while recording, the clips of one match upload only in the gap before the
+  next recording or after the last one. The athlete scans the QR code at once but may wait to see the clips.
 
 ## 13. Project rules that apply
 

@@ -1,0 +1,7 @@
+# Supabase project settings for the Reprize backend (sharing design: docs/superpowers/specs/2026-11-16-recording-sharing-design.md).
+project_id = "reprize"
+
+# Spike 1 (background upload): signs PUT/HEAD URLs for the dev R2 bucket. Not a product endpoint.
+# The publishable key is not a JWT, so the gateway check is off and the function checks its own spike key.
+[functions.spike-sign]
+verify_jwt = false
