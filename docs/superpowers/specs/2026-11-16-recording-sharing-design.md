@@ -96,12 +96,12 @@ for 24 hours.
 
 | Part | Proposal (to confirm in Phase 0) | Notes |
 |---|---|---|
-| Account | Sign in with Apple and with Google | Apple's option is required when a third-party sign-in is offered. Account deletion in-app |
+| Account | Sign in with Apple and with Google, both native sheets (`expo-apple-authentication`, `@react-native-google-signin/google-signin`, MIT), exchanged with `supabase.auth.signInWithIdToken` | Apple's option is required when a third-party sign-in is offered. Account deletion in-app. Code: `src/account/`, screen `/account`; behind `SHARING_ENABLED` (diagnostics builds only) until the feature ships |
 | Data and API | Managed Postgres with row-level rules and server functions (for example Supabase) | Shares, clips, members, courtesies, notice acceptances, reports |
 | Video files | Object storage with multipart upload and short-lived signed URLs (for example Cloudflare R2) | Never a public URL. Lifecycle rule plus a job that deletes at expiry |
 | Link page | Static page plus one function on `www.reprizeapp.com` (Vercel today) | `noindex`; social preview shows the cover image only |
 | Open in app | Universal Links for `/v/*`; `reprize://` as fallback | §7 |
-| Subscription | RevenueCat `logIn` with the account id | PRO follows the account, not only the device |
+| Subscription | RevenueCat `logIn` with the account id (`identifyPurchaser`), `logOut` on sign-out | PRO follows the account, not only the device; anonymous purchases move to the account on first sign-in |
 | Push | Phase 2 | New clips; "link expires in 3 hours" |
 
 Only free-licence libraries in the app. Before coding the background upload, read the Expo SDK 58 docs for the current
@@ -186,7 +186,7 @@ reserved for "recording". All new strings in pt-BR and en (`src/i18n/locales`).
   redirect. A redirecting link does not open the app on iPhone, so the app and the QR code always use `www`.
 - `apple-app-site-association` at `https://www.reprizeapp.com/.well-known/` (site repo `reprize-lp`, `public/`), served
   as `application/json` by `vercel.json`, no redirect. It lists the store app (`R885ZD42ZG.app.reprize.mobile`) and the
-  team's development build (`R885ZD42ZG.app.reprize.dev`, so it can sit next to the store app; a Personal Team build
+  team's development build (`R885ZD42ZG.app.reprize.develop`, so it can sit next to the store app; a Personal Team build
   cannot use associated domains); the app claims only `/v/*`
   (`associatedDomains` in `app/app.json`).
 - Until the link page exists, `vercel.json` rewrites `/v/*` to `/baixar`, which sends the phone to its store.

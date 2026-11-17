@@ -32,6 +32,11 @@ export function createFakeClient() {
       if (fake.failRestore || fake.failSnapshot) throw new Error('snapshot unavailable');
       return fake.snapshot;
     },
+    /** The last identify call: undefined = never called. */
+    identified: undefined as string | null | undefined,
+    async identify(appUserId: string | null): Promise<void> {
+      fake.identified = appUserId;
+    },
     emit(s: Snapshot) {
       fake.snapshot = s;
       listeners.forEach((fn) => fn(s));

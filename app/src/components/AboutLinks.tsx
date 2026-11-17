@@ -1,6 +1,8 @@
 import * as Application from 'expo-application';
+import { router } from 'expo-router';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { SHARING_ENABLED } from '../account/flags';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 
@@ -25,6 +27,14 @@ export function AboutLinks() {
       <Pressable accessibilityRole="link" hitSlop={8} onPress={() => void Linking.openURL(t('about.privacyUrl'))}>
         <Text style={styles.link}>{t('about.privacy')}</Text>
       </Pressable>
+      {SHARING_ENABLED ? (
+        <>
+          <Text style={styles.dot}>·</Text>
+          <Pressable accessibilityRole="link" hitSlop={8} onPress={() => router.push('/account')}>
+            <Text style={styles.link}>{t('account.link')}</Text>
+          </Pressable>
+        </>
+      ) : null}
       {version ? (
         <>
           <Text style={styles.dot}>·</Text>
