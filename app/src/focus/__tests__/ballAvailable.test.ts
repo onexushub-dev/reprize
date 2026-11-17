@@ -6,10 +6,11 @@ describe('whether the probe lets Bola show', () => {
     expect(ballShownForProbe(400, 'ios')).toBe(true);
   });
 
-  it('uses the same 400 ms limit on Android (Marcus, 2026-11-16, after the POCO X3 test)', () => {
+  it('uses a 500 ms limit on Android (Marcus, 2026-11-17: the card shows the progress)', () => {
     expect(ballShownForProbe(1700, 'android')).toBe(false);
-    expect(ballShownForProbe(401, 'android')).toBe(false);
-    expect(ballShownForProbe(400, 'android')).toBe(true);
+    expect(ballShownForProbe(501, 'android')).toBe(false);
+    expect(ballShownForProbe(500, 'android')).toBe(true);
+    expect(ballShownForProbe(450, 'android')).toBe(true);
   });
 
   it('hides Bola without the model', () => {

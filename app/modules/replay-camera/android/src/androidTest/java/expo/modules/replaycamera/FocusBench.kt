@@ -71,7 +71,7 @@ class FocusBench {
     // seconds of waiting per second of cut: Jogadores samples 5 a second, Bola reads 5 frames a second
     out.put("jogadoresSecPerSec", r(out.getDouble("people3Ms") * 5 / 1000))
     out.put("bolaSecPerSec", r(out.getDouble("probeMs") * 5 / 1000))
-    out.put("bolaShown", out.getDouble("probeMs") <= 400)
+    out.put("bolaShown", out.getDouble("probeMs") <= 500) // Android's limit, ballProbe.ts
     Log.i("ReprizeBench", out.toString())
     InstrumentationRegistry.getInstrumentation().sendStatus(0, android.os.Bundle().apply { putString("bench", out.toString()) })
   }

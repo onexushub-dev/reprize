@@ -2,11 +2,17 @@
 export const BALL_PROBE_MAX_MS = 400;
 
 /**
- * Whether the one-time probe lets Bola show: unknown yet = shown; over BALL_PROBE_MAX_MS = hidden, on iOS and on Android
- * alike (Marcus, 2026-11-16, after the POCO X3 test: ~1.7 s a frame, about 9 s of waiting per second of cut); a build
- * without the model (probe stored as MAX_SAFE_INTEGER) = hidden.
+ * Android's limit (Marcus, 2026-11-17): 500 ms a frame, since the card shows the progress while the phone works (about
+ * 35 s for a 15 s cut: the Pixel 8a and the Galaxy A56 in Test Lab). iOS keeps BALL_PROBE_MAX_MS.
  */
-export function ballShownForProbe(probeMs: number | undefined, _platform: string): boolean {
+export const BALL_PROBE_MAX_MS_ANDROID = 500;
+
+/**
+ * Whether the one-time probe lets Bola show: unknown yet = shown; over the platform's limit = hidden (Android's was
+ * the same as iOS's after the POCO X3 test on 2026-11-16, ~1.7 s a frame, then raised); a build without the model (probe
+ * stored as MAX_SAFE_INTEGER) = hidden.
+ */
+export function ballShownForProbe(probeMs: number | undefined, platform: string): boolean {
   if (probeMs === undefined) return true;
-  return probeMs <= BALL_PROBE_MAX_MS;
+  return probeMs <= (platform === 'android' ? BALL_PROBE_MAX_MS_ANDROID : BALL_PROBE_MAX_MS);
 }
