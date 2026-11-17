@@ -120,7 +120,13 @@ API (`app/AGENTS.md`).
 
 The share token is 22 random base62 characters (more than 128 bits). The server stores only its hash.
 
-Courtesy use is decided by the server in one transaction: if `courtesy_applied` is already true for this member and
+Implemented in `supabase/migrations/20261117030000_sharing.sql`: tables `profiles`, `shares`, `share_clips`,
+`share_members`, `notice_acceptances`, `reports`, all with row-level security. Clients may read their own profile and
+the shares they own or joined (never `token_hash`) and may edit only their display name and Instagram handle; every
+write that matters goes through Edge Functions with the service role. Files are not listed in the database: they live
+in R2 under `shares/<share id>/`.
+
+Courtesy use is decided by the server in one transaction (`public.use_courtesy(share)`, locks the profile row): if `courtesy_applied` is already true for this member and
 share → allowed; else if `courtesies_used < 3` → increment and set it; else → refused. The app stores the answer on the
 recording and never decides by itself.
 
@@ -150,8 +156,10 @@ recording and never decides by itself.
 
 - The recipient streams from signed URLs and the app downloads the originals in the background as soon as the share is
   opened. The recording shows "Baixando 7 de 12 · disponível na nuvem por mais 18 h".
-- At `expires_at` a server job sets the share to `expired` and deletes its objects. A storage lifecycle rule is the
-  safety net.
+- Every 10 minutes pg_cron calls the `expire-shares` Edge Function (key in Vault, `x-cron-key` header). It takes the
+  shares turned off or past `expires_at` (`shares_to_clean`), deletes everything under `shares/<id>/` in R2 and marks
+  them (`mark_shares_cleaned`: `files_deleted_at`, an active share becomes `expired`). The bucket's 2-day lifecycle
+  rule is the safety net. The share rows stay, so a courtesy can still be used on a recording already on the phone.
 - Whoever opened in time keeps the recording in the app. Whoever did not sees "Este link venceu. Peça um novo a quem
   gravou".
 
@@ -178,7 +186,8 @@ reserved for "recording". All new strings in pt-BR and en (`src/i18n/locales`).
   redirect. A redirecting link does not open the app on iPhone, so the app and the QR code always use `www`.
 - `apple-app-site-association` at `https://www.reprizeapp.com/.well-known/` (site repo `reprize-lp`, `public/`), served
   as `application/json` by `vercel.json`, no redirect. It lists the store app (`R885ZD42ZG.app.reprize.mobile`) and the
-  team's development build (`8X7TP6U4B6.com.victorhm.lance`); the app claims only `/v/*`
+  team's development build (`R885ZD42ZG.app.reprize.dev`, so it can sit next to the store app; a Personal Team build
+  cannot use associated domains); the app claims only `/v/*`
   (`associatedDomains` in `app/app.json`).
 - Until the link page exists, `vercel.json` rewrites `/v/*` to `/baixar`, which sends the phone to its store.
   In the app, `src/app/v/[code].tsx` is a Phase 0 placeholder.
