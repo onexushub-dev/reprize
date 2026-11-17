@@ -54,4 +54,13 @@ class RegionRenderTest {
     assertEquals(200f, at(f, 3, 0)[0], 1e-4f)
     assertEquals(114f, at(f, 4, 0)[0], 1e-4f)
   }
+
+  @Test fun aPictureReachingHalfAPixelKeepsThatPixel() {
+    // 11 × 1 at scale 0.5 reaches 5.5 px: pixels 0..5 are picture (5 + 0.5 <= 5.5), pixel 6 is grey
+    val px = IntArray(11) { argb(10, 20, 30) }
+    val f = out()
+    RegionRender.fill(px, 11, 1, BallDetect.Region(0, 0, 0.5), 11, 416, f)
+    assertEquals(30f, at(f, 5, 0)[0], 1e-4f)
+    assertEquals(114f, at(f, 6, 0)[0], 1e-4f)
+  }
 }

@@ -12,10 +12,10 @@ import java.nio.FloatBuffer
  * ("person" only) on the whole frame and on `tilesPerSample` of the 9 half-frame tiles (`ScanTiles`, round-robin; 9 = all
  * of them, as on the iPhone), merged.
  *
- * LiteRT on the CPU (XNNPACK, 4 threads), decoded as MediaPipe did it (`PersonDecode`, `PersonInput`). 2026-11-16, POCO X3:
+ * LiteRT on the CPU (XNNPACK; 4 threads alone, 2 beside the ball detector so its region preparation keeps its cores), decoded as MediaPipe did it (`PersonDecode`, `PersonInput`). 2026-11-16, POCO X3:
  * the model alone takes 23 ms on the CPU and 48 ms on the GPU (an int8 model), and MediaPipe took 85 ms a call around it.
  */
-class PeopleDetector(context: Context, private val tilesPerSample: Int = 9) : Closeable {
+class PeopleDetector(context: Context, private val tilesPerSample: Int = 9, threads: Int = 4) : Closeable {
   private val interpreter: Interpreter
   private val anchors = PersonDecode.anchors(context.assets.open(ANCHORS).use { it.readBytes() })
   private val input = ByteBuffer.allocateDirect(PersonInput.SIDE * PersonInput.SIDE * 3).order(ByteOrder.nativeOrder())
@@ -31,7 +31,7 @@ class PeopleDetector(context: Context, private val tilesPerSample: Int = 9) : Cl
       val bytes = s.readBytes()
       ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder()).apply { put(bytes); rewind() }
     }
-    interpreter = Interpreter(model, Interpreter.Options().setNumThreads(4))
+    interpreter = Interpreter(model, Interpreter.Options().setNumThreads(threads))
     boxesIndex = (0 until interpreter.outputTensorCount).first { interpreter.getOutputTensor(it).shape().last() == 4 }
     classesIndex = (0 until interpreter.outputTensorCount).first { interpreter.getOutputTensor(it).shape().last() == CLASSES }
   }

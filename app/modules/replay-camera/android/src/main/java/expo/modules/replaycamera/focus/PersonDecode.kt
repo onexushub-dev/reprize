@@ -64,10 +64,21 @@ object PersonDecode {
 object PersonInput {
   const val SIDE = 320
 
+  private val scratch = ThreadLocal<ByteArray>()
+
   fun fill(argb: IntArray, width: Int, height: Int, x0: Int, y0: Int, cw: Int, ch: Int, out: ByteBuffer) {
-    out.rewind()
+    val a = scratch.get() ?: ByteArray(SIDE * SIDE * 3).also { scratch.set(it) }
     val sx = cw.toDouble() / SIDE
     val sy = ch.toDouble() / SIDE
+    val c0s = IntArray(SIDE)
+    val c1s = IntArray(SIDE)
+    val txs = FloatArray(SIDE)
+    for (u in 0 until SIDE) {
+      val fx = u * sx
+      val ix = floor(fx).toInt()
+      c0s[u] = x0 + min(ix, cw - 1); c1s[u] = x0 + min(ix + 1, cw - 1); txs[u] = (fx - ix).toFloat()
+    }
+    var o = 0
     for (v in 0 until SIDE) {
       val fy = v * sy
       val iy = floor(fy).toInt()
@@ -75,25 +86,20 @@ object PersonInput {
       val r0 = (y0 + min(iy, ch - 1)) * width
       val r1 = (y0 + min(iy + 1, ch - 1)) * width
       for (u in 0 until SIDE) {
-        val fx = u * sx
-        val ix = floor(fx).toInt()
-        val tx = (fx - ix).toFloat()
-        val c0 = x0 + min(ix, cw - 1)
-        val c1 = x0 + min(ix + 1, cw - 1)
-        val p00 = argb[r0 + c0]
-        val p01 = argb[r0 + c1]
-        val p10 = argb[r1 + c0]
-        val p11 = argb[r1 + c1]
-        for (shift in intArrayOf(16, 8, 0)) { // R, G, B
-          val a = ((p00 shr shift) and 0xFF).toFloat()
-          val b = ((p01 shr shift) and 0xFF).toFloat()
-          val c = ((p10 shr shift) and 0xFF).toFloat()
-          val d = ((p11 shr shift) and 0xFF).toFloat()
-          val top = a + (b - a) * tx
-          val bottom = c + (d - c) * tx
-          out.put(Math.round(top + (bottom - top) * ty).coerceIn(0, 255).toByte())
+        val p00 = argb[r0 + c0s[u]]; val p01 = argb[r0 + c1s[u]]; val p10 = argb[r1 + c0s[u]]; val p11 = argb[r1 + c1s[u]]
+        val tx = txs[u]
+        var shift = 16
+        while (shift >= 0) { // R, G, B
+          val q00 = ((p00 shr shift) and 0xFF).toFloat(); val q01 = ((p01 shr shift) and 0xFF).toFloat()
+          val q10 = ((p10 shr shift) and 0xFF).toFloat(); val q11 = ((p11 shr shift) and 0xFF).toFloat()
+          val top = q00 + (q01 - q00) * tx
+          val bottom = q10 + (q11 - q10) * tx
+          a[o++] = (top + (bottom - top) * ty + 0.5f).toInt().coerceIn(0, 255).toByte()
+          shift -= 8
         }
       }
     }
+    out.rewind()
+    out.put(a)
   }
 }
