@@ -9,3 +9,7 @@ verify_jwt = false
 # Called by pg_cron every 10 minutes with the x-cron-key header (sharing migration); no user JWT.
 [functions.expire-shares]
 verify_jwt = false
+
+# Called by the app with the user's access token; the function checks it itself (the publishable key is not a JWT).
+[functions.delete-account]
+verify_jwt = false
