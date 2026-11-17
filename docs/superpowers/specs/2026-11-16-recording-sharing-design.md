@@ -163,6 +163,20 @@ recording and never decides by itself.
 - Whoever opened in time keeps the recording in the app. Whoever did not sees "Este link venceu. Peça um novo a quem
   gravou".
 
+### 5.6 Account deletion
+
+- "Excluir conta" on the account screen, after a confirmation that says the links stop working and the recordings stay
+  on the phone. It calls the `delete-account` Edge Function with the user's access token.
+- Apple accounts confirm with Apple first: the app sends a fresh authorization code and the function exchanges it and
+  revokes the refresh token at Apple (client secret signed with the Sign in with Apple key: `APPLE_TEAM_ID`,
+  `APPLE_KEY_ID`, `APPLE_PRIVATE_KEY`, `APPLE_CLIENT_IDS`). The code must belong to the same Apple user; a refused
+  revocation stops the deletion.
+- The function deletes the R2 files of the person's shares (lifecycle rule as the safety net), then the auth user;
+  profiles, shares, members and notice acceptances go with it (`on delete cascade`), reports keep the share but lose
+  the reporter.
+- Google accounts: the app revokes access at Google afterwards (best effort). The session is cleared on the phone only;
+  RevenueCat goes back to its anonymous id, and a PRO subscription comes back with "Restaurar compras".
+
 ## 6. Screens
 
 | Screen | Change |

@@ -126,6 +126,14 @@ const camera = jest.requireMock('../../../modules/replay-camera');
 const sharing = jest.requireMock('expo-sharing');
 const media = jest.requireMock('expo-media-library');
 
+/** Taps a Foco card. The card lights at once and the framing is applied on the next frame (FocusPanel), so wait for
+ * that frame inside act: without it the result depended on whether the 16 ms frame timer ran before act returned. */
+const pick = (card: Parameters<typeof fireEvent.press>[0]) =>
+  act(async () => {
+    fireEvent.press(card);
+    await new Promise((resolve) => setTimeout(resolve, 32));
+  });
+
 /** Jogadores picked on the clip (since 2026-11-11 a clip starts on the Original). */
 const players = { muted: false, framing: 'focus' as const };
 
@@ -669,7 +677,7 @@ describe('Modo Foco', () => {
   test('turning it off is stored on the clip and shows the whole video', async () => {
     __setClip({ ...base, focus: ready, edit: players });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(original()));
+    await pick(original());
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'none' } });
     // The repo stand-in does not notify the screen: open the stored clip again.
     await openEdit('Foco');
@@ -687,7 +695,7 @@ describe('Modo Foco', () => {
   test('while the analysis runs the tag says it is preparing', async () => {
     __setClip({ ...base, focus: { v: 1, status: 'pending' } });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(chip()));
+    await pick(chip());
     await pressAction('Concluir');
     expect(screen.getByText('Rastreando os jogadores…')).toBeTruthy();
     expect(video.last.follow).toBeUndefined();
@@ -731,7 +739,7 @@ describe('Modo Foco', () => {
 
   test('picking Jogadores makes sure it gets analysed', async () => {
     await openEdit('Foco');
-    await act(async () => fireEvent.press(chip()));
+    await pick(chip());
     expect(focusQueue.ensure).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
   });
 
@@ -748,7 +756,7 @@ describe('Modo Foco', () => {
     __setClip({ ...base, focus: ready, edit: { muted: false, focus: false, zoom: { scale: 2, cx: 0.5, cy: 0.5 } } });
     await openEdit('Foco');
     expect(chip().props.accessibilityState).toMatchObject({ checked: false });
-    await act(async () => fireEvent.press(chip()));
+    await pick(chip());
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'focus' } });
   });
 
@@ -760,7 +768,7 @@ describe('Modo Foco', () => {
     await pressAction('Editar');
     await act(async () => fireEvent.press(screen.getByRole('tab', { name: /^Foco/ })));
     expect(original().props.accessibilityState).toMatchObject({ checked: true });
-    await act(async () => fireEvent.press(chip()));
+    await pick(chip());
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'focus' } });
   });
 
@@ -1087,7 +1095,7 @@ describe('analytics', () => {
   test('turning Modo Foco on reports it, turning it off does not', async () => {
     __setClip({ ...base, focus: { v: 1, status: 'ready', file: '/c1.focus.json' }, edit: { muted: false, focus: false } });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(screen.getByRole('radio', { name: /^Jogadores/ })));
+    await pick(screen.getByRole('radio', { name: /^Jogadores/ }));
     expect(events()).toContainEqual(['focus_mode_used', undefined]);
   });
 });
@@ -1153,7 +1161,7 @@ describe('Seguir a Bola', () => {
     __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(ballCard()));
+    await pick(ballCard());
     await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Esporte da gravação: Basquete. Trocar' })));
     await act(async () => fireEvent.press(screen.getByRole('radio', { name: 'Tênis' })));
     expect(balls.ballQueue.cancel).toHaveBeenCalledWith('c1');
@@ -1188,7 +1196,7 @@ describe('Seguir a Bola', () => {
   test('the first tap shows what it does; "Seguir o clipe todo" turns it on and remembers the answer', async () => {
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(ballCard()));
+    await pick(ballCard());
     expect(repo.updateClip).not.toHaveBeenCalledWith('c1', expect.objectContaining({ edit: expect.anything() }));
     expect(screen.getByText('Corte o lance antes')).toBeTruthy();
     await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Seguir o clipe todo' })));
@@ -1200,7 +1208,7 @@ describe('Seguir a Bola', () => {
   test('"Cortar o lance primeiro" leaves it off', async () => {
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(ballCard()));
+    await pick(ballCard());
     await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cortar o lance primeiro' })));
     expect(repo.updateClip).not.toHaveBeenCalledWith('c1', expect.objectContaining({ edit: expect.anything() }));
   });
@@ -1209,7 +1217,7 @@ describe('Seguir a Bola', () => {
     __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
     __setClip({ ...base, focus: focusReady, edit: { muted: false, framing: 'focus' } });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(ballCard()));
+    await pick(ballCard());
     expect(balls.ballQueue.request).toHaveBeenCalledWith('c1');
     // in the editor the progress is on the Bola card only, nothing on the video (spec 2026-11-11, P1)
     expect(screen.queryByText('Rastreando a bola…')).toBeNull();
@@ -1239,7 +1247,7 @@ describe('Seguir a Bola', () => {
     __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(ballCard()));
+    await pick(ballCard());
     await pressAction('Concluir');
     expect(screen.getByText('Rastreando a bola…')).toBeTruthy();
     expect(screen.queryByText(/Salvar e Enviar ficam/)).toBeNull(); // the disabled buttons say it
@@ -1252,8 +1260,8 @@ describe('Seguir a Bola', () => {
     __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
-    await act(async () => fireEvent.press(ballCard()));
-    await act(async () => fireEvent.press(screen.getByRole('radio', { name: /^Jogadores/ })));
+    await pick(ballCard());
+    await pick(screen.getByRole('radio', { name: /^Jogadores/ }));
     expect(balls.ballQueue.cancel).toHaveBeenCalledWith('c1');
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'focus' } });
   });

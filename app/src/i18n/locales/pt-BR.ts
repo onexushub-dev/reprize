@@ -278,6 +278,14 @@ export const ptBR: Messages = {
     signingOut: 'Saindo…',
     signInFailed: 'Não deu para entrar. Confira a conexão e tente de novo.',
     signOutFailed: 'Não deu para sair. Tente de novo.',
+    delete: 'Excluir conta',
+    deleting: 'Excluindo…',
+    deleteTitle: 'Excluir sua conta?',
+    deleteBody:
+      'Seu nome, seu e-mail e os links que você compartilhou serão apagados, e os links param de funcionar. Suas gravações continuam neste celular. Se você assina o PRO, a assinatura continua na sua conta da App Store: cancele por lá se quiser.',
+    deleteConfirm: 'Excluir',
+    deleteFailed: 'Não deu para excluir a conta. Confira a conexão e tente de novo.',
+    deleted: 'Sua conta foi excluída.',
   },
   about: {
     terms: 'Termos de Uso',

@@ -280,6 +280,14 @@ export const en = {
     signingOut: 'Signing out…',
     signInFailed: 'Could not sign in. Check your connection and try again.',
     signOutFailed: 'Could not sign out. Try again.',
+    delete: 'Delete account',
+    deleting: 'Deleting…',
+    deleteTitle: 'Delete your account?',
+    deleteBody:
+      'Your name, your email and the links you shared will be erased, and the links will stop working. Your recordings stay on this phone. If you subscribe to PRO, the subscription stays with your App Store account: cancel it there if you want.',
+    deleteConfirm: 'Delete',
+    deleteFailed: 'Could not delete the account. Check your connection and try again.',
+    deleted: 'Your account was deleted.',
   },
   about: {
     terms: 'Terms of Use',

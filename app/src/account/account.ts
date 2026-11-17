@@ -1,6 +1,7 @@
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import type { Session } from '@supabase/supabase-js';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 import * as Crypto from 'expo-crypto';
 import { useEffect, useSyncExternalStore } from 'react';
@@ -14,6 +15,8 @@ export type Account = { id: string; email: string | null; name: string | null; p
 export type AccountState = { ready: boolean; account: Account | null };
 /** How a sign-in attempt ended. Errors other than a cancel are thrown. */
 export type SignInResult = 'signedIn' | 'cancelled';
+/** How an account deletion ended. Errors other than a cancel are thrown. */
+export type DeleteResult = 'deleted' | 'cancelled';
 
 const extra = (Constants.expoConfig && Constants.expoConfig.extra) || {};
 const google: { iosClientId?: string; webClientId?: string } = extra.google || {};
@@ -83,7 +86,7 @@ export async function signInWithApple(): Promise<SignInResult> {
       nonce: hashed,
     });
   } catch (e) {
-    if (e instanceof Error && 'code' in e && (e as { code: string }).code === 'ERR_REQUEST_CANCELED') return 'cancelled';
+    if (isAppleCancel(e)) return 'cancelled';
     throw e;
   }
   if (!credential.identityToken) throw new Error('Apple returned no identity token');
@@ -131,4 +134,45 @@ export async function signOut(): Promise<void> {
       // Google's own session is only a convenience for the next sign-in.
     }
   }
+}
+
+function isAppleCancel(e: unknown): boolean {
+  return e instanceof Error && 'code' in e && (e as { code: string }).code === 'ERR_REQUEST_CANCELED';
+}
+
+/**
+ * Deletes the account on the server and signs out here. Apple accounts confirm with Apple first: the fresh
+ * authorization code lets the server revoke Reprize at Apple. The recordings on this phone are not touched.
+ */
+export async function deleteAccount(): Promise<DeleteResult> {
+  const provider = state.account === null ? null : state.account.provider;
+  const body: { appleCode?: string; appleClientId?: string } = {};
+  if (provider === 'apple') {
+    let credential: AppleAuthentication.AppleAuthenticationCredential;
+    try {
+      credential = await AppleAuthentication.signInAsync({ requestedScopes: [] });
+    } catch (e) {
+      if (isAppleCancel(e)) return 'cancelled';
+      throw e;
+    }
+    if (!credential.authorizationCode) throw new Error('Apple returned no authorization code');
+    body.appleCode = credential.authorizationCode;
+    body.appleClientId = Application.applicationId || '';
+  }
+  const { error } = await supabase().functions.invoke('delete-account', { body });
+  if (error) throw error;
+  if (provider === 'google' && google.iosClientId && google.webClientId) {
+    try {
+      GoogleSignin.configure({ iosClientId: google.iosClientId, webClientId: google.webClientId });
+      if (GoogleSignin.hasPreviousSignIn()) {
+        await GoogleSignin.signInSilently();
+        await GoogleSignin.revokeAccess();
+      }
+    } catch {
+      // Revoking at Google only removes Reprize from the person's Google account page; the account is already gone.
+    }
+  }
+  // The user no longer exists on the server: clear the session on this phone only.
+  await supabase().auth.signOut({ scope: 'local' });
+  return 'deleted';
 }
