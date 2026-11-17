@@ -111,8 +111,8 @@ object FocusAnalyzer {
   /**
    * The Jogadores file of a range from its analysed pictures (in time order). `endMs` as the analysis was asked (at or
    * before `startMs` = to the end of the clip). Returns whether there is a framing, and its rects in the video's own
-   * orientation. `nextCourt`: the framing leaves out the people on the next court (`NextCourt`); the file's people stay
-   * as found.
+   * orientation. `nextCourt`: the framing leaves out the people on the next court (`NextCourt`, the court measured on
+   * `frames`); the file's people stay as found.
    */
   fun write(frames: List<FocusSample>, startMs: Double, endMs: Double, everyMs: Double, width: Double, height: Double,
             outPath: String, debug: Boolean, nextCourt: Boolean = false): Pair<Boolean, List<FocusRect>> {
@@ -128,7 +128,11 @@ object FocusAnalyzer {
     val landscape = width >= height
     val main = if (landscape) FocusAspect.LANDSCAPE else FocusAspect.PORTRAIT
     val other = if (landscape) FocusAspect.PORTRAIT else FocusAspect.LANDSCAPE
-    val framed = if (nextCourt) samples.map { FocusSample(it.tMs, NextCourt.keep(it.boxes)) } else samples
+    // The court from the analysed pictures (as measured), applied to every row.
+    val framed = if (!nextCourt) samples else {
+      val court = NextCourt.court(frames.map { it.boxes })
+      samples.zip(NextCourt.keep(samples.map { it.boxes }, court)) { s, kept -> FocusSample(s.tMs, kept) }
+    }
     val mainRects = FocusPath.compute(framed, width, height, main, zoom = true, t = FocusTuning.ACTION)
     val otherRects = if (mainRects == null) null else FocusPath.compute(framed, width, height, other, zoom = false, t = FocusTuning.ACTION)
     val file = JSONObject()
