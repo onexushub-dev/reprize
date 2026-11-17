@@ -59,7 +59,7 @@ jest.mock('../../focus/appBallQueue', () => ({
   checkSportOnce: jest.fn(),
   sportChecking: jest.fn(() => false),
 }));
-jest.mock('../../focus/appFocusQueue', () => ({ focusEveryMs: () => 200, focusQueue: { ensure: jest.fn(), setHold: jest.fn(), openRecording: jest.fn(() => () => {}) } }));
+jest.mock('../../focus/appFocusQueue', () => ({ focusEveryMs: () => 200, focusQueue: { ensure: jest.fn(), setHold: jest.fn(), openRecording: jest.fn(() => () => {}) }, focusProgress: { subscribe: () => () => {}, percent: () => undefined } }));
 jest.mock('../../data/focusFile', () => ({ ...jest.requireActual('../../data/focusFile'), readFocusFile: jest.fn(() => undefined) }));
 jest.mock('../../components/useReduceMotion', () => ({ useReduceMotion: jest.fn(() => false) }));
 jest.mock('../../share/ZoomableVideo', () => {

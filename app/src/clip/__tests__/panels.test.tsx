@@ -12,6 +12,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     setEdit: jest.fn(),
     focus: 'off',
     ball: 'off',
+    focusPercent: undefined,
     ballPercent: undefined,
     ballCooling: false,
     ballReason: undefined,
@@ -114,6 +115,14 @@ test('Jogadores: preparing on its card, then no text; no card (and no message) w
   await view.rerender(<Panel ctx={ctx({ focus: 'unavailable' })} />);
   expect(screen.queryByRole('radio', { name: 'Jogadores' })).toBeNull();
   expect(screen.queryByText(/indisponível/)).toBeNull();
+});
+
+test('Jogadores: its percent on the card while it analyses, when the phone sends one (Android)', async () => {
+  const Panel = panel('focus');
+  const focusEdit = { ...readEdit(undefined), framing: 'focus' as const, focus: true };
+  await render(<Panel ctx={ctx({ edit: focusEdit, focus: 'preparing', focusPercent: 35 })} />);
+  expect(card('Jogadores, rastreando 35%')).toBeTruthy();
+  expect(screen.getByText('35%')).toBeTruthy();
 });
 
 test('Bola: its percent on the card while it analyses, and no text', async () => {

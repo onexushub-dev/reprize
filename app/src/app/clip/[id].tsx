@@ -53,7 +53,7 @@ import { removeFile, repo } from '../../data/mmkv';
 import { ballAvailable, ballQueue, checkSportOnce, probeBallOnce } from '../../focus/appBallQueue';
 import { ballEstimate } from '../../focus/ballQueue';
 import { ballSportIdOf, hasBallModel, recordingSportOf } from '../../focus/sportCheck';
-import { focusEveryMs, focusQueue } from '../../focus/appFocusQueue';
+import { focusEveryMs, focusProgress, focusQueue } from '../../focus/appFocusQueue';
 import { focusHold } from '../../focus/focusQueue';
 import { useFocusFraming } from '../../focus/useFocusFraming';
 import type { MessageKey } from '../../i18n';
@@ -291,6 +291,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // Modo Foco: the framing of the clip's shape, once its analysis is ready and the shape is known.
   const focusSupported = isFocusSupported();
   const focusState = clip && clip.focus ? clip.focus : undefined;
+  // Jogadores' percent while it analyses (Android only; iOS keeps the spinner).
+  const focusPercent = useSyncExternalStore(focusProgress.subscribe, () => focusProgress.percent(clip ? clip.path : undefined));
   const focusFile = focusState && focusState.status === 'ready' ? focusState.file : undefined;
   const focusAspect = landscape ? 'landscape' : 'portrait';
   const track = useMemo(
@@ -938,6 +940,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     unlock: () => void (clip && unlockRecording(clip.sessionId, t)),
     setEdit,
     focus: focusUi,
+    focusPercent: focusUi === 'preparing' ? focusPercent : undefined,
     ball: ballUi,
     ballPercent,
     ballCooling,
@@ -1072,6 +1075,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           onBack={() => router.back()}
           onDelete={confirmDelete}
           focusTag={edit.framing !== 'focus' ? undefined : focusChip === 'on' ? (playersFound ? 'found' : 'on') : focusChip === 'preparing' ? 'preparing' : undefined}
+          focusPercent={focusChip === 'preparing' ? focusPercent : undefined}
           ballTag={
             ballChip ? (
               <BallChip inline state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} onPress={() => enterEdit('focus')} />

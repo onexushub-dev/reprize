@@ -124,6 +124,8 @@ export type ReplayCameraModuleEvents = {
    * for the phone to cool before starting), 'running', 'framing' (computing the 9:16 camera, almost done).
    */
   onBallProgress: (e: { clipPath: string; done: number; total: number; state: 'cooling' | 'running' | 'framing' }) => void;
+  /** Jogadores analysis progress: `done` of `total` analysed pictures of the range (kept ones count as done). Android only. */
+  onFocusProgress: (e: { clipPath: string; done: number; total: number }) => void;
   /** What the gesture detector saw lately (people, arms up, wave): the practice screen reads `raised`. */
   onGestureDebug: (e: GestureDebug) => void;
   /** Gesture test (spike screen): one event per gesture sample while setGestureTrace(true). iOS only. */

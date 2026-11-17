@@ -58,6 +58,7 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
       label: 'clip.framingPlayers',
       icon: (c) => <PlayersIcon color={c} />,
       busy: playersWorking,
+      percent: playersWorking ? ctx.focusPercent : undefined,
       dimmed: false,
     });
   }

@@ -120,11 +120,14 @@ class ReplayCameraModule : Module() {
     Name("ReplayCamera")
 
     Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus", "onDiag",
-      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton", "onBallProgress")
+      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton", "onBallProgress", "onFocusProgress")
 
     OnCreate {
       expo.modules.replaycamera.ball.BallAnalyzer.emit = { clipPath, done, total, state ->
         sendEvent("onBallProgress", mapOf("clipPath" to clipPath, "done" to done, "total" to total, "state" to state))
+      }
+      FocusAnalyzer.emit = { clipPath, done, total ->
+        sendEvent("onFocusProgress", mapOf("clipPath" to clipPath, "done" to done, "total" to total))
       }
       ReplayEngine.emit = { name, body -> sendEvent(name, body) }
       remote().emit = { name, body -> sendEvent(name, body) }

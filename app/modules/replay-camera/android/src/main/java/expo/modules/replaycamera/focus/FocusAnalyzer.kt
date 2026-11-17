@@ -26,6 +26,9 @@ object FocusAnalyzer {
   const val stepMs = 100.0
   private val cancelled: MutableSet<String> = Collections.synchronizedSet(HashSet())
 
+  /** Progress for the card and the tag (Marcus, 2026-11-17): `done` of `total` pictures of the range, kept ones done. */
+  @Volatile var emit: ((clipPath: String, done: Int, total: Int) -> Unit)? = null
+
   data class Outcome(
     val ready: Boolean, val frames: Int, val reused: Int, val framesWithPeople: Int, val meanPeople: Double, val elapsedMs: Double,
     val stages: ClipScan.Stages, val panP95: Double, val turnsPer10s: Double,
@@ -56,7 +59,12 @@ object FocusAnalyzer {
     val every = maxOf(stepMs, everyMs)
     val end = if (endMs > startMs) endMs else video.durationMs
     val kept = FocusFrames.read(readJSON(peoplePath), video.width, video.height)
-    val missing = ScanTicks.missing(ScanTicks.ticks(startMs, end, every), kept.map { it.tMs }, every)
+    val ticks = ScanTicks.ticks(startMs, end, every)
+    val missing = ScanTicks.missing(ticks, kept.map { it.tMs }, every)
+    val total = ticks.size
+    var analysed = 0
+    fun tell() { emit?.invoke(clipPath, maxOf(0, total - missing.size) + analysed, total) }
+    tell()
     val stages = ClipScan.Stages()
     val found = ArrayList<FocusSample>()
     fun keep() {
@@ -69,6 +77,8 @@ object FocusAnalyzer {
     }
     try {
       ClipScan.run(context, video, missing, every, null, false, stages, { isCancelled(clipPath) }, { false }) { f ->
+        analysed++
+        tell()
         f.people?.let {
           found.add(it)
           if (found.size % 25 == 0) keep()

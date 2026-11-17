@@ -59,6 +59,12 @@ test('the Modo Foco tag says on or preparing, and opens it', async () => {
   expect(screen.queryByText(/Modo Foco/)).toBeNull();
 });
 
+test('the Jogadores tag shows the percent while tracking, when the phone sends one (Android)', async () => {
+  await render(<ClipWatch {...props({ focusTag: 'preparing', focusPercent: 42 })} />);
+  expect(screen.getByText('Rastreando os jogadores · 42%')).toBeTruthy();
+  expect(screen.queryByText('Rastreando os jogadores…')).toBeNull();
+});
+
 test('the 2x badge shows only while held, and the position and notice lines when given', async () => {
   const view = await render(<ClipWatch {...props({ position: '2 de 3 · deslize para trocar', notice: 'Erro' })} />);
   expect(screen.queryByText('2x')).toBeNull();

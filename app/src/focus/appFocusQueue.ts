@@ -1,11 +1,12 @@
 import { File } from 'expo-file-system';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import * as camera from '../../modules/replay-camera';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { stagesText } from '../diag/clipTimings';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBackgroundClock } from './backgroundTime';
+import { createFocusProgress } from './focusProgress';
 import { createFocusQueue } from './focusQueue';
 
 /** TEMP(diag-remote): when the app was in the background, so the analysis time leaves it out. */
@@ -39,15 +40,17 @@ export function focusEveryMs(): number {
   return v === 100 ? 100 : 200;
 }
 
+/** Jogadores' percent while it analyses (Android sends it; iOS has no such event, so it stays empty there). */
+export const focusProgress = createFocusProgress();
+if (Platform.OS === 'android') camera.addReplayListener('onFocusProgress', (e) => focusProgress.onNative(e));
+
 /** The app's one Modo Foco queue. */
 export const focusQueue = createFocusQueue({
-  // Diagnostics off (store builds): no battery reads around each analysis.
-  analyze: DIAGNOSTICS_ENABLED
-    ? (opts) => {
-        powerAtStart.set(opts.clipPath, power());
-        return camera.analyzeFocus(opts);
-      }
-    : camera.analyzeFocus,
+  analyze: (opts) => {
+    // Diagnostics off (store builds): no battery reads around each analysis.
+    if (DIAGNOSTICS_ENABLED) powerAtStart.set(opts.clipPath, power());
+    return camera.analyzeFocus(opts).finally(() => focusProgress.clear(opts.clipPath));
+  },
   cancel: camera.cancelFocus,
   supported: camera.isFocusSupported,
   repo,
