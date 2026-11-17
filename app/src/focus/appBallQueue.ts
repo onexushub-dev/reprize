@@ -122,7 +122,7 @@ AppState.addEventListener('change', (next) => {
 
 /**
  * Whether this phone shows Seguir a Bola: the native analysis is there and the one-time probe (run on first use) found
- * it fast enough (`ballShownForProbe`; on Android it does not hide the mode yet). Unknown yet = shown.
+ * it fast enough (`ballShownForProbe`, the same limit on iOS and Android). Unknown yet = shown.
  */
 export function ballAvailable(): boolean {
   if (!camera.isBallSupported()) return false;

@@ -151,9 +151,9 @@ and by the framing each gives. The detector changes only if the other is clearly
 **Module (Kotlin).** `analyzeBall`, `cancelBall`, `probeBall`, the `onBallProgress` event, the new `analyzeFocus`
 options, and `classifySport`. With these the Bola card appears by itself (`isBallSupported`).
 
-**The speed limit.** JS hides Bola when the probe's frame takes over 400 ms (`BALL_PROBE_MAX_MS`); the test phone would
-take about 1,450 ms. On Android the probe is still run and recorded but does not hide the mode, until the evaluation
-says what the limit should be.
+**The speed limit.** JS hides Bola when the probe's frame takes over 400 ms (`BALL_PROBE_MAX_MS`). Decided by Marcus on
+2026-11-16 after the evaluation: the same limit on Android (at most about 2 s of waiting per second of cut, the
+iPhone's experience). The POCO X3 (about 1.7 s a frame) does not show Bola.
 
 **Sport.** `classifySport` on Android returns only `_floorSand` and `_floorTex` (three frames, `SportFloor`). With the
 rules as they are in `sportCheck.ts`: a sand court is beach tennis by itself; otherwise the sport is not known and the
