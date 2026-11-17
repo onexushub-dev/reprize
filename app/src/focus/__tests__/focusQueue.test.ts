@@ -99,7 +99,17 @@ describe('the people on the next court (Android, beach tennis: Marcus 2026-11-17
     expect(runs[0].opts).toMatchObject({ nextCourt: true });
     runs[0].resolve(done());
     await flush();
-    expect(repo.getClip(clip.id)!.focus).toMatchObject({ status: 'ready', nextCourt: true });
+    expect(repo.getClip(clip.id)!.focus).toMatchObject({ status: 'ready', nextCourt: 2 });
+  });
+
+  test('a clip framed with the first version of the rule (per picture) is framed again with this one', () => {
+    const { repo, queue, runs, addClip } = setup({ nextCourt: () => true });
+    const clip = repo.updateClip(addClip('/c/1.mp4').id, {
+      focus: { v: 1, status: 'ready', file: '/c/1.focus.json', startMs: 28000, endMs: 60000, nextCourt: true },
+    }) as Clip;
+    queue.ensure(clip);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].opts).toMatchObject({ nextCourt: true });
   });
 
   test('not asked for otherwise, and nothing stored', async () => {

@@ -3,6 +3,12 @@ import { focusCovers, focusPath, focusRange, peoplePath } from '../data/focusFil
 import type { Repo } from '../data/repo';
 import type { Clip } from '../data/schema';
 
+/**
+ * The next-court rule's version, stored with a result framed with it (`ClipFocus.nextCourt`): 2 = the court from the
+ * whole clip (2026-11-17, second test); a result from an older version is framed again.
+ */
+export const NEXT_COURT_RULE = 2;
+
 export type FocusQueueDeps = {
   analyze(opts: AnalyzeFocusOptions): Promise<FocusAnalysis>;
   /** Stops the native analysis of this clip file. */
@@ -146,7 +152,7 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
           startMs: range.startMs,
           endMs: range.endMs,
           ...(every !== 100 ? { every } : {}),
-          ...(nextCourt ? { nextCourt: true as const } : {}),
+          ...(nextCourt ? { nextCourt: NEXT_COURT_RULE } : {}),
         };
         if (!deps.repo.updateClip(clip.id, { focus })) {
           deps.deleteFile(outPath);
@@ -200,7 +206,7 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
       const court =
         deps.nextCourt !== undefined && clip.focus !== undefined &&
         (clip.focus.status === 'ready' || clip.focus.status === 'none') &&
-        deps.nextCourt(clip) !== (clip.focus.nextCourt === true);
+        deps.nextCourt(clip) !== (clip.focus.nextCourt === NEXT_COURT_RULE);
       if (clip.focus && clip.focus.status !== 'pending' && !stale && !outside && !court) return;
       if (!deps.supported()) return;
       if (running && running.id === clip.id) return;
