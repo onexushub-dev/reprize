@@ -15,8 +15,9 @@ original quality, and the link brings the athlete into the app and towards PRO.
 
 ## 2. Decisions (2026-11-16)
 
-1. **Link and QR code**, not usernames. A share is a link to a **recording** (all its clips) or to a single **clip**.
-   Anyone holding the link can open it.
+1. **Link and QR code**, not usernames. A share is a link to a **recording** (all its clips) or to a single **clip**;
+   both use the same address, `www.reprizeapp.com/v/<code>`, and the server knows which one it is. Anyone holding the
+   link can open it.
 2. **Only PRO can share.** On the free plan the Share button shows the PRO lock and opens the paywall.
 3. **The link exists before the upload finishes.** Creating a share is one light request; the QR code is shown at once
    and the clips upload in a background queue.
@@ -62,7 +63,7 @@ Reprize usernames.
 
 ### 3.2 Recipient
 
-1. Opens `www.reprizeapp.com/g/<code>`: match title, number of clips, cover preview, "Disponível por 24 horas", the
+1. Opens `www.reprizeapp.com/v/<code>`: match title, number of clips, cover preview, "Disponível por 24 horas", the
    **Ver todos no Reprize** button and Report.
 2. With the app installed the link opens the app. Without it, the button goes to the App Store; after installing, the
    user taps the link again or uses **Recebi um link** on the home screen (QR scanner or paste).
@@ -99,7 +100,7 @@ for 24 hours.
 | Data and API | Managed Postgres with row-level rules and server functions (for example Supabase) | Shares, clips, members, courtesies, notice acceptances, reports |
 | Video files | Object storage with multipart upload and short-lived signed URLs (for example Cloudflare R2) | Never a public URL. Lifecycle rule plus a job that deletes at expiry |
 | Link page | Static page plus one function on `www.reprizeapp.com` (Vercel today) | `noindex`; social preview shows the cover image only |
-| Open in app | Universal Links for `/g/*` and `/c/*`; `reprize://` as fallback | §7 |
+| Open in app | Universal Links for `/v/*`; `reprize://` as fallback | §7 |
 | Subscription | RevenueCat `logIn` with the account id | PRO follows the account, not only the device |
 | Push | Phase 2 | New clips; "link expires in 3 hours" |
 
@@ -172,13 +173,17 @@ reserved for "recording". All new strings in pt-BR and en (`src/i18n/locales`).
 
 ## 7. Link host
 
-- `https://www.reprizeapp.com/g/<code>` (recording) and `/c/<code>` (clip).
-- Tested 2026-11-16: `reprizeapp.com/g/teste` answers **308** to `www`; `www.reprizeapp.com/g/teste` answers 404 with no
+- `https://www.reprizeapp.com/v/<code>` for a recording or a single clip (`share.kind` tells them apart).
+- Tested 2026-11-16: `reprizeapp.com/g/teste` answers **308** to `www`; `www.reprizeapp.com/g/teste` answers 404 (any path behaves the same) with no
   redirect. A redirecting link does not open the app on iPhone, so the app and the QR code always use `www`.
-- `apple-app-site-association` at `https://www.reprizeapp.com/.well-known/`, `application/json`, no redirect; the app
-  claims only `/g/*` and `/c/*`.
+- `apple-app-site-association` at `https://www.reprizeapp.com/.well-known/` (site repo `reprize-lp`, `public/`), served
+  as `application/json` by `vercel.json`, no redirect. It lists the store app (`R885ZD42ZG.app.reprize.mobile`) and the
+  team's development build (`8X7TP6U4B6.com.victorhm.lance`); the app claims only `/v/*`
+  (`associatedDomains` in `app/app.json`).
+- Until the link page exists, `vercel.json` rewrites `/v/*` to `/baixar`, which sends the phone to its store.
+  In the app, `src/app/v/[code].tsx` is a Phase 0 placeholder.
 - Checks: `curl -sI` on the association file (200); `https://app-site-association.cdn-apple.com/a/v1/www.reprizeapp.com`
-  (what iPhones use, may lag by hours); on the phone, tap a `/g/teste` link pasted into Notes (typing it in Safari's
+  (what iPhones use, may lag by hours); on the phone, tap a `/v/teste` link pasted into Notes (typing it in Safari's
   address bar always opens the site).
 - Fallback if the site host cannot serve these paths with a function: `go.reprizeapp.com`.
 
