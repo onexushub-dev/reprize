@@ -12,6 +12,7 @@ import { analytics, initAnalytics, sessionSummary, track } from '../analytics';
 import { useScreenViews } from '../analytics/useScreenViews';
 import { startFocusQueue } from '../focus/appFocusQueue';
 import { useLocaleSync } from '../i18n/useT';
+import { startPartner } from '../partner';
 import { payments } from '../payments';
 import { RemoteStartListener } from '../session/RemoteStartListener';
 import { SessionProvider } from '../session/SessionContext';
@@ -41,6 +42,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     payments.start();
+    void startPartner();
   }, []);
 
   // Metrics: the session ends when the app leaves the front; coming back starts a new one (the cold start's was begun
