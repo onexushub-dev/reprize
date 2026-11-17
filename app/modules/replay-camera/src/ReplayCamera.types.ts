@@ -64,7 +64,28 @@ export type RemotePairing = { url: string; code: string; expiresAt: number; qrPa
 /** `expired` is only about time. `used`: another remote is pairing with this code. `closed`: the camera phone is not offering a pairing. */
 export type RemotePairFailure = 'expired' | 'locked' | 'notFound' | 'wrong' | 'denied' | 'full' | 'used' | 'closed';
 
+/** One file to upload with a presigned PUT URL (sharing design §5.4). */
+export type UploadItem = { id: string; path: string; url: string; contentType?: string };
+
+/** What the uploader knows about one file. Times are ms since 1970. */
+export type UploadEntry = {
+  id: string;
+  path: string;
+  status: 'running' | 'done' | 'failed';
+  bytes: number;
+  sent: number;
+  attempts: number;
+  queuedAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  httpStatus?: number;
+  error?: string;
+};
+
 export type ReplayCameraModuleEvents = {
+  onUploadProgress: (e: { id: string; sent: number; total: number }) => void;
+  onUploadDone: (e: UploadEntry & { ok: boolean }) => void;
+  onUploadRetry: (e: { id: string; attempt: number; error: string }) => void;
   onTrigger: (e: { source: TriggerSource; at: number }) => void;
   onWatchStatus: (e: { status: WatchStatus }) => void;
   /**

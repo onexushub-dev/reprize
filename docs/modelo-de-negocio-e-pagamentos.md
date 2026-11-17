@@ -71,6 +71,7 @@ Detalhes técnicos: `docs/superpowers/specs/2026-11-16-recording-sharing-design.
 ### Envio
 
 - **Só o PRO** cria link de uma gravação ou de um clipe. No grátis, o botão Compartilhar tem cadeado e selo "PRO" e abre o paywall.
+- **Só de gravação encerrada.** Durante uma gravação o app não cria link nem envia arquivos; se uma gravação nova começa com envios pendentes, eles pausam e continuam quando ela termina.
 - O link é `www.reprizeapp.com/g/<código>` (gravação) ou `www.reprizeapp.com/c/<código>` (clipe), mostrado também como QR code. Quem tem o link pode abrir.
 - Vai o arquivo original de cada clipe, com os dados de edição e de foco. Nada é exportado de novo no aparelho de quem envia.
 - **O link vale 24 horas** a partir da criação. Depois disso ele para de funcionar e os vídeos são apagados da nuvem. Quem gravou pode compartilhar de novo, o que gera outro link.

@@ -19,6 +19,8 @@ import type {
   WatchStatus,
   ZoomRange,
   Quality,
+  UploadEntry,
+  UploadItem,
 } from './ReplayCamera.types';
 
 declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> {
@@ -113,6 +115,10 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   shareFiles(paths: string[]): Promise<'shared' | 'dismissed'>;
   /** Joins exports of the same size and codec into one video without re-encoding. */
   concatVideos(paths: string[], outPath: string): Promise<{ path: string; durationMs: number }>;
+  // Background upload (iOS only: missing on Android and in older builds).
+  uploadStart?(items: UploadItem[]): void;
+  uploadState?(): UploadEntry[];
+  uploadReset?(): void;
 }
 
 export default requireNativeModule<ReplayCameraModule>('ReplayCamera');

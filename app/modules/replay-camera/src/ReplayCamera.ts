@@ -19,6 +19,8 @@ import type {
   WatchStatus,
   ZoomRange,
   Quality,
+  UploadEntry,
+  UploadItem,
 } from './ReplayCamera.types';
 
 // Native rejections carry `code` (a ReplayErrorCode), so callers can branch on it.
@@ -448,4 +450,22 @@ export function addReplayListener<E extends keyof ReplayCameraModuleEvents>(
   listener: ReplayCameraModuleEvents[E]
 ) {
   return ReplayCameraModule.addListener(event, listener);
+}
+
+/** Starts uploading these files in the system's background session (iOS). False where the build has no uploader. */
+export function startUploads(items: UploadItem[]): boolean {
+  if (!ReplayCameraModule.uploadStart) return false;
+  ReplayCameraModule.uploadStart(items);
+  return true;
+}
+
+/** Every file the uploader knows about; empty where the build has no uploader. */
+export function uploadState(): UploadEntry[] {
+  if (!ReplayCameraModule.uploadState) return [];
+  return ReplayCameraModule.uploadState();
+}
+
+/** Cancels every upload and forgets them. */
+export function resetUploads(): void {
+  if (ReplayCameraModule.uploadReset) ReplayCameraModule.uploadReset();
 }
