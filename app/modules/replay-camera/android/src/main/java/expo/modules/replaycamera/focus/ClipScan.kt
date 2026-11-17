@@ -109,8 +109,7 @@ object ClipScan {
     var waited = System.nanoTime()
 
     fun findPeople(frame: Pixels, index: Int): List<FocusBox>? = try {
-      val bitmap = frame.shrunk(PeopleDetector.FRAME_LONG_SIDE).toBitmap()
-      try { peopleDetector!!.detect(bitmap, index) } finally { bitmap.recycle() }
+      peopleDetector!!.detect(frame.shrunk(PeopleDetector.FRAME_LONG_SIDE), index)
     } catch (e: Exception) {
       Log.w(TAG, "people detector failed: $e")
       null
