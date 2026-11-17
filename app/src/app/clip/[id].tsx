@@ -419,7 +419,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     if (!sizeKnown || !playersChosen || blockedAuto.current.focus) return;
     const current = repo.getClip(id);
     if (current && focusSupported) focusQueue.ensure(current);
-  }, [id, focusSupported, sizeKnown, playersChosen, cutKey]);
+    // the recording's sport too: on Android a beach tennis clip is framed without the next court's people
+  }, [id, focusSupported, sizeKnown, playersChosen, cutKey, recSport?.sport]);
   // The introduction, once ever: the framing grows out of the whole video with a caption.
   const reduceMotion = useReduceMotion();
   const [introDue] = useState(() => !repo.getPrefs().focusIntroSeen);

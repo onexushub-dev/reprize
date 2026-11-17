@@ -8,6 +8,7 @@ import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBackgroundClock } from './backgroundTime';
 import { createFocusProgress } from './focusProgress';
 import { createFocusQueue } from './focusQueue';
+import { recordingSportOf } from './sportCheck';
 
 /** TEMP(diag-remote): when the app was in the background, so the analysis time leaves it out. */
 const backgroundClock = createBackgroundClock();
@@ -56,6 +57,11 @@ export const focusQueue = createFocusQueue({
   repo,
   // TEMP(lab-4k): the Diagnóstico speed test's Jogadores interval (100 = today)
   every: () => focusEveryMs(),
+  // Android only (Marcus, 2026-11-17): beach tennis is often played with courts side by side; their people stay out of
+  // the framing. iOS frames as before.
+  ...(Platform.OS === 'android'
+    ? { nextCourt: (clip) => recordingSportOf(repo.getSession(clip.sessionId))?.sport === 'beachTennis' }
+    : {}),
   // TEMP(diag-remote): the Modo Foco v14 field test reads the analysis time on the Diagnóstico screen.
   measured: (clip, r, waitedMs) => {
     if (!DIAGNOSTICS_ENABLED) return;

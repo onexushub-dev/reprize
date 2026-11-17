@@ -52,6 +52,8 @@ class AnalyzeFocusOptions : Record {
   @Field val debug: Boolean = false
   /** One picture every `everyMs` (the file keeps 100 ms rows). */
   @Field val everyMs: Double = 100.0
+  /** Leave the people on the next court out of the framing (beach tennis; Android only). */
+  @Field val nextCourt: Boolean = false
 }
 
 class AnalyzeBallOptions : Record {
@@ -264,7 +266,7 @@ class ReplayCameraModule : Module() {
     AsyncFunction("analyzeFocus") { o: AnalyzeFocusOptions, promise: Promise ->
       Thread({
         try {
-          val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.peoplePath, o.debug, o.everyMs)
+          val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.peoplePath, o.debug, o.everyMs, o.nextCourt)
           promise.resolve(mapOf("status" to if (r.ready) "ready" else "none", "frames" to r.frames, "reused" to r.reused,
             "framesWithPeople" to r.framesWithPeople, "meanPeople" to r.meanPeople, "elapsedMs" to r.elapsedMs,
             "stages" to r.stages.json(), "panP95" to r.panP95, "turnsPer10s" to r.turnsPer10s))

@@ -39,20 +39,23 @@ object FocusAnalyzer {
 
   private fun isCancelled(clipPath: String) = cancelled.contains(clipPath)
 
-  /** `peoplePath`: where the people of each analysed picture are kept ("" = not kept). */
+  /**
+   * `peoplePath`: where the people of each analysed picture are kept ("" = not kept). `nextCourt`: leave the people on
+   * the next court out of the framing (`NextCourt`; beach tennis).
+   */
   fun analyze(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, peoplePath: String, debug: Boolean,
-              everyMs: Double): Outcome =
+              everyMs: Double, nextCourt: Boolean = false): Outcome =
     synchronized(ClipScan.lock) {
       try {
         Process.setThreadPriority(ANALYSIS_PRIORITY)
-        run(context, clipPath, startMs, endMs, outPath, peoplePath, debug, everyMs)
+        run(context, clipPath, startMs, endMs, outPath, peoplePath, debug, everyMs, nextCourt)
       } finally {
         cancelled.remove(clipPath)
       }
     }
 
   private fun run(context: Context, clipPath: String, startMs: Double, endMs: Double, outPath: String, peoplePath: String,
-                  debug: Boolean, everyMs: Double): Outcome {
+                  debug: Boolean, everyMs: Double, nextCourt: Boolean): Outcome {
     val started = System.nanoTime()
     if (isCancelled(clipPath)) throw ClipScan.Cancelled()
     val video = ClipScan.Video.load(clipPath)
@@ -90,7 +93,7 @@ object FocusAnalyzer {
     val frames = inRange(FocusFrames.merged(kept, found), startMs, end)
     if (frames.isEmpty()) throw ClipScan.Unreadable("no frames")
     val framed = System.nanoTime()
-    val file = write(frames, startMs, endMs, every, video.width.toDouble(), video.height.toDouble(), outPath, debug)
+    val file = write(frames, startMs, endMs, every, video.width.toDouble(), video.height.toDouble(), outPath, debug, nextCourt)
     stages.path += (System.nanoTime() - framed) / 1e6
     val motion = FramingMotion.stats(file.second.map { listOf(it.x, it.y, it.width, it.height) }, stepMs)
     val people = frames.sumOf { it.boxes.size }
@@ -108,10 +111,11 @@ object FocusAnalyzer {
   /**
    * The Jogadores file of a range from its analysed pictures (in time order). `endMs` as the analysis was asked (at or
    * before `startMs` = to the end of the clip). Returns whether there is a framing, and its rects in the video's own
-   * orientation.
+   * orientation. `nextCourt`: the framing leaves out the people on the next court (`NextCourt`); the file's people stay
+   * as found.
    */
   fun write(frames: List<FocusSample>, startMs: Double, endMs: Double, everyMs: Double, width: Double, height: Double,
-            outPath: String, debug: Boolean): Pair<Boolean, List<FocusRect>> {
+            outPath: String, debug: Boolean, nextCourt: Boolean = false): Pair<Boolean, List<FocusRect>> {
     // Row k of the file is at startMs + k × 100 ms, whatever gaps the frames had.
     val samples = FocusGrid.samples(frames, startMs, if (endMs > startMs) endMs else Double.POSITIVE_INFINITY, stepMs).toMutableList()
     // At 5 fps the last analysed frame can be up to 200 ms before the end; its people are held to the end so the file
@@ -124,8 +128,9 @@ object FocusAnalyzer {
     val landscape = width >= height
     val main = if (landscape) FocusAspect.LANDSCAPE else FocusAspect.PORTRAIT
     val other = if (landscape) FocusAspect.PORTRAIT else FocusAspect.LANDSCAPE
-    val mainRects = FocusPath.compute(samples, width, height, main, zoom = true, t = FocusTuning.ACTION)
-    val otherRects = if (mainRects == null) null else FocusPath.compute(samples, width, height, other, zoom = false, t = FocusTuning.ACTION)
+    val framed = if (nextCourt) samples.map { FocusSample(it.tMs, NextCourt.keep(it.boxes)) } else samples
+    val mainRects = FocusPath.compute(framed, width, height, main, zoom = true, t = FocusTuning.ACTION)
+    val otherRects = if (mainRects == null) null else FocusPath.compute(framed, width, height, other, zoom = false, t = FocusTuning.ACTION)
     val file = JSONObject()
       .put("v", 1).put("rules", "v15-acao-zoom110").put("stepMs", stepMs).put("startMs", startMs)
       .put("size", JSONArray(listOf(width, height)))

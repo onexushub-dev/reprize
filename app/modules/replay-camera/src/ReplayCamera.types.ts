@@ -261,6 +261,8 @@ export type AnalyzeFocusOptions = {
   debug?: boolean;
   /** TEMP(lab-4k): one frame every `everyMs` (100 = today, 200 = the 5 fps test); the file keeps 100 ms rows. */
   everyMs?: number;
+  /** Leave the people on the next court out of the framing (beach tennis). Android only; iOS ignores it. */
+  nextCourt?: boolean;
 };
 
 /**
