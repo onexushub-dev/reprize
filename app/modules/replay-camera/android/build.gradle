@@ -11,6 +11,8 @@ android {
   defaultConfig {
     versionCode 1
     versionName "0.1.0"
+    // FocusBench (androidTest): Modo Foco speed on other phones, through Firebase Test Lab
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
   }
   lintOptions {
     abortOnError false
@@ -36,6 +38,8 @@ dependencies {
   testImplementation 'junit:junit:4.13.2'
   // org.json is a stub in JVM unit tests; the real one reads the remote protocol's JSON there.
   testImplementation 'org.json:json:20240303'
+  androidTestImplementation 'androidx.test:runner:1.6.2'
+  androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 }
 
 // ML Kit GenAI speech is built with a newer Kotlin (metadata 2.4) than the app's compiler; its API is plain classes
