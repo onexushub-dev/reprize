@@ -95,7 +95,7 @@ object ClipScan {
     val peopleCursor = ScanTicks.Cursor(people, peopleWindowMs)
     val ballCursor = ScanTicks.Cursor(ballTicks, BallFraming.stepMs)
     // beside the ball detector the people take one core (one lane), so the ball keeps the others
-    val peopleDetector = if (people.isEmpty()) null else PeopleDetector(context, lanes = if (ball != null && sideBySide) 1 else 2)
+    val peopleDetector = if (people.isEmpty()) null else PeopleDetector(context, lanes = if (ball != null && sideBySide) 1 else 4)
     val side = if (peopleDetector != null && ball != null && sideBySide) Executors.newSingleThreadExecutor { r ->
       Thread(r, "scan-people").apply { priority = Thread.currentThread().priority }
     } else null

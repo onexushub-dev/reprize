@@ -56,9 +56,9 @@ class FocusBench {
       }
     }
 
-    // the people: one Jogadores sample (9 tiles of a 1280 frame), on 1, 2 and 3 lanes (peopleNMs = N lanes)
+    // the people: one Jogadores sample (9 tiles of a 1280 frame), on 1 to 4 lanes (peopleNMs = N lanes)
     val people = Pixels(IntArray(1280 * 720) { (0xFF shl 24) or (102 shl 16) or (115 shl 8) or 128 }, 1280, 720)
-    for (threads in listOf(1, 2, 3)) {
+    for (threads in listOf(1, 2, 3, 4)) {
       PeopleDetector(context, lanes = threads).use { d ->
         var i = 0
         out.put("people${threads}Ms", r(median(5) { d.detect(people, i++) }))
@@ -69,7 +69,7 @@ class FocusBench {
     }
     out.put("thermalEnd", pm.currentThermalStatus)
     // seconds of waiting per second of cut: Jogadores samples 5 a second, Bola reads 5 frames a second
-    out.put("jogadoresSecPerSec", r(out.getDouble("people2Ms") * 5 / 1000))
+    out.put("jogadoresSecPerSec", r(out.getDouble("people3Ms") * 5 / 1000))
     out.put("bolaSecPerSec", r(out.getDouble("probeMs") * 5 / 1000))
     out.put("bolaShown", out.getDouble("probeMs") <= 400)
     Log.i("ReprizeBench", out.toString())

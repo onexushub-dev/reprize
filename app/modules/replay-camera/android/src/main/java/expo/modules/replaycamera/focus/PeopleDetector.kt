@@ -17,9 +17,10 @@ import java.util.concurrent.Executors
  * LiteRT on the CPU, decoded as MediaPipe did it (`PersonDecode`, `PersonInput`). The model (uint8) runs on one core
  * whatever the thread count (2026-11-17, POCO X3: 431 ms a sample on 1 thread, 436 on 2, 438 on 4), so the regions of a
  * sample are shared between `lanes` copies of the model running side by side. The result does not depend on `lanes`:
- * each region's people are merged in the same order.
+ * each region's people are merged in the same order. 4 lanes (2026-11-17, Test Lab and the POCO X3): faster than 3 on 5
+ * of 6 phones (POCO 196 against 237 ms a sample, Galaxy A06 400/474, moto g05 389/530, S24 95/122), 10% slower on the A56.
  */
-class PeopleDetector(context: Context, private val tilesPerSample: Int = 9, lanes: Int = 2) : Closeable {
+class PeopleDetector(context: Context, private val tilesPerSample: Int = 9, lanes: Int = 4) : Closeable {
   private val anchors = PersonDecode.anchors(context.assets.open(ANCHORS).use { it.readBytes() })
   private val lanes: List<Lane>
   private val pool = if (lanes > 1) Executors.newFixedThreadPool(lanes - 1) { r ->
