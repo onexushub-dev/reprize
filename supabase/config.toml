@@ -5,3 +5,7 @@ project_id = "reprize"
 # The publishable key is not a JWT, so the gateway check is off and the function checks its own spike key.
 [functions.spike-sign]
 verify_jwt = false
+
+# Called by pg_cron every 10 minutes with the x-cron-key header (sharing migration); no user JWT.
+[functions.expire-shares]
+verify_jwt = false
