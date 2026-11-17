@@ -35,9 +35,14 @@ class BallDetector(context: Context, val modelId: String, private val force: Bac
   private val interpreter: Interpreter
   private var gpu: GpuDelegate? = null
   private var gpuChecked = false
-  private val input = ByteBuffer.allocateDirect(SIDE * SIDE * 3 * 4).order(ByteOrder.nativeOrder())
+  // two of each: the helper fills one region's input (and decodes the other's output) while the model runs
+  private val inputs = List(2) { ByteBuffer.allocateDirect(SIDE * SIDE * 3 * 4).order(ByteOrder.nativeOrder()) }
+  private val floats = inputs.map { it.asFloatBuffer() }
   private val output = ByteBuffer.allocateDirect(ROWS * 6 * 4).order(ByteOrder.nativeOrder())
-  private val raw = FloatArray(ROWS * 6)
+  private val raws = List(2) { FloatArray(ROWS * 6) }
+  private val helper = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+    Thread(r, "ball-prep").apply { priority = Thread.currentThread().priority }
+  }
   private val anchors = BallDetect.anchors(SIDE)
 
   init {
@@ -71,33 +76,52 @@ class BallDetector(context: Context, val modelId: String, private val force: Bac
     Log.i(TAG, "$modelId on the $backend")
   }
 
-  /** One upright frame (ARGB, `width` × `height`): all `regions`, the candidates in frame px, before NMS. */
+  /**
+   * One upright frame (ARGB, `width` × `height`): all `regions`, the candidates in frame px, before NMS.
+   *
+   * The model runs on this thread (the GPU delegate wants the thread that made it); a helper thread prepares the next
+   * region and decodes the last one meanwhile, into two alternating buffers. The candidates come out in region order, as
+   * they did one region at a time. `lastPrepMs` is the time this thread waited for the helper.
+   */
   fun detect(frame: IntArray, width: Int, height: Int, regions: List<BallDetect.Region>): List<BallDetect.Box> {
-    var prepNs = 0L
+    var waitNs = 0L
     var modelNs = 0L
-    val boxes = ArrayList<BallDetect.Box>()
-    val floats = input.asFloatBuffer()
-    for (region in regions) {
+    val found = arrayOfNulls<List<BallDetect.Box>>(regions.size)
+    // the helper runs in submission order: fill(i + 1), decode(i), fill(i + 2), ... so fill(i + 2) (which reuses the
+    // buffers of region i) starts only after decode(i) is done
+    fun fill(i: Int) = helper.submit {
+      RegionRender.fill(frame, width, height, regions[i], TILE, SIDE, floats[i % 2])
+    }
+    var next = if (regions.isNotEmpty()) fill(0) else null
+    for (i in regions.indices) {
       val t0 = System.nanoTime()
-      RegionRender.fill(frame, width, height, region, TILE, SIDE, floats)
-      input.rewind()
+      next!!.get()
+      waitNs += System.nanoTime() - t0
+      next = if (i + 1 < regions.size) fill(i + 1) else null
+      val buf = inputs[i % 2]
+      buf.rewind()
       output.rewind()
       val t1 = System.nanoTime()
-      run()
-      val t2 = System.nanoTime()
+      run(buf)
+      modelNs += System.nanoTime() - t1
       output.rewind()
+      val raw = raws[i % 2]
       output.asFloatBuffer().get(raw)
+      val region = regions[i]
       // [1, 6, 3549]: column c of anchor i at c × 3549 + i
-      boxes += BallDetect.decode(ROWS, 0, anchors, region, CONF) { i, c -> raw[c * ROWS + i] }
-      prepNs += (t1 - t0) + (System.nanoTime() - t2)
-      modelNs += t2 - t1
+      helper.submit { found[i] = BallDetect.decode(ROWS, 0, anchors, region, CONF) { a, c -> raw[c * ROWS + a] } }
     }
-    lastPrepMs = prepNs / 1e6
+    val t0 = System.nanoTime()
+    helper.submit {}.get() // the last decode
+    waitNs += System.nanoTime() - t0
+    lastPrepMs = waitNs / 1e6
     lastModelMs = modelNs / 1e6
+    val boxes = ArrayList<BallDetect.Box>()
+    for (f in found) boxes += f!!
     return boxes
   }
 
-  private fun run() {
+  private fun run(input: ByteBuffer) {
     if (gpu != null && !gpuChecked) {
       prefs.edit().putBoolean(GPU_TRYING, true).commit()
       interpreter.run(input, output)
@@ -109,6 +133,7 @@ class BallDetector(context: Context, val modelId: String, private val force: Bac
   }
 
   override fun close() {
+    helper.shutdownNow()
     interpreter.close()
     gpu?.close()
   }
