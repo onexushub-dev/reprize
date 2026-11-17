@@ -24,6 +24,14 @@ export function nextZoomStep(current: number, range: ZoomRange): number {
   return steps.length > 0 ? steps[0] : clampZoom(current, range);
 }
 
+/**
+ * Whether the zoom button has anything to change: false on an Android phone that hides its ultra-wide from apps
+ * (POCO X3 NFC, 2026-11-17), where 1x is the only stop.
+ */
+export function hasZoomChoice(range: ZoomRange): boolean {
+  return ZOOM_STEPS.filter((s) => s >= range.min - 1e-9 && s <= range.max + 1e-9).length > 1;
+}
+
 /** A two-finger pinch: the zoom when the fingers started, times how much the distance between them grew. */
 export function pinchZoom(base: number, ratio: number, range: ZoomRange): number {
   return clampZoom(base * ratio, range);

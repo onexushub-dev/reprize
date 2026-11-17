@@ -1,4 +1,4 @@
-import { clampZoom, formatZoom, lensFor, nextZoomStep, pinchZoom, zoomFromLens } from '../zoom';
+import { clampZoom, formatZoom, hasZoomChoice, lensFor, nextZoomStep, pinchZoom, zoomFromLens } from '../zoom';
 
 const ios = { min: 0.5, max: 5, continuous: true };
 const noUltraWide = { min: 1, max: 5, continuous: true };
@@ -62,4 +62,13 @@ test('old lenses map to zoom and back', () => {
   expect(lensFor(0.99)).toBe('ultraWide');
   expect(lensFor(1)).toBe('wide');
   expect(lensFor(3)).toBe('wide');
+});
+
+test('the zoom button is offered only when there is more than one stop', () => {
+  // Android with a visible ultra-wide: 0.5x and 1x.
+  expect(hasZoomChoice({ min: 0.5, max: 1, continuous: false })).toBe(true);
+  // Android whose ultra-wide is hidden from apps (POCO X3 NFC): only 1x.
+  expect(hasZoomChoice({ min: 1, max: 1, continuous: false })).toBe(false);
+  // iPhone without an ultra-wide still zooms in.
+  expect(hasZoomChoice({ min: 1, max: 10, continuous: true })).toBe(true);
 });
