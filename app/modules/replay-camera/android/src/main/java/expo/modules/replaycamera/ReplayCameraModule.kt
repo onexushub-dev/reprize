@@ -200,6 +200,18 @@ class ReplayCameraModule : Module() {
       ScreenEconomy.set(appContext.currentActivity, on, ScreenEconomy.REMOTE_BRIGHTNESS)
     }
 
+    // The zoom stops: 0.5x only where the app can open an ultra-wide (Lenses); Android zooms by lens, not continuously.
+    Function("getZoomRange") {
+      val min = runCatching {
+        val manager = context.getSystemService(android.content.Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+        val backFocals = manager.cameraIdList.map { manager.getCameraCharacteristics(it) }
+          .filter { it.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING) == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK }
+          .mapNotNull { it.get(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull() }
+        Lenses.zoomMin(backFocals)
+      }.getOrDefault(1.0)
+      mapOf("min" to min, "max" to 1.0, "continuous" to false)
+    }
+
     AsyncFunction("startSession") { opts: SessionOptions, promise: Promise ->
       ReplayEngine.start(context, opts.lens, opts.maxQuality, opts.bufferSeconds, onReady = { promise.resolve(null) }, onError = promise::reject)
     }

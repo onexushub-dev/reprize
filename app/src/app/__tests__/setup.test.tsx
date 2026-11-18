@@ -270,6 +270,16 @@ test("with two fixed lenses (Android) the button only goes 0.5 ↔ 1 and there i
   expect(s.setZoom).toHaveBeenLastCalledWith(1, true);
 });
 
+test("an Android phone that hides its ultra-wide from apps has no zoom button", async () => {
+  jest
+    .requireMock("../../../modules/replay-camera")
+    .getZoomRange.mockReturnValue({ min: 1, max: 1, continuous: false });
+  repo.setPrefs({ modeSettings: { quadra: { zoom: 0.5 } } });
+  session({});
+  await render(<Setup />);
+  expect(screen.queryByRole("button", { name: /^Zoom / })).toBeNull();
+});
+
 describe("pinch on the preview", () => {
   const two = (distance: number) => ({
     nativeEvent: {
