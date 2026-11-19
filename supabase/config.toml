@@ -37,3 +37,7 @@ verify_jwt = false
 # TEMP(dev-reset): dev only, checks its own x-reset-key and refuses unless DEV_RESET=on (see supabase/scripts/reset-sharing.sh).
 [functions.dev-reset]
 verify_jwt = false
+
+# Public: anyone holding a link may report it, from the app (access token optional) or the link page.
+[functions.report-share]
+verify_jwt = false

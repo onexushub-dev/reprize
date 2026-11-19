@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useReceiveProgress } from '../cloud/receive';
 import type { SessionReceived } from '../data/schema';
@@ -8,9 +8,19 @@ import { hoursLeft } from './shareTime';
 
 /**
  * On a received recording (sharing design §6): who shared it, how far the download is and, while clips are missing,
- * how long the link still lasts.
+ * how long the link still lasts. Denunciar reports the link (§8.3).
  */
-export function ReceivedBanner({ sessionId, received, now }: { sessionId: string; received: SessionReceived; now: number }) {
+export function ReceivedBanner({
+  sessionId,
+  received,
+  now,
+  onReport,
+}: {
+  sessionId: string;
+  received: SessionReceived;
+  now: number;
+  onReport: () => void;
+}) {
   const { t } = useT();
   const progress = useReceiveProgress(sessionId);
   const from = received.from ? t('received.from', { name: received.from }) : t('received.fromUnknown');
@@ -31,6 +41,9 @@ export function ReceivedBanner({ sessionId, received, now }: { sessionId: string
       {live ? (
         <Text style={styles.left}>{hours >= 1 ? t('sharing.hoursLeft', { count: hours }) : t('sharing.lastHour')}</Text>
       ) : null}
+      <Pressable accessibilityRole="button" hitSlop={8} onPress={onReport} style={styles.report}>
+        <Text style={styles.reportText}>{t('report.link')}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -40,4 +53,6 @@ const styles = StyleSheet.create({
   from: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.accent },
   status: { fontFamily: fonts.body, fontSize: 13, color: colors.soft },
   left: { fontFamily: fonts.body, fontSize: 13, color: colors.muted },
+  report: { alignSelf: 'flex-start', marginTop: 6 },
+  reportText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.muted, textDecorationLine: 'underline' },
 });

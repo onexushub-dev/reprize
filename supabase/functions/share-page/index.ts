@@ -25,9 +25,8 @@ Deno.serve(async (req) => {
   if (found.error) return json({ error: 'server' }, 500);
   const share = found.data;
   if (share === null) return json({ state: 'not_found' }, 404);
-  if (share.state === 'off') return json({ state: 'off' });
-  if (share.state === 'expired' || Date.parse(share.expires_at) <= Date.now()) return json({ state: 'expired' });
-
+  // A reported link is down until reviewed, whatever else it is (a removed one may also have expired or been
+  // turned off since): the page says why.
   const reported = await db
     .from('reports')
     .select('id', { count: 'exact', head: true })
@@ -35,6 +34,8 @@ Deno.serve(async (req) => {
     .in('state', ['open', 'removed']);
   if (reported.error) return json({ error: 'server' }, 500);
   if ((reported.count || 0) > 0) return json({ state: 'removed' });
+  if (share.state === 'off') return json({ state: 'off' });
+  if (share.state === 'expired' || Date.parse(share.expires_at) <= Date.now()) return json({ state: 'expired' });
 
   const from = await firstName(share.owner);
 

@@ -28,6 +28,7 @@ import { ExportProgress } from "../../components/ExportProgress";
 import { SelectionBar } from "../../components/SelectionBar";
 import { ShareStrip } from "../../components/ShareStrip";
 import { ReceivedBanner } from "../../components/ReceivedBanner";
+import { ReportSheet } from "../../components/ReportSheet";
 import { UpgradeCard } from "../../components/UpgradeCard";
 import { ClipIcon, LockIcon, ShareIcon, TrashIcon } from "../../components/icons";
 import {
@@ -146,6 +147,8 @@ export default function SessionSummary() {
   // them (the full notice on the recording's first export; later ones go on). The PRO card opens the same sheet.
   const freeGate = useFreeExportGate();
   const courtesyGate = useCourtesyGate();
+  // Denunciar on a received recording (sharing §8.3).
+  const [reporting, setReporting] = useState(false);
   const exportAfterNotice = async (
     kind: "save" | "share",
     clips: typeof pickedClips,
@@ -390,7 +393,12 @@ export default function SessionSummary() {
 
       {/* A received recording: who shared it and how far the download is. */}
       {SHARING_ENABLED && session && session.received ? (
-        <ReceivedBanner sessionId={id} received={session.received} now={shareNow} />
+        <ReceivedBanner
+          sessionId={id}
+          received={session.received}
+          now={shareNow}
+          onReport={() => setReporting(true)}
+        />
       ) : null}
 
       {/* A live link: where the upload is and how long it lasts; a tap opens the share sheet. */}
@@ -519,6 +527,10 @@ export default function SessionSummary() {
       </View>
       {freeGate.sheet}
       {courtesyGate.sheet}
+      <ReportSheet
+        code={reporting && session && session.received ? session.received.code : null}
+        onClose={() => setReporting(false)}
+      />
       {batch.overlay}
       {batch.job ? (
         <ExportProgress

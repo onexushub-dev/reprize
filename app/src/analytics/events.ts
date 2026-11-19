@@ -85,6 +85,8 @@ export type AnalyticsEvents = {
   courtesy_used: { remaining: number };
   /** Save or Send of a received recording with no courtesy left and no Pro: the panel offers Pro only. */
   courtesy_exhausted: undefined;
+  /** A received link was reported from the app (the server takes it down until reviewed). */
+  share_reported: { category: 'not_authorized' | 'minor' | 'inappropriate' | 'other' };
 
   // Monetization
   /** `offering` is the paywall shown: Pro (`default`) or the Single Pass (`pass`). */

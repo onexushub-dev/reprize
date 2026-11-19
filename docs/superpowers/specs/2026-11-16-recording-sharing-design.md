@@ -361,6 +361,27 @@ reserved for "recording". All new strings in pt-BR and en (`src/i18n/locales`).
 
 Report button on the web page and in the app. A reported share is taken down until reviewed.
 
+Implemented (2026-11-18):
+
+- Reasons: "Estou neste vídeo e não autorizei", "Expõe um menor de idade", "Conteúdo impróprio ou ofensivo", "Outro
+  motivo", plus an optional text (500 characters).
+- `report-share` (public; access token optional) files the report: at most 10 a day per phone (`app:<device id>`) or
+  browser (`web:<hash of the IP and the day>`), one open report per reporter and link, the owner cannot report their
+  own link. Migration `20261118240000_reports.sql`: `category`, `reporter_key`, `reviewed_at`; inserting from the app
+  directly is closed.
+- `open-share` and `share-page` answer `removed` while a report is open or removed, before off and expired.
+- Web: a "Denunciar este conteúdo" form on the link page posts to the site's `/api/report` (no JavaScript), which
+  calls `report-share` and comes back to the page ("Denúncia recebida").
+- App: Denunciar on the received recording's banner (`components/ReportSheet.tsx`, `cloud/report.ts`); the copy on
+  the phone stays. Event `share_reported`.
+- Review in the Supabase dashboard (decided 2026-11-18, no e-mail): `supabase/scripts/reports.sql` lists the open
+  reports and holds the two answers, keep (the link works again) and remove (down for good, files deleted within 10
+  minutes by expire-shares).
+- The owner sees it (migration `20261118250000_share_status.sql`, `share_status(share)`: owner only, counts and a state,
+  never the reasons or who reported): the share sheet shows "Este link foi denunciado" or "Este link foi removido"
+  instead of the QR code, and the recording's strip "Link denunciado". The sheet also shows how many phones opened the
+  link ("Aberto em 3 celulares"), asked again every 15 s while it is open (the strip: every minute).
+
 ### 8.4 Liability notice (first share)
 
 Full screen before the QR code, title "Antes de compartilhar", four points, one checkbox, button **Concordar e
