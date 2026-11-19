@@ -11,8 +11,19 @@ import { kv, repo } from '../data/mmkv';
 import { track } from '../analytics';
 import { countBucket, durationBucket } from '../analytics/session';
 import { diag } from '../diag/diagLog';
+import {
+  addReplayListener,
+  downloadState,
+  downloadsAvailable,
+  pauseDownloads,
+  removeDownloads,
+  resumeDownloads,
+  startDownloads,
+} from '../../modules/replay-camera';
+import type { OpenedClip } from './receivedClip';
 import { createReceiveQueue, type OpenResult, type ReceiveProgress } from './receiveQueue';
 import { markCameByShare } from './shareAcquisition';
+import { onUploadHold, uploadHeld } from './uploadHold';
 
 const DEVICE_KEY = 'reprize:v1:device-id';
 
@@ -65,16 +76,23 @@ function plain(file: File | Directory): string {
   return decodeURIComponent(file.uri.replace(/^file:\/\//, ''));
 }
 
-async function download(url: string, path: string): Promise<boolean> {
-  try {
-    const dest = new File(`file://${path}`);
-    if (dest.exists) dest.delete();
-    await File.downloadFileAsync(url, dest);
-    return true;
-  } catch {
-    return false;
-  }
-}
+const META_KEY = (shareId: string) => `reprize:v1:received-meta:${shareId}`;
+
+/** The clips' edit data of a received recording, kept so files that arrive while offline still become clips. */
+const meta = {
+  get(shareId: string): OpenedClip[] | undefined {
+    const raw = kv.getString(META_KEY(shareId));
+    if (raw === undefined) return undefined;
+    try {
+      return JSON.parse(raw) as OpenedClip[];
+    } catch {
+      return undefined;
+    }
+  },
+  set(shareId: string, clips: OpenedClip[]): void {
+    kv.set(META_KEY(shareId), JSON.stringify(clips));
+  },
+};
 
 function paths(shareId: string, position: number): { video: string; focus: string; ball: string } {
   const dir = new Directory(Paths.document, 'received', shareId);
@@ -87,7 +105,15 @@ function paths(shareId: string, position: number): { video: string; focus: strin
 export const receiveQueue = createReceiveQueue({
   repo,
   open: openShare,
-  download,
+  native: {
+    available: downloadsAvailable,
+    start: (items, paused) => void startDownloads(items, paused),
+    state: downloadState,
+    pause: pauseDownloads,
+    resume: resumeDownloads,
+    remove: removeDownloads,
+  },
+  meta,
   paths,
   now: Date.now,
   later: (fn, ms) => {
@@ -142,11 +168,22 @@ export function startReceiveQueue(): () => void {
     receiveQueue.setForeground(next === 'active');
     if (next === 'active') receiveQueue.sync();
   });
+  const events = [
+    addReplayListener('onDownloadDone', (e) => receiveQueue.handleDone(e)),
+    addReplayListener('onDownloadRetry', (e) => diag(`recebidas: nova tentativa ${e.attempt + 1} (${e.error})`)),
+  ];
+  // A recording starts or ends (or the phone gets too hot): the downloads pause and start again, as uploads do.
+  const hold = onUploadHold((held) => receiveQueue.setHold(held));
+  receiveQueue.setHold(uploadHeld());
   receiveQueue.sync();
-  return () => sub.remove();
+  return () => {
+    sub.remove();
+    events.forEach((e) => e.remove());
+    hold();
+  };
 }
 
-const NONE: ReceiveProgress = { done: 0, total: 0, downloading: false, state: 'active' };
+const NONE: ReceiveProgress = { done: 0, total: 0, downloading: false, paused: false, state: 'active' };
 const snapshots = new Map<string, { version: number; value: ReceiveProgress }>();
 
 function snapshot(sessionId: string | undefined): ReceiveProgress {

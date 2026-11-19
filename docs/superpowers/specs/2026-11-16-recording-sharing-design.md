@@ -258,6 +258,21 @@ Implemented (2026-11-18):
 - The games list shows an All / Mine / Received filter once at least one received recording is on the phone.
 - Still to do here: streaming before the download ends, and the export rules (§4: courtesies).
 
+### 5.5.1.1 Background download (2026-11-19)
+
+- Downloads go through the system's background session (`modules/replay-camera/ios/BackgroundDownload.swift`,
+  `BackgroundDownloader`, session `app.reprize.downloads`), as uploads do: they go on with the screen locked, the app
+  in the background or swiped away (started again at the next launch), and iOS wakes the app when they end. Before,
+  the app downloaded only while in front: iOS suspended it about 30 s after it left the screen and the clip coming
+  down failed (field log 2026-11-19).
+- `cloud/receiveQueue.ts` queues every ready clip at once (video, focus and ball files; three transfers at a time),
+  each file as `recv/<share id>/<position>/<kind>`. A clip joins the recording once its video has arrived and its
+  framing files have arrived or failed. The clips' edit data is kept on the phone (`received-meta`), so files that
+  arrived while the app was closed become clips at the next launch without a network.
+- While a recording is on (or the phone is critically hot) the downloads pause, and they start again when it ends
+  (`uploadHold`, decision 16); a link opened during a recording is queued paused. The banner says "download pausado
+  durante a gravação".
+
 ### 5.5.2 Sessions on several phones (2026-11-18)
 
 - "Sair" signs out on this phone only (`scope: 'local'`). The SDK default is global: it ended the sessions of every

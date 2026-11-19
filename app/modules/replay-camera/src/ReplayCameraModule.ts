@@ -21,6 +21,8 @@ import type {
   Quality,
   UploadEntry,
   UploadItem,
+  DownloadEntry,
+  DownloadItem,
 } from './ReplayCamera.types';
 
 declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> {
@@ -125,6 +127,14 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   uploadResume?(cellular: boolean): void;
   uploadRemove?(ids: string[]): void;
   uploadRestore?(): void;
+  // Background download of received clips (iOS only: missing on Android and in older builds).
+  downloadStart?(items: DownloadItem[], paused: boolean): void;
+  downloadState?(): DownloadEntry[];
+  downloadPause?(): void;
+  downloadResume?(): void;
+  downloadRemove?(ids: string[]): void;
+  downloadRestore?(): void;
+  downloadReset?(): void;
 }
 
 export default requireNativeModule<ReplayCameraModule>('ReplayCamera');

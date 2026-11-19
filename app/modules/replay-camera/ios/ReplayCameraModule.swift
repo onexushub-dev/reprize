@@ -173,7 +173,7 @@ public class ReplayCameraModule: Module {
            "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteStop",
            "onRemoteStart", "onRemoteFrame", "onRemoteCheck", "onRemoteVoice", "onCaptureButton", "onAudioChange",
            "onDiag", // onDiag: TEMP(diag-remote)
-           "onBallProgress", "onUploadProgress", "onUploadDone", "onUploadRetry")
+           "onBallProgress", "onUploadProgress", "onUploadDone", "onUploadRetry", "onDownloadDone", "onDownloadRetry")
 
     OnCreate {
       self.engine.emit = { [weak self] name, body in self?.sendEvent(name, body) }
@@ -190,6 +190,8 @@ public class ReplayCameraModule: Module {
       WatchBridge.shared.activate()
       BackgroundUploader.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
       BackgroundUploader.shared.restore()
+      BackgroundDownloader.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
+      BackgroundDownloader.shared.restore()
     }
 
     AsyncFunction("startSession") { (opts: SessionOptions) in
@@ -499,6 +501,14 @@ public class ReplayCameraModule: Module {
     Function("uploadResume") { (cellular: Bool) in BackgroundUploader.shared.resume(cellular: cellular) }
     Function("uploadRemove") { (ids: [String]) in BackgroundUploader.shared.remove(ids) }
     Function("uploadRestore") { BackgroundUploader.shared.restore() }
+    // Background download of received clips (sharing design §5.5).
+    Function("downloadStart") { (items: [DownloadItem], paused: Bool) in BackgroundDownloader.shared.start(items, paused: paused) }
+    Function("downloadState") { () -> [[String: Any]] in BackgroundDownloader.shared.state() }
+    Function("downloadPause") { BackgroundDownloader.shared.pause() }
+    Function("downloadResume") { BackgroundDownloader.shared.resume() }
+    Function("downloadRemove") { (ids: [String]) in BackgroundDownloader.shared.remove(ids) }
+    Function("downloadRestore") { BackgroundDownloader.shared.restore() }
+    Function("downloadReset") { BackgroundDownloader.shared.reset() }
 
     // Spike 3 of the sharing design: children kept out of screenshots and screen recordings (CaptureShield.swift).
     View(CaptureShieldView.self) {

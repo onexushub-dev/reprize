@@ -281,15 +281,19 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
   func wake() { _ = session }
 }
 
-/// Receives iOS's wake-up for the upload session (registered in expo-module.config.json).
+/// Receives iOS's wake-up for the background sessions, uploads and downloads (registered in expo-module.config.json).
+/// One subscriber for both: each wake-up's handler must go to its own session and be called exactly once.
 public final class UploadAppDelegateSubscriber: ExpoAppDelegateSubscriber {
   public func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                           completionHandler: @escaping () -> Void) {
-    guard identifier == BackgroundUploader.sessionId else {
+    if identifier == BackgroundUploader.sessionId {
+      BackgroundUploader.shared.finishEvents = completionHandler
+      BackgroundUploader.shared.wake()
+    } else if identifier == BackgroundDownloader.sessionId {
+      BackgroundDownloader.shared.finishEvents = completionHandler
+      BackgroundDownloader.shared.wake()
+    } else {
       completionHandler()
-      return
     }
-    BackgroundUploader.shared.finishEvents = completionHandler
-    BackgroundUploader.shared.wake()
   }
 }

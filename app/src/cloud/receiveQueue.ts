@@ -1,3 +1,4 @@
+import type { DownloadEntry, DownloadItem } from '../../modules/replay-camera/src/ReplayCamera.types';
 import type { Clip, Session } from '../data/schema';
 import { type OpenedClip, receivedClip } from './receivedClip';
 
@@ -24,8 +25,20 @@ export type ReceiveDeps = {
     addReceivedClip(input: Omit<Clip, 'id'>): Clip;
   };
   open(code: string): Promise<OpenResult>;
-  /** Downloads to this path (replacing what is there); false when it failed. */
-  download(url: string, path: string): Promise<boolean>;
+  /** The system's background downloads (iOS): they go on with the screen locked. */
+  native: {
+    available(): boolean;
+    start(items: DownloadItem[], paused: boolean): void;
+    state(): DownloadEntry[];
+    pause(): void;
+    resume(): void;
+    remove(ids: string[]): void;
+  };
+  /**
+   * The clips' edit data as `open-share` gave it, kept on the phone: a clip whose files arrived while the app was
+   * closed becomes a clip of the recording at the next launch, even without a network.
+   */
+  meta: { get(shareId: string): OpenedClip[] | undefined; set(shareId: string, clips: OpenedClip[]): void };
   /** Where a received clip and its framing files live on the phone. */
   paths(shareId: string, position: number): { video: string; focus: string; ball: string };
   now(): number;
@@ -36,27 +49,51 @@ export type ReceiveDeps = {
   downloaded?: (session: Session) => void;
 };
 
-/** How far a received recording is: clips on the phone of those the sender shared. */
-export type ReceiveProgress = { done: number; total: number; downloading: boolean; state: 'active' | 'expired' | 'off' | 'removed' | 'error' };
+/**
+ * How far a received recording is: clips on the phone of those the sender shared. `paused`: a recording is on (or
+ * the phone is critically hot), and nothing downloads until it ends (decision 16).
+ */
+export type ReceiveProgress = {
+  done: number;
+  total: number;
+  downloading: boolean;
+  paused: boolean;
+  state: 'active' | 'expired' | 'off' | 'removed' | 'error';
+};
 
-/** While the sender is still uploading, the share is asked again this often. */
+/** While the sender is still uploading, the share is asked again this often (with the app in front). */
 export const RECHECK_MS = 10_000;
 
+type Kind = 'video' | 'focus' | 'ball';
+
+/** The downloader's id of one file of a received clip. */
+export function downloadId(shareId: string, position: number, kind: Kind): string {
+  return `recv/${shareId}/${position}/${kind}`;
+}
+
+const ID = /^recv\/([^/]+)\/(\d+)\/(video|focus|ball)$/;
+
+function parseId(id: string): { shareId: string; position: number; kind: Kind } | undefined {
+  const match = ID.exec(id);
+  return match === null ? undefined : { shareId: match[1], position: Number(match[2]), kind: match[3] as Kind };
+}
+
 /**
- * Downloads received recordings into the app (sharing design decision 7, §5.5): every clip the sender's upload
- * confirmed, with its framing files, one at a time, until all are on the phone or the link expires. A clip becomes a
- * clip of the received recording only once its video is complete; framing files are best effort.
+ * Downloads received recordings into the app (sharing design decision 7, §5.5) through the system's background
+ * downloads: every clip the sender's upload confirmed, with its framing files, until all are on the phone or the
+ * link expires. The transfers go on with the screen locked; a clip becomes a clip of the recording once its video has
+ * arrived and its framing files have arrived or failed (they are best effort). Nothing downloads while held (a
+ * recording is on, decision 16): the transfers pause and start again when it ends.
  */
 export function createReceiveQueue(deps: ReceiveDeps) {
   const running = new Set<string>();
-  /** Recordings with a file coming down right now (what "Baixando" means; asking the server again is not). */
-  const downloading = new Set<string>();
   const again = new Set<string>();
   const timers = new Map<string, () => void>();
   const states = new Map<string, ReceiveProgress['state']>();
   const listeners = new Set<() => void>();
   let version = 0;
   let foreground = true;
+  let held = false;
 
   const notify = () => {
     version += 1;
@@ -70,6 +107,78 @@ export function createReceiveQueue(deps: ReceiveDeps) {
     return session.received !== undefined && have(session.id).size >= session.received.total;
   }
 
+  function entries(): Map<string, DownloadEntry> {
+    return new Map(deps.native.state().map((e) => [e.id, e]));
+  }
+
+  function sessionOfShare(shareId: string): Session | undefined {
+    return deps.repo.receivedSessions().find((s) => s.received !== undefined && s.received.shareId === shareId);
+  }
+
+  /**
+   * Turns every clip whose files have arrived into a clip of the recording, and lets the downloader forget them. Needs
+   * no network: the edit data is kept on the phone.
+   */
+  function integrate(session: Session): void {
+    const received = session.received;
+    if (received === undefined) return;
+    const clips = deps.meta.get(received.shareId);
+    if (clips === undefined) return;
+    const known = entries();
+    const present = have(session.id);
+    const wasComplete = complete(session);
+    let added = 0;
+    for (const clip of clips) {
+      if (present.has(clip.position)) continue;
+      const video = known.get(downloadId(received.shareId, clip.position, 'video'));
+      if (video === undefined || video.status !== 'done') continue;
+      const extra = (kind: Kind): { settled: boolean; path?: string } => {
+        const entry = known.get(downloadId(received.shareId, clip.position, kind));
+        if (entry === undefined) return { settled: true };
+        if (entry.status === 'done') return { settled: true, path: entry.path };
+        return { settled: entry.status === 'failed' };
+      };
+      const focus = extra('focus');
+      const ball = extra('ball');
+      // A framing file still coming down: the clip waits for it (it would show without its framing otherwise).
+      if (!focus.settled || !ball.settled) continue;
+      deps.repo.addReceivedClip(receivedClip(session.id, clip, { video: video.path, focus: focus.path, ball: ball.path }, deps.now()));
+      deps.native.remove((['video', 'focus', 'ball'] as Kind[]).map((k) => downloadId(received.shareId, clip.position, k)));
+      deps.log(`recebidas: clipe ${clip.position} baixado`);
+      added += 1;
+    }
+    if (added === 0) return;
+    const now = deps.repo.getSession(session.id);
+    if (now !== undefined && !wasComplete && complete(now) && deps.downloaded) deps.downloaded(now);
+    notify();
+  }
+
+  /** Asks the downloader for what is missing and not already on its way. */
+  function request(shareId: string, clips: OpenedClip[], present: Set<number>): void {
+    const known = entries();
+    const items: DownloadItem[] = [];
+    for (const clip of clips) {
+      if (!clip.ready || clip.video === undefined || present.has(clip.position)) continue;
+      const target = deps.paths(shareId, clip.position);
+      const files: [Kind, string | undefined, string][] = [
+        ['video', clip.video, target.video],
+        ['focus', clip.focus, target.focus],
+        ['ball', clip.ball, target.ball],
+      ];
+      for (const [kind, url, path] of files) {
+        if (url === undefined) continue;
+        const id = downloadId(shareId, clip.position, kind);
+        const entry = known.get(id);
+        // Running, paused or done: already on its way. A failed one goes again with the fresh URL.
+        if (entry !== undefined && entry.status !== 'failed') continue;
+        items.push({ id, url, path });
+      }
+    }
+    if (items.length === 0) return;
+    deps.native.start(items, held);
+    deps.log(`recebidas: ${items.length} arquivos na fila${held ? ' (pausados: gravando)' : ''}`);
+  }
+
   async function run(sessionId: string): Promise<void> {
     if (running.has(sessionId)) {
       again.add(sessionId);
@@ -77,7 +186,15 @@ export function createReceiveQueue(deps: ReceiveDeps) {
     }
     const session = deps.repo.getSession(sessionId);
     const received = session ? session.received : undefined;
-    if (session === undefined || received === undefined || complete(session)) return;
+    if (session === undefined || received === undefined) return;
+    integrate(session);
+    if (complete(deps.repo.getSession(sessionId) || session)) return;
+    if (!deps.native.available()) {
+      states.set(sessionId, 'error');
+      deps.log('recebidas: download em segundo plano indisponivel neste build');
+      notify();
+      return;
+    }
     if (received.expiresAt <= deps.now()) {
       states.set(sessionId, 'expired');
       notify();
@@ -93,26 +210,12 @@ export function createReceiveQueue(deps: ReceiveDeps) {
         return;
       }
       states.set(sessionId, 'active');
-      const present = have(sessionId);
-      for (const clip of opened.clips) {
-        if (!clip.ready || clip.video === undefined || present.has(clip.position)) continue;
-        const target = deps.paths(opened.shareId, clip.position);
-        downloading.add(sessionId);
-        notify();
-        if (!(await deps.download(clip.video, target.video))) {
-          deps.log(`recebidas: clipe ${clip.position} FALHOU`);
-          continue;
-        }
-        const focus = clip.focus !== undefined && (await deps.download(clip.focus, target.focus)) ? target.focus : undefined;
-        const ball = clip.ball !== undefined && (await deps.download(clip.ball, target.ball)) ? target.ball : undefined;
-        deps.repo.addReceivedClip(receivedClip(sessionId, clip, { video: target.video, focus, ball }, deps.now()));
-        deps.log(`recebidas: clipe ${clip.position} baixado`);
-        notify();
-      }
+      deps.meta.set(opened.shareId, opened.clips.map(({ video: _v, focus: _f, ball: _b, ...rest }) => rest));
+      request(opened.shareId, opened.clips, have(sessionId));
+      integrate(deps.repo.getSession(sessionId) || session);
       // The sender's phone is still uploading: ask again a little later.
-      const now = deps.repo.getSession(sessionId);
-      if (now !== undefined && complete(now) && deps.downloaded) deps.downloaded(now);
-      if (now !== undefined && !complete(now) && foreground && !timers.has(sessionId)) {
+      const pending = opened.clips.some((c) => !c.ready);
+      if (pending && foreground && !timers.has(sessionId)) {
         timers.set(
           sessionId,
           deps.later(() => {
@@ -126,20 +229,57 @@ export function createReceiveQueue(deps: ReceiveDeps) {
       deps.log(`recebidas: FALHOU (${e instanceof Error ? e.message : String(e)})`);
     } finally {
       running.delete(sessionId);
-      downloading.delete(sessionId);
       notify();
       if (again.delete(sessionId)) void run(sessionId);
     }
   }
 
   return {
-    /** Starts every received recording that still misses clips (at launch, on coming to the front, after a link). */
+    /** Adds what arrived and asks for what is missing, for every received recording (at launch, back in front). */
     sync(): void {
-      for (const session of deps.repo.receivedSessions()) void run(session.id);
+      const sessions = deps.repo.receivedSessions();
+      // Files of a recording deleted on this phone: nothing will take them any more.
+      const shares = new Set(sessions.map((s) => (s.received === undefined ? '' : s.received.shareId)));
+      const orphans = deps.native
+        .state()
+        .map((e) => e.id)
+        .filter((id) => {
+          const parsed = parseId(id);
+          return parsed !== undefined && !shares.has(parsed.shareId);
+        });
+      if (orphans.length > 0) deps.native.remove(orphans);
+      for (const session of sessions) void run(session.id);
     },
 
     /** Downloads this received recording now (it was just opened). */
     run,
+
+    /** A file of the downloader finished (the system's event). */
+    handleDone(e: { id: string; ok: boolean; error?: string }): void {
+      const parsed = parseId(e.id);
+      if (parsed === undefined) return;
+      if (!e.ok) deps.log(`recebidas: clipe ${parsed.position} (${parsed.kind}) FALHOU (${e.error || 'erro'})`);
+      const session = sessionOfShare(parsed.shareId);
+      if (session !== undefined) integrate(session);
+      notify();
+    },
+
+    /**
+     * A recording started or ended (or the phone got critically hot): the downloads pause and start again, as uploads
+     * do (decision 16).
+     */
+    setHold(next: boolean): void {
+      if (next === held) return;
+      held = next;
+      if (held) {
+        deps.native.pause();
+        deps.log('recebidas: download pausado (gravando)');
+      } else {
+        deps.native.resume();
+        deps.log('recebidas: download retomado');
+      }
+      notify();
+    },
 
     /** Re-checks stop in the background (iOS would suspend them anyway) and start again in front. */
     setForeground(next: boolean): void {
@@ -154,9 +294,19 @@ export function createReceiveQueue(deps: ReceiveDeps) {
       const session = deps.repo.getSession(sessionId);
       const received = session ? session.received : undefined;
       const total = received ? received.total : 0;
+      const done = Math.min(total, have(sessionId).size);
       const expired = received !== undefined && received.expiresAt <= deps.now();
       const state = states.get(sessionId) || (expired ? 'expired' : 'active');
-      return { done: Math.min(total, have(sessionId).size), total, downloading: downloading.has(sessionId), state };
+      const prefix = received ? `recv/${received.shareId}/` : undefined;
+      const mine = prefix === undefined ? [] : deps.native.state().filter((e) => e.id.startsWith(prefix));
+      const waiting = mine.some((e) => e.status === 'running' || e.status === 'paused');
+      return {
+        done,
+        total,
+        downloading: !held && mine.some((e) => e.status === 'running'),
+        paused: held && done < total && (waiting || mine.length === 0),
+        state,
+      };
     },
 
     subscribe(fn: () => void): () => void {

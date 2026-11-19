@@ -30,6 +30,7 @@ export function ReceivedBanner({
   else if (progress.state === 'expired') status = t('received.expired');
   else if (progress.state === 'off') status = t('received.off');
   else if (progress.state === 'removed') status = t('received.removed');
+  else if (progress.paused) status = t('received.paused', { done: progress.done, count: progress.total });
   else if (progress.downloading) status = t('received.downloading', { done: progress.done, count: progress.total });
   else status = t('received.waiting', { done: progress.done, count: progress.total });
   const hours = hoursLeft(received.expiresAt, now);

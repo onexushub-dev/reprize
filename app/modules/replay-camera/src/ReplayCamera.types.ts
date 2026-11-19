@@ -67,6 +67,25 @@ export type RemotePairFailure = 'expired' | 'locked' | 'notFound' | 'wrong' | 'd
 /** One file to upload with a presigned PUT URL (sharing design §5.4). */
 export type UploadItem = { id: string; path: string; url: string; contentType?: string; /** Mobile data allowed (default true). */ cellular?: boolean };
 
+/** A file to download into the app (a received clip or its framing file): a presigned GET URL and where it goes. */
+export type DownloadItem = { id: string; url: string; path: string };
+
+/** What the downloader knows about one file. Times are ms since 1970; `bytes` is known once the transfer began. */
+export type DownloadEntry = {
+  id: string;
+  url: string;
+  path: string;
+  status: 'running' | 'paused' | 'done' | 'failed';
+  bytes: number;
+  received: number;
+  attempts: number;
+  queuedAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  httpStatus?: number;
+  error?: string;
+};
+
 /** What the uploader knows about one file. Times are ms since 1970. */
 export type UploadEntry = {
   id: string;
@@ -86,6 +105,8 @@ export type ReplayCameraModuleEvents = {
   onUploadProgress: (e: { id: string; sent: number; total: number }) => void;
   onUploadDone: (e: UploadEntry & { ok: boolean }) => void;
   onUploadRetry: (e: { id: string; attempt: number; error: string }) => void;
+  onDownloadDone: (e: DownloadEntry & { ok: boolean }) => void;
+  onDownloadRetry: (e: { id: string; attempt: number; error: string }) => void;
   onTrigger: (e: { source: TriggerSource; at: number }) => void;
   onWatchStatus: (e: { status: WatchStatus }) => void;
   /**

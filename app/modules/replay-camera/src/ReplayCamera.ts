@@ -21,6 +21,8 @@ import type {
   Quality,
   UploadEntry,
   UploadItem,
+  DownloadEntry,
+  DownloadItem,
 } from './ReplayCamera.types';
 
 // Native rejections carry `code` (a ReplayErrorCode), so callers can branch on it.
@@ -495,4 +497,45 @@ export function removeUploads(ids: string[]): void {
 /** Cancels every upload and forgets them. */
 export function resetUploads(): void {
   if (ReplayCameraModule.uploadReset) ReplayCameraModule.uploadReset();
+}
+
+/** Whether this build downloads in the system's background session (iOS builds from 2026-11-19 on). */
+export function downloadsAvailable(): boolean {
+  return ReplayCameraModule.downloadStart !== undefined;
+}
+
+/**
+ * Starts downloading these files in the system's background session (iOS): they go on with the screen locked. With
+ * `paused` they are queued but wait for `resumeDownloads` (a recording is on). False where the build has no downloader.
+ */
+export function startDownloads(items: DownloadItem[], paused: boolean): boolean {
+  if (!ReplayCameraModule.downloadStart) return false;
+  ReplayCameraModule.downloadStart(items, paused);
+  return true;
+}
+
+/** Every file the downloader knows about; empty where the build has no downloader. */
+export function downloadState(): DownloadEntry[] {
+  if (!ReplayCameraModule.downloadState) return [];
+  return ReplayCameraModule.downloadState();
+}
+
+/** Stops every running download and keeps it paused (a recording started). */
+export function pauseDownloads(): void {
+  if (ReplayCameraModule.downloadPause) ReplayCameraModule.downloadPause();
+}
+
+/** Starts the paused downloads again. */
+export function resumeDownloads(): void {
+  if (ReplayCameraModule.downloadResume) ReplayCameraModule.downloadResume();
+}
+
+/** Cancels these downloads and forgets them. */
+export function removeDownloads(ids: string[]): void {
+  if (ReplayCameraModule.downloadRemove) ReplayCameraModule.downloadRemove(ids);
+}
+
+/** Starts again every download left running with no transfer behind it (the app was swiped away). */
+export function restoreDownloads(): void {
+  if (ReplayCameraModule.downloadRestore) ReplayCameraModule.downloadRestore();
 }

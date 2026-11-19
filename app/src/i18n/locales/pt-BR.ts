@@ -298,6 +298,7 @@ export const ptBR: Messages = {
     all: 'Todas',
     mine: 'Minhas',
     receivedFilter: 'Recebidas',
+    paused: { one: '%{done} de 1 clipe no celular · download pausado durante a gravação', other: '%{done} de %{count} clipes no celular · download pausado durante a gravação' },
     captureBlocked: 'Este lance não pode ser capturado. Para guardar, toque em Salvar.',
     opening: 'Abrindo os lances…',
     from: 'Compartilhada por %{name}',

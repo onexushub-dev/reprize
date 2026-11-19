@@ -300,6 +300,7 @@ export const en = {
     all: 'All',
     mine: 'Mine',
     receivedFilter: 'Received',
+    paused: { one: '%{done} of 1 clip on your phone · download paused while recording', other: '%{done} of %{count} clips on your phone · download paused while recording' },
     captureBlocked: 'This play cannot be captured. To keep it, tap Save.',
     opening: 'Opening the plays…',
     from: 'Shared by %{name}',
