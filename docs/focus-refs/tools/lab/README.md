@@ -215,6 +215,28 @@ switch, off by default, until the phone run (plan section 9) shows the time it s
 Outputs: `lab/tests/detect/<clip>.<det>-mt20{e,s2e,s2o,s2c}.json`, reports `report.mt-<tag>-<det>.md`, logs
 `lab/tests/motion/`.
 
+## Android ball models (2026-11-16) — `android_tflite.py`
+
+The two ball detectors for Seguir a Bola on Android, from Victor's ONNX (`android-seguir-a-bola/models/`, SHA256 in
+`SHA256SUMS`), as TFLite in `app/modules/replay-camera/android/src/main/assets/`:
+
+    python -I tools/lab/android_tflite.py convert <ball_tiny_X.onnx> <ball_tiny_X.tflite> --clips <clips.txt> --sport <sport>
+    python -I tools/lab/android_tflite.py check <ball_tiny_X.onnx> <ball_tiny_X.tflite> <clips.txt> --sport <sport> --frames 60
+
+onnxsim first (without it the graph keeps the shape arithmetic as dynamic tensors and the GPU delegate refuses it), then
+onnx2tf with a SavedModel, then fp16 weights through the TF converter (onnx2tf's own fp16 file feeds fp16 tensors to
+CONV_2D and does not load). Input NHWC `[1, 416, 416, 3]` float32 BGR 0–255; output `[1, 6, 3549]`.
+
+Check (labelled frames with the ball visible; per frame the 416 tile on the ball and the letterboxed whole frame):
+
+| Model | Frames | ONNX / TFLite candidates (≥ 0.05) | ≥ 0.1 matched at IoU ≥ 0.9 | Largest score difference | SHA256 (.tflite) |
+|---|---|---|---|---|---|
+| `ball_tiny_gym` (basketball) | 60 | 1054 / 1053 | 678 / 678 | 0.0023 | `982c9048…649af2` |
+| `ball_tiny_btpl` (beach tennis) | 56 | 993 / 993 | 841 / 841 | 0.0009 | `b63b3e90…513358` |
+
+Speed on the POCO X3 NFC (Snapdragon 732G, Android 12), one region, TFLite `benchmark_model`: CPU 4 threads 105 ms, GPU
+fp16 76 ms, GPU full precision 119 ms (iPhone XR: 9–11.5 ms). A Full HD frame is 19 regions.
+
 ## Test 53 (2026-11-12, lab only) — Bola with motion-gated tiles (`motion_tiles.py`)
 
 Made for `docs/superpowers/plans/2026-11-12-focus-pipeline-analysis-and-improvement-plan.md` (section 6 has the table).

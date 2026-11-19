@@ -38,6 +38,8 @@ class ExportCrop : Record {
 class ExportFocus : Record {
   @Field val path: String = ""
   @Field val aspect: String = "landscape"
+  /** Seguir a Bola's 9:16 crop fills the frame: on Android the cropped track is fitted to the output, which already fills it. */
+  @Field val fill: Boolean = false
 }
 
 class AnalyzeFocusOptions : Record {
@@ -45,7 +47,31 @@ class AnalyzeFocusOptions : Record {
   @Field val startMs: Double = 0.0
   @Field val endMs: Double = 0.0
   @Field val outPath: String = ""
+  /** Where the people of each analysed picture are kept, so a stopped analysis goes on from there ("" = not kept). */
+  @Field val peoplePath: String = ""
   @Field val debug: Boolean = false
+  /** One picture every `everyMs` (the file keeps 100 ms rows). */
+  @Field val everyMs: Double = 100.0
+  /** Leave the people on the next court out of the framing (beach tennis; Android only). */
+  @Field val nextCourt: Boolean = false
+}
+
+class AnalyzeBallOptions : Record {
+  @Field val clipPath: String = ""
+  @Field val startMs: Double = 0.0
+  @Field val endMs: Double = 0.0
+  @Field val detPath: String = ""
+  @Field val outPath: String = ""
+  @Field val focusPath: String = ""
+  @Field val sport: String = "basquete"
+  @Field val maxWidth: Int = 0
+  @Field val focusStartMs: Double = 0.0
+  @Field val focusEndMs: Double = 0.0
+  @Field val focusEveryMs: Double = 100.0
+  @Field val peoplePath: String = ""
+  @Field val sequential: Boolean = false
+  /** iPhone only (motion-gated tiles, a Diagnóstico switch): ignored here. */
+  @Field val motionTiles: Boolean = false
 }
 
 class ExportClipOptions : Record {
@@ -96,9 +122,15 @@ class ReplayCameraModule : Module() {
     Name("ReplayCamera")
 
     Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus", "onDiag",
-      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton")
+      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton", "onBallProgress", "onFocusProgress")
 
     OnCreate {
+      expo.modules.replaycamera.ball.BallAnalyzer.emit = { clipPath, done, total, state ->
+        sendEvent("onBallProgress", mapOf("clipPath" to clipPath, "done" to done, "total" to total, "state" to state))
+      }
+      FocusAnalyzer.emit = { clipPath, done, total ->
+        sendEvent("onFocusProgress", mapOf("clipPath" to clipPath, "done" to done, "total" to total))
+      }
       ReplayEngine.emit = { name, body -> sendEvent(name, body) }
       remote().emit = { name, body -> sendEvent(name, body) }
       host().emit = { name, body -> sendEvent(name, body) }
@@ -168,6 +200,18 @@ class ReplayCameraModule : Module() {
       ScreenEconomy.set(appContext.currentActivity, on, ScreenEconomy.REMOTE_BRIGHTNESS)
     }
 
+    // The zoom stops: 0.5x only where the app can open an ultra-wide (Lenses); Android zooms by lens, not continuously.
+    Function("getZoomRange") {
+      val min = runCatching {
+        val manager = context.getSystemService(android.content.Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
+        val backFocals = manager.cameraIdList.map { manager.getCameraCharacteristics(it) }
+          .filter { it.get(android.hardware.camera2.CameraCharacteristics.LENS_FACING) == android.hardware.camera2.CameraCharacteristics.LENS_FACING_BACK }
+          .mapNotNull { it.get(android.hardware.camera2.CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull() }
+        Lenses.zoomMin(backFocals)
+      }.getOrDefault(1.0)
+      mapOf("min" to min, "max" to 1.0, "continuous" to false)
+    }
+
     AsyncFunction("startSession") { opts: SessionOptions, promise: Promise ->
       ReplayEngine.start(context, opts.lens, opts.maxQuality, opts.bufferSeconds, onReady = { promise.resolve(null) }, onError = promise::reject)
     }
@@ -234,11 +278,14 @@ class ReplayCameraModule : Module() {
     AsyncFunction("analyzeFocus") { o: AnalyzeFocusOptions, promise: Promise ->
       Thread({
         try {
-          val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.debug)
-          promise.resolve(mapOf("status" to if (r.ready) "ready" else "none", "frames" to r.frames, "framesWithPeople" to r.framesWithPeople,
-            "meanPeople" to r.meanPeople, "elapsedMs" to r.elapsedMs))
-        } catch (e: FocusAnalyzer.Cancelled) {
+          val r = FocusAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.outPath, o.peoplePath, o.debug, o.everyMs, o.nextCourt)
+          promise.resolve(mapOf("status" to if (r.ready) "ready" else "none", "frames" to r.frames, "reused" to r.reused,
+            "framesWithPeople" to r.framesWithPeople, "meanPeople" to r.meanPeople, "elapsedMs" to r.elapsedMs,
+            "stages" to r.stages.json(), "panP95" to r.panP95, "turnsPer10s" to r.turnsPer10s))
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Cancelled) {
           promise.reject("CANCELLED", "Focus analysis cancelled", null)
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Interrupted) {
+          promise.reject("FOCUS_INTERRUPTED", "Focus analysis interrupted: ${e.message}", null)
         } catch (e: Throwable) {
           android.util.Log.e("ReprizeFocus", "analysis failed", e)
           promise.reject("FOCUS_FAILED", "${e.cause ?: e}", null)
@@ -247,6 +294,70 @@ class ReplayCameraModule : Module() {
     }
 
     Function("cancelFocus") { clipPath: String -> FocusAnalyzer.cancel(clipPath) }
+
+    // Test 51 on Android: only the floor (no scene classifier): "_floorSand" and "_floorTex" from 3 frames; {} when none decodes.
+    AsyncFunction("classifySport") { clipPath: String, startMs: Double, endMs: Double, promise: Promise ->
+      Thread({ promise.resolve(SportCheck.classify(clipPath, startMs, endMs)) }, "sport-check").start()
+    }
+
+    // TEMP(lab-android): the evaluation on this phone (LabEval), from the Diagnóstico screen.
+    AsyncFunction("labEvalAndroid") { which: String, promise: Promise ->
+      Thread({
+        try {
+          promise.resolve(when (which) { "reference" -> LabEval.reference(context); "backends" -> LabEval.backends(context); else -> LabEval.run(context) })
+        } catch (e: Throwable) {
+          android.util.Log.e("ReprizeEval", "evaluation failed", e)
+          promise.reject("EVAL_FAILED", "$e", null)
+        }
+      }, "lab-eval").start()
+    }
+
+    // Seguir a Bola: the cut's ball analysis and its 9:16 framing (see BallAnalyzer), on its own thread like Jogadores.
+    AsyncFunction("analyzeBall") { o: AnalyzeBallOptions, promise: Promise ->
+      val sport = expo.modules.replaycamera.ball.BallSport.of(o.sport)
+      if (sport == null) {
+        promise.reject("BALL_FAILED", "No Seguir a Bola for the sport ${o.sport}", null)
+        return@AsyncFunction
+      }
+      Thread({
+        try {
+          val r = expo.modules.replaycamera.ball.BallAnalyzer.analyze(context, o.clipPath, o.startMs, o.endMs, o.detPath, o.outPath,
+            o.focusPath, sport, o.maxWidth,
+            expo.modules.replaycamera.ball.BallAnalyzer.Players(o.focusStartMs, o.focusEndMs, o.focusEveryMs, o.peoplePath), !o.sequential)
+          promise.resolve(mapOf("status" to if (r.verdict.isEmpty()) "ready" else "unsuitable", "reason" to r.verdict,
+            "analysed" to r.analysed, "reused" to r.reused, "ballFrames" to r.ballFrames, "trustedFrames" to r.trustedFrames,
+            "ballShare" to r.ballShare, "zoom" to r.zoom, "elapsedMs" to r.elapsedMs, "focus" to r.focus, "stages" to r.stages.json(),
+            "panP95" to r.panP95, "turnsPer10s" to r.turnsPer10s, "playSeconds" to r.playSeconds))
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Cancelled) {
+          promise.reject("CANCELLED", "Ball analysis cancelled", null)
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Hot) {
+          promise.reject("BALL_HOT", "Ball analysis stopped: the phone is too hot", null)
+        } catch (e: expo.modules.replaycamera.focus.ClipScan.Interrupted) {
+          promise.reject("BALL_INTERRUPTED", "Ball analysis interrupted: ${e.message}", null)
+        } catch (e: expo.modules.replaycamera.ball.BallDetector.NoModel) {
+          promise.reject("BALL_NO_MODEL", "The ball model is missing from this build", null)
+        } catch (e: Throwable) {
+          android.util.Log.e("ReprizeBall", "analysis failed", e)
+          promise.reject("BALL_FAILED", "$e", null)
+        }
+      }, "ball-analysis").start()
+    }
+
+    Function("cancelBall") { clipPath: String -> expo.modules.replaycamera.ball.BallAnalyzer.cancel(clipPath) }
+
+    // Seguir a Bola, first use: milliseconds for one 19-region frame through the ball model (the JS decides from it).
+    AsyncFunction("probeBall") { promise: Promise ->
+      Thread({
+        try {
+          promise.resolve(expo.modules.replaycamera.ball.BallDetector.probe(context, expo.modules.replaycamera.ball.BallSport.basketball.modelId))
+        } catch (e: expo.modules.replaycamera.ball.BallDetector.NoModel) {
+          promise.reject("BALL_NO_MODEL", "The ball model is missing from this build", null)
+        } catch (e: Throwable) {
+          android.util.Log.e("ReprizeBall", "probe failed", e)
+          promise.reject("BALL_FAILED", "$e", null)
+        }
+      }, "ball-probe").start()
+    }
 
     Function("videoShape") { clipPath: String -> ClipThumbnail.shape(clipPath) }
 

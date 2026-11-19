@@ -580,6 +580,7 @@ export const en = {
     focusMode: 'Focus Mode',
     focusPlayersTag: 'Focus Mode: Players',
     focusPreparingTag: 'Tracking the players…',
+    focusPreparingPercent: 'Tracking the players · %{percent}%',
     focusFound: 'Players found',
     edit: 'Edit',
     save: 'Save',

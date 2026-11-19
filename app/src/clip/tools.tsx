@@ -33,6 +33,8 @@ export type ToolContext = {
   setEdit(patch: Partial<Edit>): void;
   /** Jogadores (Modo Foco): ready, still analysing, or not possible for this clip ('on' / 'off' = ready). */
   focus: FocusUi;
+  /** While Jogadores analyses: 0–100 (Android sends it); undefined = the spinner. */
+  focusPercent: number | undefined;
   ball: BallUi;
   /** While Bola analyses: 0–100; undefined = not measured yet. */
   ballPercent: number | undefined;

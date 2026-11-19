@@ -3,6 +3,12 @@ import { focusCovers, focusPath, focusRange, peoplePath } from '../data/focusFil
 import type { Repo } from '../data/repo';
 import type { Clip } from '../data/schema';
 
+/**
+ * The next-court rule's version, stored with a result framed with it (`ClipFocus.nextCourt`): 2 = the court from the
+ * whole clip (2026-11-17, second test); a result from an older version is framed again.
+ */
+export const NEXT_COURT_RULE = 2;
+
 export type FocusQueueDeps = {
   analyze(opts: AnalyzeFocusOptions): Promise<FocusAnalysis>;
   /** Stops the native analysis of this clip file. */
@@ -14,6 +20,11 @@ export type FocusQueueDeps = {
   measured?(clip: Clip, result: FocusAnalysis, waitedMs: number): void;
   /** TEMP(lab-4k): the speed test's frame interval now (ms); a clip analysed with another one is analysed again. */
   every?(): number;
+  /**
+   * Whether the framing leaves out the people on the next court (Android, beach tennis: `NextCourt`); a result framed
+   * the other way is framed again. Absent (iOS): never asked for.
+   */
+  nextCourt?(clip: Clip): boolean;
 };
 
 export type FocusQueue = {
@@ -115,6 +126,7 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
     running = { id: clip.id, path: clip.path };
     const waited = Date.now() - (queuedAt.get(clip.id) ?? Date.now());
     queuedAt.delete(clip.id);
+    const nextCourt = deps.nextCourt !== undefined && deps.nextCourt(clip);
     deps
       .analyze({
         clipPath: clip.path,
@@ -123,6 +135,7 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
         outPath,
         peoplePath: peoplePath(clip.path),
         ...(deps.every !== undefined && deps.every() !== 100 ? { everyMs: deps.every() } : {}),
+        ...(nextCourt ? { nextCourt: true } : {}),
       })
       .then((result) => {
         try {
@@ -139,6 +152,7 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
           startMs: range.startMs,
           endMs: range.endMs,
           ...(every !== 100 ? { every } : {}),
+          ...(nextCourt ? { nextCourt: NEXT_COURT_RULE } : {}),
         };
         if (!deps.repo.updateClip(clip.id, { focus })) {
           deps.deleteFile(outPath);
@@ -187,7 +201,13 @@ export function createFocusQueue(deps: FocusQueueDeps): FocusQueue {
       const outside =
         clip.focus !== undefined && (clip.focus.status === 'ready' || clip.focus.status === 'none') &&
         !focusCovers(clip.focus, clip.trim);
-      if (clip.focus && clip.focus.status !== 'pending' && !stale && !outside) return;
+      // Framed with or without the next court's people, and the recording's sport says otherwise now (only the framing
+      // is redone: the people are kept).
+      const court =
+        deps.nextCourt !== undefined && clip.focus !== undefined &&
+        (clip.focus.status === 'ready' || clip.focus.status === 'none') &&
+        deps.nextCourt(clip) !== (clip.focus.nextCourt === NEXT_COURT_RULE);
+      if (clip.focus && clip.focus.status !== 'pending' && !stale && !outside && !court) return;
       if (!deps.supported()) return;
       if (running && running.id === clip.id) return;
       // Opened in the editor: it goes first, and may run during an `openedOnly` hold. The app is in front.

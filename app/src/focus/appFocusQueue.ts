@@ -1,12 +1,14 @@
 import { File } from 'expo-file-system';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import * as camera from '../../modules/replay-camera';
 import { onFileRemoved, repo } from '../data/mmkv';
 import { stagesText } from '../diag/clipTimings';
 import { DIAGNOSTICS_ENABLED, diag } from '../diag/diagLog';
 import { createBackgroundClock } from './backgroundTime';
+import { createFocusProgress } from './focusProgress';
 import { createFocusQueue } from './focusQueue';
+import { recordingSportOf } from './sportCheck';
 
 /** TEMP(diag-remote): when the app was in the background, so the analysis time leaves it out. */
 const backgroundClock = createBackgroundClock();
@@ -39,20 +41,27 @@ export function focusEveryMs(): number {
   return v === 100 ? 100 : 200;
 }
 
+/** Jogadores' percent while it analyses (Android sends it; iOS has no such event, so it stays empty there). */
+export const focusProgress = createFocusProgress();
+if (Platform.OS === 'android') camera.addReplayListener('onFocusProgress', (e) => focusProgress.onNative(e));
+
 /** The app's one Modo Foco queue. */
 export const focusQueue = createFocusQueue({
-  // Diagnostics off (store builds): no battery reads around each analysis.
-  analyze: DIAGNOSTICS_ENABLED
-    ? (opts) => {
-        powerAtStart.set(opts.clipPath, power());
-        return camera.analyzeFocus(opts);
-      }
-    : camera.analyzeFocus,
+  analyze: (opts) => {
+    // Diagnostics off (store builds): no battery reads around each analysis.
+    if (DIAGNOSTICS_ENABLED) powerAtStart.set(opts.clipPath, power());
+    return camera.analyzeFocus(opts).finally(() => focusProgress.clear(opts.clipPath));
+  },
   cancel: camera.cancelFocus,
   supported: camera.isFocusSupported,
   repo,
   // TEMP(lab-4k): the Diagnóstico speed test's Jogadores interval (100 = today)
   every: () => focusEveryMs(),
+  // Android only (Marcus, 2026-11-17): beach tennis is often played with courts side by side; their people stay out of
+  // the framing. iOS frames as before.
+  ...(Platform.OS === 'android'
+    ? { nextCourt: (clip) => recordingSportOf(repo.getSession(clip.sessionId))?.sport === 'beachTennis' }
+    : {}),
   // TEMP(diag-remote): the Modo Foco v14 field test reads the analysis time on the Diagnóstico screen.
   measured: (clip, r, waitedMs) => {
     if (!DIAGNOSTICS_ENABLED) return;

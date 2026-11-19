@@ -78,6 +78,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   analyzeBall?(opts: AnalyzeBallOptions): Promise<BallAnalysis>;
   cancelBall?(clipPath: string): void;
   probeBall?(): Promise<number>;
+  /** TEMP(lab-android): Modo Foco's evaluation on an Android phone ('run' | 'reference'); the summary line. */
+  labEvalAndroid?(which: string): Promise<string>;
   classifySport?(clipPath: string, startMs: number, endMs: number): Promise<Record<string, number>>;
   getWatchStatus(): WatchStatus;
   watchSync(recording: boolean, clipCount: number, startedAt: number | null): void;

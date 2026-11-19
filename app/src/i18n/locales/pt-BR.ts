@@ -578,6 +578,7 @@ export const ptBR: Messages = {
     focusMode: 'Modo Foco',
     focusPlayersTag: 'Modo Foco: Jogadores',
     focusPreparingTag: 'Rastreando os jogadores…',
+    focusPreparingPercent: 'Rastreando os jogadores · %{percent}%',
     focusFound: 'Jogadores encontrados',
     edit: 'Editar',
     save: 'Salvar',

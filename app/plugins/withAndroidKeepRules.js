@@ -3,7 +3,8 @@
  * reflection, and the release app closes on launch:
  *   - WorkManager builds its Room database (`WorkDatabase_Impl`) by name;
  *   - ML Kit (pose detection) creates its component registrars by name;
- *   - MediaPipe (Modo Foco's person detector) is reached from native code and protobuf by name.
+ *   - MediaPipe (Modo Foco's person detector) is reached from native code and protobuf by name;
+ *   - LiteRT (Seguir a Bola's ball model) is reached from its native code by name, the GPU delegate too.
  * Appended to android/app/proguard-rules.pro at prebuild, once.
  */
 const fs = require('fs');
@@ -30,6 +31,13 @@ ${MEDIAPIPE_MARKER}
 -dontwarn com.google.auto.value.**
 `;
 
+const LITERT_MARKER = '# reprize: keep rules, litert (withAndroidKeepRules)';
+const LITERT_RULES = `
+${LITERT_MARKER}
+-keep class org.tensorflow.lite.** { *; }
+-dontwarn org.tensorflow.lite.**
+`;
+
 module.exports = function withAndroidKeepRules(config) {
   return withDangerousMod(config, [
     'android',
@@ -39,6 +47,7 @@ module.exports = function withAndroidKeepRules(config) {
       let next = current;
       if (!next.includes(MARKER)) next += RULES;
       if (!next.includes(MEDIAPIPE_MARKER)) next += MEDIAPIPE_RULES;
+      if (!next.includes(LITERT_MARKER)) next += LITERT_RULES;
       if (next !== current) fs.writeFileSync(file, next);
       return cfg;
     },
