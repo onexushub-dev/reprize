@@ -7,6 +7,8 @@ import { forgetAllExportsForTests } from '../../share/exportCache';
 import ClipEditor from '../clip/[id]';
 
 const mockParams = { id: 'c1' };
+// The courtesy sheet signs in (native Apple and Google modules): received recordings have their own tests.
+jest.mock('../../components/useCourtesyGate', () => ({ useCourtesyGate: () => ({ ask: async () => true, sheet: null }) }));
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), back: jest.fn(), setParams: jest.fn() },
   useLocalSearchParams: () => ({ id: mockParams.id }),

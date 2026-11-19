@@ -1,21 +1,19 @@
-import * as AppleAuthentication from 'expo-apple-authentication';
 import { Redirect, router } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { deleteAccount, signInWithApple, signInWithGoogle, signOut, useAccount, type DeleteResult, type SignInResult } from '../account/account';
+import { deleteAccount, signOut, useAccount, type DeleteResult } from '../account/account';
+import { SignInButtons } from '../account/SignInButtons';
 import { SHARING_ENABLED } from '../account/flags';
 import { Button } from '../components/Button';
 import { useT } from '../i18n/useT';
 import { colors, fonts, radius } from '../theme/tokens';
 
-type Busy = 'apple' | 'google' | 'out' | 'delete';
+type Busy = 'out' | 'delete';
 type Translate = ReturnType<typeof useT>['t'];
 
 const FAILED: Record<Busy, (t: Translate) => string> = {
-  apple: (t) => t('account.signInFailed'),
-  google: (t) => t('account.signInFailed'),
   out: (t) => t('account.signOutFailed'),
   delete: (t) => t('account.deleteFailed'),
 };
@@ -33,7 +31,7 @@ function AccountView() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  async function run(kind: Busy, action: () => Promise<SignInResult | DeleteResult | void>) {
+  async function run(kind: Busy, action: () => Promise<DeleteResult | void>) {
     setBusy(kind);
     setError(null);
     setNotice(null);
@@ -69,23 +67,7 @@ function AccountView() {
         ) : account === null ? (
           <>
             <Text style={styles.body}>{t('account.why')}</Text>
-            <AppleAuthentication.AppleAuthenticationButton
-              buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
-              cornerRadius={radius.button}
-              style={[styles.apple, busy !== null && styles.dimmed]}
-              onPress={() => {
-                if (busy === null) void run('apple', signInWithApple);
-              }}
-            />
-            <Button
-              label={busy === 'google' ? t('account.signingIn') : t('account.google')}
-              variant="secondary"
-              loading={busy === 'google'}
-              disabled={busy !== null}
-              onPress={() => void run('google', signInWithGoogle)}
-            />
-            <Text style={styles.note}>{t('account.privacy')}</Text>
+            <SignInButtons />
           </>
         ) : (
           <>
@@ -131,9 +113,7 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingBottom: 40, gap: 16 },
   title: { fontFamily: fonts.displayBold, fontSize: 34, color: colors.text, textTransform: 'uppercase' },
   body: { fontFamily: fonts.body, fontSize: 16, lineHeight: 22, color: colors.soft },
-  apple: { height: 56, width: '100%' },
   dimmed: { opacity: 0.5 },
-  note: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.muted },
   card: { backgroundColor: colors.surface, borderRadius: radius.card, padding: 16, gap: 4 },
   name: { fontFamily: fonts.bodyBold, fontSize: 18, color: colors.text },
   email: { fontFamily: fonts.body, fontSize: 15, color: colors.soft },

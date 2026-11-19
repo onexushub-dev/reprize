@@ -26,8 +26,10 @@ import { LabelSheet } from "../../components/LabelSheet";
 import { EmptyState } from "../../components/EmptyState";
 import { ExportProgress } from "../../components/ExportProgress";
 import { SelectionBar } from "../../components/SelectionBar";
+import { ShareStrip } from "../../components/ShareStrip";
+import { ReceivedBanner } from "../../components/ReceivedBanner";
 import { UpgradeCard } from "../../components/UpgradeCard";
-import { ClipIcon, TrashIcon } from "../../components/icons";
+import { ClipIcon, LockIcon, ShareIcon, TrashIcon } from "../../components/icons";
 import {
   clipNumber,
   megabytes,
@@ -38,8 +40,18 @@ import { markOpened } from "../../data/lastOpened";
 import { removeFile, repo } from "../../data/mmkv";
 import { MAX_GAME_NAME } from "../../data/schema";
 import { accessPlan } from "../../payments/rules";
+import { canShare } from "../../payments/limits";
+import { openPaywall } from "../../payments/feedback";
+import { track } from "../../analytics";
+import { SHARING_ENABLED } from "../../account/flags";
+import { useCourtesyGate } from "../../components/useCourtesyGate";
 import { useFreeExportGate } from "../../components/useFreeExportGate";
-import { useViewPlan } from "../../share/entitlement";
+import {
+  exportTierOf,
+  useProActive,
+  useReceivedAccess,
+  useViewPlan,
+} from "../../share/entitlement";
 import { freeLosses } from "../../share/exportOptions";
 import { useBatchActions } from "../../share/useBatchActions";
 import { useT } from "../../i18n/useT";
@@ -64,6 +76,24 @@ export default function SessionSummary() {
   );
 
   const plan = useViewPlan(id);
+  // A received recording (sharing §2.8–10): Pro as one's own, else Full HD with the mark after a courtesy.
+  const access = useReceivedAccess(id);
+  // Sharing follows the subscription, not the recording: a Single Pass does not share (sharing design, decision 2).
+  const shareAllowed = canShare(useProActive() ? "paid" : "free");
+  // The clock for the link's time left, read again every minute.
+  const [shareNow, setShareNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setShareNow(Date.now()), 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
+  async function startShare() {
+    if (!shareAllowed) {
+      track("pro_feature_blocked", { feature: "share" });
+      const outcome = await openPaywall(t, "locked_feature");
+      if (outcome !== "purchased" && outcome !== "restored") return;
+    }
+    router.push(`/share/${id}`);
+  }
 
   // Jogadores and Bola are analysed only when the player picks them on a clip (2026-11-11): nothing runs from this list.
   // Minhas gravações marks the recording seen last; set before the first paint, so the list is right on the way back.
@@ -105,6 +135,7 @@ export default function SessionSummary() {
   );
   const batch = useBatchActions({
     plan,
+    tier: exportTierOf(plan, access),
     labelOf: (c) =>
       c.name
         ? c.name
@@ -114,13 +145,16 @@ export default function SessionSummary() {
   // A free recording's clips leave in HD, without sound and Modo Foco, with the app mark: say so before saving or sending
   // them (the full notice on the recording's first export; later ones go on). The PRO card opens the same sheet.
   const freeGate = useFreeExportGate();
+  const courtesyGate = useCourtesyGate();
   const exportAfterNotice = async (
     kind: "save" | "share",
     clips: typeof pickedClips,
     go: (clips: typeof pickedClips) => Promise<void>,
   ) => {
+    // A received recording without Pro leaves only with a courtesy (spent once, on its first Save or Send).
+    if (access === "locked" && !(await courtesyGate.ask(id))) return;
     // Nothing is lost while the field test unlocks it all (accessPlan): no notice then.
-    if (accessPlan(plan) === "free") {
+    if (access === undefined && accessPlan(plan) === "free") {
       const proceed = await freeGate.ask(
         id,
         {
@@ -349,10 +383,28 @@ export default function SessionSummary() {
           label={t("summary.kept")}
         />
       </View>
-      <Text style={styles.note}>{t("summary.note")}</Text>
+      {/* A received recording never had the rest of a buffer on this phone. */}
+      {session && session.received ? null : (
+        <Text style={styles.note}>{t("summary.note")}</Text>
+      )}
+
+      {/* A received recording: who shared it and how far the download is. */}
+      {SHARING_ENABLED && session && session.received ? (
+        <ReceivedBanner sessionId={id} received={session.received} now={shareNow} />
+      ) : null}
+
+      {/* A live link: where the upload is and how long it lasts; a tap opens the share sheet. */}
+      {SHARING_ENABLED &&
+      session &&
+      session.shared &&
+      session.shared.state === "active" &&
+      session.shared.expiresAt > shareNow ? (
+        <ShareStrip sessionId={id} shared={session.shared} now={shareNow} />
+      ) : null}
 
       {/* The summary only exists after the recording ends, so this card never shows mid-recording. */}
-      {plan === "free" ? (
+      {/* A received recording gets the courtesy rules instead (sharing design §4), not this card. */}
+      {plan === "free" && !(session && session.received) ? (
         <UpgradeCard
           title={t("summary.freeTitle")}
           message={t(
@@ -440,10 +492,33 @@ export default function SessionSummary() {
             onDelete={confirmDeleteClips}
           />
         ) : (
-          <Button label={t("summary.newRecording")} onPress={newGame} />
+          <>
+            {/* Only an ended recording is shared (decision 16): this screen is the summary of one. */}
+            {SHARING_ENABLED &&
+            session &&
+            session.endedAt !== undefined &&
+            session.received === undefined &&
+            clips.length > 0 ? (
+              <Button
+                label={t("sharing.button")}
+                variant="secondary"
+                icon={
+                  shareAllowed ? (
+                    <ShareIcon size={20} />
+                  ) : (
+                    <LockIcon size={14} color={colors.muted} />
+                  )
+                }
+                hint={shareAllowed ? undefined : t("sharing.locked")}
+                onPress={() => void startShare()}
+              />
+            ) : null}
+            <Button label={t("summary.newRecording")} onPress={newGame} />
+          </>
         )}
       </View>
       {freeGate.sheet}
+      {courtesyGate.sheet}
       {batch.overlay}
       {batch.job ? (
         <ExportProgress

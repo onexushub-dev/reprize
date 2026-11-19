@@ -495,6 +495,10 @@ public class ReplayCameraModule: Module {
     Function("uploadStart") { (items: [UploadItem]) in BackgroundUploader.shared.start(items) }
     Function("uploadState") { () -> [[String: Any]] in BackgroundUploader.shared.state() }
     Function("uploadReset") { BackgroundUploader.shared.reset() }
+    Function("uploadPause") { BackgroundUploader.shared.pause() }
+    Function("uploadResume") { (cellular: Bool) in BackgroundUploader.shared.resume(cellular: cellular) }
+    Function("uploadRemove") { (ids: [String]) in BackgroundUploader.shared.remove(ids) }
+    Function("uploadRestore") { BackgroundUploader.shared.restore() }
 
     // Spike 3 of the sharing design: children kept out of screenshots and screen recordings (CaptureShield.swift).
     View(CaptureShieldView.self) {

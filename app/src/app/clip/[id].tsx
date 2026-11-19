@@ -38,6 +38,7 @@ import { clipNumber, seconds, timeOfDay } from '../../components/format';
 import { BackIcon, PauseIcon, PlayIcon } from '../../components/icons';
 import { Playhead } from '../../components/Playhead';
 import { useExportQualityGate } from '../../components/useExportQualityGate';
+import { useCourtesyGate } from '../../components/useCourtesyGate';
 import { useFreeExportGate } from '../../components/useFreeExportGate';
 import { TrimBar } from '../../components/TrimBar';
 import { knownShape, rememberShape } from '../../components/clipShape';
@@ -65,11 +66,12 @@ import { clipWindow } from '../../share/trim';
 import { unlockRecording } from '../../payments/unlock';
 import { accessPlan } from '../../payments/rules';
 import { clipExportJob } from '../../share/clipExport';
-import { useViewPlan } from '../../share/entitlement';
+import { exportTierOf, useReceivedAccess, useViewPlan } from '../../share/entitlement';
 import { cachedExport, rememberExport } from '../../share/exportCache';
 import { exportChoices, type ShortSide } from '../../share/exportSize';
 import { labelledPaths } from '../../share/labelledFile';
 import { frameLayout } from '../../share/layout';
+import { CaptureGuard } from '../../share/CaptureGuard';
 import { ShareOverlay } from '../../share/ShareOverlay';
 import { ZoomableVideo } from '../../share/ZoomableVideo';
 import { colors, fonts } from '../../theme/tokens';
@@ -87,6 +89,8 @@ const LOOP_EARLY_S = 0.15;
 const SAVED_VISIBLE_MS = 3500;
 // The share sheet is up long before `shareAsync` returns (it waits for the sheet to close), so the card leaves early.
 const SHARE_HANDOFF_MS = 1200;
+/** How long the capture message stays away after the share sheet closed: its slide-out draws a copy of the screen too. */
+const SHEET_SETTLE_MS = 700;
 const FOCUS_INTRO_MS = 3000;
 /** How long the framing takes to grow out of the whole video: the first time ever, and when it gets ready on screen. */
 const FOCUS_INTRO_EASE_MS = 700;
@@ -181,9 +185,24 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     [clip, version],
   );
   const session = clip ? repo.getSession(clip.sessionId) : undefined;
+  const received = session !== undefined && session.received !== undefined;
+  // Received clips: the capture message under the video goes away while a system sheet or the screen's exit draws a copy
+  // of the screen without the video (it would flash otherwise). See `CaptureGuard`'s `quiet`.
+  const [quiet, setQuiet] = useState(false);
+  const quietTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (quietTimer.current !== null) clearTimeout(quietTimer.current);
+    },
+    [],
+  );
   const maxMs = session ? effectiveSettings(session.sport, repo.getPrefs()).bufferSeconds * 1000 : undefined;
   const plan = useViewPlan(clip?.sessionId);
+  // A received recording (sharing §2.8–10): Pro as one's own, else the courtesy look and the courtesy gate on export.
+  const access = useReceivedAccess(clip?.sessionId);
+  const tier = exportTierOf(plan, access);
   const freeGate = useFreeExportGate();
+  const courtesyGate = useCourtesyGate();
   // A 4K clip leaves the app as 4K, 2K or Full HD (asked at each Salvar/Enviar); every other clip as Full HD.
   const qualityGate = useExportQualityGate();
   const [exportSide, setExportSide] = useState<ShortSide>(1080);
@@ -439,7 +458,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // The size picked for the last export, if this clip offers it (a swipe to a Full HD clip falls back to Full HD).
   const side: ShortSide = exportChoices(clip ? clip.shortSide : undefined).includes(exportSide) ? exportSide : 1080;
   const look = clip
-    ? clipExportJob(clip, plan, videoSize, undefined, track !== undefined, side, ballTrack !== undefined)
+    ? clipExportJob(clip, tier, videoSize, undefined, track !== undefined, side, ballTrack !== undefined)
     : undefined;
   // The export reads the job of the size just picked: it waits for the screen to redraw the overlay at that size.
   const lookRef = useRef(look);
@@ -572,7 +591,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   if (!clip || !session || !options) {
     return (
       <SafeAreaView style={styles.missingRoot}>
-        <IconButton label={t('common.back')} onPress={() => router.back()}>
+        <IconButton label={t('common.back')} onPress={leave}>
           <BackIcon />
         </IconButton>
         <Text style={styles.missing}>{t('clip.missing')}</Text>
@@ -598,7 +617,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   function goBy(step: 1 | -1) {
     const target = step === 1 ? next : previous;
     if (!target) {
-      if (step === -1 && at === 0) router.back();
+      if (step === -1 && at === 0) leave();
       else settleBack();
       return;
     }
@@ -728,6 +747,32 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     else applyPlayback(player, edit.speed, soundOff);
   }
 
+  function quietFor(ms: number | undefined) {
+    if (quietTimer.current !== null) clearTimeout(quietTimer.current);
+    quietTimer.current = null;
+    setQuiet(true);
+    if (ms !== undefined) quietTimer.current = setTimeout(() => setQuiet(false), ms);
+  }
+
+  /** Back to the recording. A received clip first takes its capture message away, then leaves on the next frame. */
+  function leave() {
+    if (!received) {
+      router.back();
+      return;
+    }
+    quietFor(undefined);
+    requestAnimationFrame(() => router.back());
+  }
+
+  /** A screen recording of a received clip: the clip stops (the recording would carry its sound) until it ends. */
+  function pauseForCapture(capturing: boolean) {
+    if (capturing) {
+      wantsPlay.current = false;
+      setPlayingState(false);
+      setPlaying(player, false);
+    }
+  }
+
   function togglePlay() {
     wantsPlay.current = !wantsPlay.current;
     setPlayingState(wantsPlay.current);
@@ -784,7 +829,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
             enterFrom = next ? 1 : -1;
             router.setParams({ id: after.id });
           }
-          else router.back();
+          else leave();
         },
       },
     ]);
@@ -820,8 +865,13 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
 
   async function run(kind: ExportJob['kind'], action: (path: string) => Promise<void>) {
     if (exporting.current || !sizeKnown) return;
+    // A received recording without Pro leaves only with a courtesy (spent once, on its first Save or Send).
+    if (access === 'locked') {
+      const go = await courtesyGate.ask(clip!.sessionId);
+      if (!go || exporting.current) return;
+    }
     // The free-plan notice says what the video loses: nothing while the field test unlocks it all (accessPlan).
-    const free = accessPlan(plan) === 'free';
+    const free = access === undefined && accessPlan(plan) === 'free';
     if (free) {
       const go = await freeGate.ask(
         clip!.sessionId,
@@ -831,9 +881,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       );
       if (!go || exporting.current) return;
     }
-    // Only a paid export picks a size: a free one is always HD.
+    // Only a paid export picks a size: a free one is always HD, a courtesy always Full HD.
     const choices = exportChoices(clip!.shortSide);
-    if (!free && choices.length > 1 && look) {
+    if (!free && tier !== 'courtesy' && choices.length > 1 && look) {
       const picked = await qualityGate.ask({
         choices,
         landscape: look.frame.width > look.frame.height,
@@ -872,7 +922,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
 
   /** The export reached the player (the gallery or the share sheet): one report of its size and where it went. */
   function reportDelivered(destination: 'photos' | 'share_sheet') {
-    trackEvent('export_completed', { quality: `${side}p`, plan: exportPlanOf(plan, repo.getSession(id)) });
+    trackEvent('export_completed', { quality: `${tier === 'courtesy' ? 1080 : side}p`, plan: exportPlanOf(plan, repo.getSession(id)) });
     trackEvent('clip_shared', { destination });
     sessionSummary.note('export');
   }
@@ -893,7 +943,12 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       // Named after the clip's label when it has one ("toco do marcao.mp4").
       const current = repo.getClip(id);
       const [named] = await labelledPaths([{ path, label: current ? current.name : undefined }]);
-      await shareAsync(`file://${named}`, { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
+      if (received) quietFor(undefined);
+      try {
+        await shareAsync(`file://${named}`, { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
+      } finally {
+        if (received) quietFor(SHEET_SETTLE_MS);
+      }
       reportDelivered('share_sheet');
       repo.updateClip(id, { sharedAt: Date.now() });
     });
@@ -934,7 +989,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       : undefined;
   const ctx: ToolContext = {
     edit,
-    plan,
+    // Watching a received recording is free on every plan, with every tool (sharing §2.7): nothing shows a lock.
+    plan: access !== undefined ? 'paid' : plan,
     unlock: () => void (clip && unlockRecording(clip.sessionId, t)),
     setEdit,
     focus: focusUi,
@@ -972,37 +1028,39 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
         {!editing ? (
           <>
             <View pointerEvents="none" style={[styles.neighbour, { left: -area.width, width: area.width }]}>
-              {previous ? <NeighbourStage clip={previous} tier={plan} area={area} /> : at === 0 ? <Text style={styles.backHint}>{t('clip.backToRecording')}</Text> : null}
+              {previous ? <NeighbourStage clip={previous} tier={tier} area={area} /> : at === 0 ? <Text style={styles.backHint}>{t('clip.backToRecording')}</Text> : null}
             </View>
             <View pointerEvents="none" style={[styles.neighbour, { left: area.width, width: area.width }]}>
-              {next ? <NeighbourStage clip={next} tier={plan} area={area} /> : null}
+              {next ? <NeighbourStage clip={next} tier={tier} area={area} /> : null}
             </View>
           </>
         ) : null}
         <View style={[styles.preview, { width: shown.frame.width * scale, height: previewHeight }]}>
-          <ZoomableVideo
-            key={zoomKey}
-            player={player}
-            area={{ width: shown.frame.width * scale, height: previewHeight }}
-            box={videoBox}
-            zoom={edit.zoom}
-            rotation={edit.rotation}
-            onCommit={editing ? commitZoom : () => {}}
-            onTap={togglePlay}
-            onSwipe={editing ? undefined : goBy}
-            onDrag={editing ? undefined : drag}
-            onDragCancel={editing ? undefined : settleBack}
-            poster={framed ? undefined : poster}
-            onFirstFrame={() => setFramed(true)}
-            follow={follow}
-            content={ballOn ? ballContent(shape, videoBox) : undefined}
-            enterMs={focusEnterMs}
-            pinch={editing}
-            onHold={editing ? undefined : holdFast}
-          />
-          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <ShareOverlay frame={shown.frame} layout={shown.layout} scale={scale} watermark={options ? options.watermark : true} />
-          </View>
+          <CaptureGuard active={received} onCapturing={pauseForCapture} quiet={quiet}>
+            <ZoomableVideo
+              key={zoomKey}
+              player={player}
+              area={{ width: shown.frame.width * scale, height: previewHeight }}
+              box={videoBox}
+              zoom={edit.zoom}
+              rotation={edit.rotation}
+              onCommit={editing ? commitZoom : () => {}}
+              onTap={togglePlay}
+              onSwipe={editing ? undefined : goBy}
+              onDrag={editing ? undefined : drag}
+              onDragCancel={editing ? undefined : settleBack}
+              poster={framed ? undefined : poster}
+              onFirstFrame={() => setFramed(true)}
+              follow={follow}
+              content={ballOn ? ballContent(shape, videoBox) : undefined}
+              enterMs={focusEnterMs}
+              pinch={editing}
+              onHold={editing ? undefined : holdFast}
+            />
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+              <ShareOverlay frame={shown.frame} layout={shown.layout} scale={scale} watermark={options ? options.watermark : true} />
+            </View>
+          </CaptureGuard>
           {editing && ballChip && ballChip.kind === 'failed' ? (
             <BallChip state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} />
           ) : null}
@@ -1069,7 +1127,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           placeholder={t('clip.namePlaceholder', { number: ownNumber, time: timeOfDay(clip.createdAt, locale) })}
           onChangeName={setName}
           onSaveName={saveName}
-          onBack={() => router.back()}
+          onBack={leave}
           onDelete={confirmDelete}
           focusTag={edit.framing !== 'focus' ? undefined : focusChip === 'on' ? (playersFound ? 'found' : 'on') : focusChip === 'preparing' ? 'preparing' : undefined}
           ballTag={
@@ -1103,6 +1161,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       )}
 
       {freeGate.sheet}
+      {courtesyGate.sheet}
       <BallIntroSheet
         visible={ballIntro}
         onCut={(hide) => answerBallIntro(false, hide)}

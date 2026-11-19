@@ -4,6 +4,8 @@ import { sessionSummary, track } from '../../analytics';
 import { setLocale } from '../../i18n';
 import SessionSummary from '../session/[id]';
 
+// The courtesy sheet signs in (native Apple and Google modules): received recordings have their own tests.
+jest.mock('../../components/useCourtesyGate', () => ({ useCourtesyGate: () => ({ ask: async () => true, sheet: null }) }));
 jest.mock('expo-router', () => ({
   router: { replace: jest.fn(), push: jest.fn(), dismissTo: jest.fn() },
   // The stack under the summary: tests that open it from Minhas gravações keep /games in it.

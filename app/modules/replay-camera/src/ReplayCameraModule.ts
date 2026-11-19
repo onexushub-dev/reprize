@@ -119,6 +119,10 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   uploadStart?(items: UploadItem[]): void;
   uploadState?(): UploadEntry[];
   uploadReset?(): void;
+  uploadPause?(): void;
+  uploadResume?(cellular: boolean): void;
+  uploadRemove?(ids: string[]): void;
+  uploadRestore?(): void;
 }
 
 export default requireNativeModule<ReplayCameraModule>('ReplayCamera');

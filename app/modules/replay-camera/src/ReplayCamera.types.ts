@@ -65,13 +65,13 @@ export type RemotePairing = { url: string; code: string; expiresAt: number; qrPa
 export type RemotePairFailure = 'expired' | 'locked' | 'notFound' | 'wrong' | 'denied' | 'full' | 'used' | 'closed';
 
 /** One file to upload with a presigned PUT URL (sharing design §5.4). */
-export type UploadItem = { id: string; path: string; url: string; contentType?: string };
+export type UploadItem = { id: string; path: string; url: string; contentType?: string; /** Mobile data allowed (default true). */ cellular?: boolean };
 
 /** What the uploader knows about one file. Times are ms since 1970. */
 export type UploadEntry = {
   id: string;
   path: string;
-  status: 'running' | 'done' | 'failed';
+  status: 'running' | 'paused' | 'done' | 'failed';
   bytes: number;
   sent: number;
   attempts: number;

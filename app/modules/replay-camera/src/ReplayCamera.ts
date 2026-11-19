@@ -465,6 +465,26 @@ export function uploadState(): UploadEntry[] {
   return ReplayCameraModule.uploadState();
 }
 
+/** Stops every running upload and keeps it paused (a recording started). */
+export function pauseUploads(): void {
+  if (ReplayCameraModule.uploadPause) ReplayCameraModule.uploadPause();
+}
+
+/** Starts the paused uploads again; `cellular` false keeps them on Wi-Fi. */
+export function resumeUploads(cellular: boolean): void {
+  if (ReplayCameraModule.uploadResume) ReplayCameraModule.uploadResume(cellular);
+}
+
+/** Starts again every upload left running with no transfer behind it (the app was swiped away). */
+export function restoreUploads(): void {
+  if (ReplayCameraModule.uploadRestore) ReplayCameraModule.uploadRestore();
+}
+
+/** Cancels these uploads and forgets them. */
+export function removeUploads(ids: string[]): void {
+  if (ReplayCameraModule.uploadRemove) ReplayCameraModule.uploadRemove(ids);
+}
+
 /** Cancels every upload and forgets them. */
 export function resetUploads(): void {
   if (ReplayCameraModule.uploadReset) ReplayCameraModule.uploadReset();

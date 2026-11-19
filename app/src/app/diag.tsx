@@ -24,6 +24,8 @@ import { repo } from '../data/mmkv';
 import { applyLabVariants, ballMaxWidth, ballMotionTiles, scanSequential } from '../focus/appBallQueue';
 import { focusEveryMs } from '../focus/appFocusQueue';
 import { colors, fonts, radius } from '../theme/tokens';
+import { SHARING_ENABLED } from '../account/flags';
+import { clearAllShares } from '../cloud/shareRecording';
 
 /** What the log shows: everything, only warnings, or one area (2026-11-08 spec §6). */
 type Filter = 'TODOS' | 'ALERTAS' | DiagArea;
@@ -114,6 +116,22 @@ function LabSwitches() {
         },
       ],
     );
+  // TEMP(diag-sharing): every recording back to never shared, to test the share flow again on the same recordings.
+  const clearShares = () =>
+    Alert.alert(
+      'Limpar os compartilhamentos?',
+      'Os links ativos são desligados (os vídeos saem da nuvem), os envios param e as gravações voltam a nunca compartilhadas. As gravações e os clipes ficam.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Limpar',
+          style: 'destructive',
+          onPress: () => {
+            void clearAllShares().then((count) => diag(`envio: compartilhamentos limpos em ${count} gravações`));
+          },
+        },
+      ],
+    );
   return (
     <View style={styles.lab}>
       {row('Bola', [[0, 'Quadro nativo (antes)'], [1920, 'Reduzido a 1920 (padrão)']], ball, pickBall)}
@@ -123,6 +141,11 @@ function LabSwitches() {
       <Pressable accessibilityRole="button" onPress={resetAll} hitSlop={8} style={styles.labReset}>
         <Text style={styles.linkSoft}>Zerar análises de todos os clipes</Text>
       </Pressable>
+      {SHARING_ENABLED ? (
+        <Pressable accessibilityRole="button" onPress={clearShares} hitSlop={8} style={styles.labReset}>
+          <Text style={styles.linkSoft}>Limpar compartilhamentos das gravações</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

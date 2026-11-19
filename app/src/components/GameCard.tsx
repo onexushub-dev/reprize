@@ -25,7 +25,9 @@ export function GameCard({ session, clips, firstClip, recordedMs, onPress, onLon
   const thumb = useClipThumbnail(firstClip?.path ?? '', firstClip?.trim.startMs ?? 0);
   const { t, locale } = useT();
   const label = sessionLabel(session, undefined, locale);
-  const detail = t('games.detail', { clips: t('summary.clips', { count: clips }), time: recordedLabel(recordedMs, locale) });
+  // A received recording was not recorded on this phone: it has no recording time here, only its clips.
+  const clipCount = t('summary.clips', { count: clips });
+  const detail = session.received !== undefined ? clipCount : t('games.detail', { clips: clipCount, time: recordedLabel(recordedMs, locale) });
   return (
     <View style={styles.card}>
       <Pressable
@@ -44,6 +46,11 @@ export function GameCard({ session, clips, firstClip, recordedMs, onPress, onLon
             {label}
           </Text>
           <Text style={styles.detail}>{detail}</Text>
+          {session.received ? (
+            <Text style={styles.received} numberOfLines={1}>
+              {session.received.from ? t('received.from', { name: session.received.from }) : t('received.badge')}
+            </Text>
+          ) : null}
           {lastSeen ? (
             <View style={styles.seen}>
               <Text style={styles.seenText}>{t('games.lastSeen')}</Text>
@@ -80,6 +87,7 @@ const styles = StyleSheet.create({
   text: { flex: 1, gap: 4 },
   label: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.text },
   detail: { fontFamily: fonts.body, fontSize: 13, color: colors.soft },
+  received: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.accent },
   seen: { alignSelf: 'flex-start', paddingVertical: 2, paddingHorizontal: 8, borderRadius: 999, backgroundColor: colors.accent },
   seenText: { fontFamily: fonts.bodyBold, fontSize: 11, color: colors.onAccent },
 });

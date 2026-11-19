@@ -3,7 +3,7 @@ import type { ModeId, TriggerSource } from '../data/schema';
 import type { Offering } from '../payments/types';
 
 /** Where the paywall was opened from; `locked_feature` is a tap on something Pro-only (see pro_feature_blocked). */
-export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature';
+export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature' | 'received_export';
 
 /** A count sent as a range, so the number of distinct values stays small and nothing is a precise tally. */
 export type CountBucket = '0' | '1' | '2-5' | '6-20' | '21+';
@@ -70,6 +70,22 @@ export type AnalyticsEvents = {
   pairing_completed: { method: 'qr' | 'code'; kind: 'remote' };
   pairing_failed: { reason: RemotePairFailure | 'invalid_link' };
 
+  // Sharing (sharing design §9)
+  /** A link was created for a recording; `clips` is how many it carries. */
+  share_created: { clips: CountBucket };
+  /** The server refused or the request failed; never the error text. */
+  share_failed: { reason: 'sign_in' | 'not_pro' | 'notice' | 'too_many' | 'failed' };
+  /** The liability notice was accepted (once per account and notice version). */
+  share_notice_accepted: undefined;
+  /** The owner turned a link off (Desligar link). */
+  share_turned_off: undefined;
+  /** A received recording was kept out of a screenshot or a screen recording (capture protection, §8.2). */
+  capture_blocked: { kind: 'screenshot' | 'recording' };
+  /** A courtesy was spent on a received recording; `remaining` after it (0–2). */
+  courtesy_used: { remaining: number };
+  /** Save or Send of a received recording with no courtesy left and no Pro: the panel offers Pro only. */
+  courtesy_exhausted: undefined;
+
   // Monetization
   /** `offering` is the paywall shown: Pro (`default`) or the Single Pass (`pass`). */
   paywall_viewed: { source: PaywallSource; offering: Offering };
@@ -79,7 +95,7 @@ export type AnalyticsEvents = {
   /** A Single Pass kept from before was spent on a recording (one bought for it is purchase_completed). */
   pass_used: undefined;
   purchase_failed: { reason: 'error' };
-  pro_feature_blocked: { feature: 'quality_4k' | 'clip_length' | 'watch' | 'compile' };
+  pro_feature_blocked: { feature: 'quality_4k' | 'clip_length' | 'watch' | 'compile' | 'share' };
   free_export_limit_hit: undefined;
   /** What the player picked on the free-plan sheet: from an export (`save`/`share`) or from the recording's PRO card (`unlock`). */
   free_export_choice: { choice: 'pro' | 'pass' | 'go' | 'cancel'; kind: 'save' | 'share' | 'unlock' };

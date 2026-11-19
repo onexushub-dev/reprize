@@ -8,6 +8,8 @@ import Games from '../games';
 import SessionSummary from '../session/[id]';
 import ClipScreen from '../clip/[id]';
 
+// The courtesy sheet signs in (native Apple and Google modules): received recordings have their own tests.
+jest.mock('../../components/useCourtesyGate', () => ({ useCourtesyGate: () => ({ ask: async () => true, sheet: null }) }));
 jest.mock('expo-video', () => {
   const mockPlayer = { addListener: () => ({ remove() {} }), play: jest.fn(), pause: jest.fn(), currentTime: 0, playbackRate: 1, muted: false };
   return { useVideoPlayer: () => mockPlayer, VideoView: () => null };

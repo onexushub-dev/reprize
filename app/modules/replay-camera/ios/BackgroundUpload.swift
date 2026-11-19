@@ -8,6 +8,8 @@ struct UploadItem: Record {
   @Field var path: String = ""
   @Field var url: String = ""
   @Field var contentType: String = "video/mp4"
+  /// Whether the file may go over mobile data ("Enviar pelos dados móveis"); Wi-Fi only when false.
+  @Field var cellular: Bool = true
 }
 
 /// Uploads files through the system's background session: the transfer goes on with the app in the background or the
@@ -21,6 +23,14 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
   static let sessionId = "app.reprize.uploads"
   private static let stateKey = "reprize.uploads.v1"
   private static let maxAttempts = 5
+  private static let separator = "\n"
+
+  /// The file id and the transfer token kept in a task's description (older builds kept only the id).
+  private static func parse(_ description: String?) -> (id: String, token: String?)? {
+    guard let description else { return nil }
+    let parts = description.components(separatedBy: separator)
+    return (parts[0], parts.count > 1 ? parts[1] : nil)
+  }
 
   /// Sends a module event; set by the module on create. Events sent while no JS listens are lost: the state is not.
   var emit: ((String, [String: Any]) -> Void)?
@@ -72,6 +82,7 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
         entry["path"] = item.path
         entry["url"] = item.url
         entry["contentType"] = item.contentType
+        entry["cellular"] = item.cellular
         entry["bytes"] = size
         entry["sent"] = 0.0
         entry["attempts"] = 0
@@ -91,17 +102,68 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
     }
     var request = URLRequest(url: target)
     request.httpMethod = "PUT"
+    request.allowsCellularAccess = (state().first { $0["id"] as? String == id }?["cellular"] as? Bool) ?? true
     request.setValue(contentType, forHTTPHeaderField: "Content-Type")
     let task = session.uploadTask(with: request, fromFile: URL(fileURLWithPath: path))
-    task.taskDescription = id
+    // The file's id plus a token for this transfer: an older transfer of the same file that reports late is ignored.
+    let token = UUID().uuidString
+    task.taskDescription = id + Self.separator + token
     _ = update(id) { entry in
+      entry["token"] = token
       entry["attempts"] = ((entry["attempts"] as? Int) ?? 0) + 1
       if entry["startedAt"] == nil { entry["startedAt"] = Self.now() }
     }
     task.resume()
   }
 
-  /// Every file the uploader knows about, with its status (`running`, `done`, `failed`).
+  /// Stops every running transfer and keeps it as `paused` (a recording started, or the phone is too hot). Nothing is
+  /// lost: a paused file starts again from its first byte on `resume`, and `restore` leaves it alone.
+  func pause() {
+    lock.lock()
+    var state = load()
+    for (id, var entry) in state where entry["status"] as? String == "running" {
+      entry["status"] = "paused"
+      state[id] = entry
+    }
+    save(state)
+    lock.unlock()
+    session.getAllTasks { tasks in tasks.forEach { $0.cancel() } }
+  }
+
+  /// Starts again every paused file, with the mobile data choice of now.
+  func resume(cellular: Bool) {
+    let paused = state().filter { $0["status"] as? String == "paused" }
+    for entry in paused {
+      guard let id = entry["id"] as? String else { continue }
+      _ = update(id) { e in
+        e["status"] = "running"
+        e["cellular"] = cellular
+        e["sent"] = 0.0
+        e["attempts"] = 0
+      }
+      launch(
+        id: id,
+        path: entry["path"] as? String ?? "",
+        url: entry["url"] as? String ?? "",
+        contentType: entry["contentType"] as? String ?? "video/mp4"
+      )
+    }
+  }
+
+  /// Cancels these files and forgets them (an expired or turned-off share).
+  func remove(_ ids: [String]) {
+    let gone = Set(ids)
+    lock.lock()
+    var state = load()
+    for id in ids { state.removeValue(forKey: id) }
+    save(state)
+    lock.unlock()
+    session.getAllTasks { tasks in
+      tasks.filter { gone.contains(Self.parse($0.taskDescription)?.id ?? "") }.forEach { $0.cancel() }
+    }
+  }
+
+  /// Every file the uploader knows about, with its status (`running`, `paused`, `done`, `failed`).
   func state() -> [[String: Any]] {
     lock.lock()
     defer { lock.unlock() }
@@ -121,7 +183,7 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
   func restore() {
     session.getAllTasks { [weak self] tasks in
       guard let self else { return }
-      let alive = Set(tasks.compactMap { $0.taskDescription })
+      let alive = Set(tasks.compactMap { Self.parse($0.taskDescription)?.id })
       for entry in self.state() {
         guard let id = entry["id"] as? String, entry["status"] as? String == "running", !alive.contains(id) else { continue }
         self.launch(
@@ -151,7 +213,7 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
 
   func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64, totalBytesSent: Int64,
                   totalBytesExpectedToSend: Int64) {
-    guard let id = task.taskDescription else { return }
+    guard let id = Self.parse(task.taskDescription)?.id else { return }
     let time = Date().timeIntervalSince1970
     lock.lock()
     let last = lastProgress[id] ?? 0
@@ -164,7 +226,12 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
   }
 
   func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-    guard let id = task.taskDescription else { return }
+    guard let parsed = Self.parse(task.taskDescription) else { return }
+    let id = parsed.id
+    let token = parsed.token
+    let current = state().first { $0["id"] as? String == id }
+    // A transfer replaced by a newer one (restore or a retry started it again) no longer speaks for the file.
+    if let token, let current, let latest = current["token"] as? String, latest != token { return }
     let status = (task.response as? HTTPURLResponse)?.statusCode ?? 0
     if error == nil && (200..<300).contains(status) {
       finish(id: id, ok: true, status: status, error: nil)
@@ -174,8 +241,21 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
     let cancelled = (error as NSError?)?.code == NSURLErrorCancelled
     let entry = state().first { $0["id"] as? String == id } ?? [:]
     let attempts = entry["attempts"] as? Int ?? 0
+    let running = entry["status"] as? String == "running"
+    // Cancelled while still `running`: not by us (pause marks `paused`, remove forgets the file) but by iOS, which
+    // cancels every transfer when the app is swiped away and reports it on the next launch. Start it again.
+    if cancelled && running && attempts < Self.maxAttempts {
+      emit?("onUploadRetry", ["id": id, "attempt": attempts, "error": "cancelled by the system"])
+      launch(
+        id: id,
+        path: entry["path"] as? String ?? "",
+        url: entry["url"] as? String ?? "",
+        contentType: entry["contentType"] as? String ?? "video/mp4"
+      )
+      return
+    }
     // A 4xx means the URL is wrong or expired: trying again will not help.
-    let retry = !cancelled && attempts < Self.maxAttempts && !(400..<500).contains(status) && entry["status"] as? String == "running"
+    let retry = !cancelled && attempts < Self.maxAttempts && !(400..<500).contains(status) && running
     if retry {
       emit?("onUploadRetry", ["id": id, "attempt": attempts, "error": reason])
       launch(
@@ -184,7 +264,7 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
         url: entry["url"] as? String ?? "",
         contentType: entry["contentType"] as? String ?? "video/mp4"
       )
-    } else if !cancelled {
+    } else if !cancelled || running {
       finish(id: id, ok: false, status: status, error: reason)
     }
   }

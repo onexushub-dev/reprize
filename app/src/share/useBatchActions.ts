@@ -14,6 +14,7 @@ import { canCompile } from '../payments/limits';
 import type { Plan } from '../payments/types';
 import { type BatchResult, runBatch } from './batchExport';
 import { clipShapeOf, compilationOrientation } from './clipExport';
+import type { ExportTier } from './exportOptions';
 import { readEdit, turnedSize } from './editing';
 import { labelledPaths } from './labelledFile';
 import { useOverlayCapturer } from './OverlayCapturer';
@@ -49,7 +50,8 @@ function compilationPath(): string {
  * Save, send or compile several clips of a recording at once. Every clip comes out as it would alone; the work is one
  * batch at a time and stops quietly if the screen is left.
  */
-export function useBatchActions(o: { plan: Plan; labelOf: (clip: Clip) => string }) {
+/** `tier`: how the clips leave when it differs from `plan` (a received recording's courtesy); `plan` decides Compilar. */
+export function useBatchActions(o: { plan: Plan; tier?: ExportTier; labelOf: (clip: Clip) => string }) {
   const { t } = useT();
   const capturer = useOverlayCapturer();
   const [job, setJob] = useState<ExportJob>();
@@ -79,7 +81,7 @@ export function useBatchActions(o: { plan: Plan; labelOf: (clip: Clip) => string
     try {
       return await runBatch({
         clips,
-        plan: o.plan,
+        plan: o.tier !== undefined ? o.tier : o.plan,
         orientation,
         capture: capturer.capture,
         exportClip,

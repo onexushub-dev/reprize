@@ -164,3 +164,30 @@ test('the recording opened last says so', async () => {
   expect(screen.getAllByText('Visto por último')).toHaveLength(1);
   repo.getPrefs.mockReturnValue({});
 });
+
+test('once a recording has been received, a filter tells mine and received apart', async () => {
+  const received = { shareId: 'sh1', code: 'c', from: 'Ana', receivedAt: 0, expiresAt: 1, total: 1 };
+  repo.listSessions.mockReturnValue([
+    { session: { id: 's1', sport: 'outro', startedAt: 0, endedAt: 1, name: 'Meu jogo' }, clips: 1, firstClip: clip },
+    { session: { id: 's2', sport: 'outro', startedAt: 0, endedAt: 1, name: 'Jogo da Ana', received }, clips: 1, firstClip: clip },
+  ]);
+  repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 60_000 });
+  await render(<Games />);
+  expect(screen.getByText('Meu jogo')).toBeTruthy();
+  expect(screen.getByText('Jogo da Ana')).toBeTruthy();
+
+  await fireEvent.press(screen.getByRole('button', { name: 'Recebidas' }));
+  expect(screen.queryByText('Meu jogo')).toBeNull();
+  expect(screen.getByText('Jogo da Ana')).toBeTruthy();
+
+  await fireEvent.press(screen.getByRole('button', { name: 'Minhas' }));
+  expect(screen.getByText('Meu jogo')).toBeTruthy();
+  expect(screen.queryByText('Jogo da Ana')).toBeNull();
+});
+
+test('with no received recording there is no filter', async () => {
+  repo.listSessions.mockReturnValue([{ session: { id: 's1', sport: 'outro', startedAt: 0 }, clips: 1, firstClip: clip }]);
+  repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 60_000 });
+  await render(<Games />);
+  expect(screen.queryByRole('button', { name: 'Recebidas' })).toBeNull();
+});

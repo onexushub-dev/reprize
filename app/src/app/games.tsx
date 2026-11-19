@@ -1,9 +1,10 @@
 import { router } from 'expo-router';
-import { useMemo, useSyncExternalStore } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '../components/Button';
+import { Chip } from '../components/Chip';
 import { GameCard } from '../components/GameCard';
 import { EmptyState } from '../components/EmptyState';
 import { BackIcon, ReplayIcon } from '../components/icons';
@@ -14,7 +15,9 @@ import { useT } from '../i18n/useT';
 import { useSession } from '../session/SessionContext';
 import { colors, fonts } from '../theme/tokens';
 
-/** Past games with at least one lance, newest first. */
+type Filter = 'all' | 'mine' | 'received';
+
+/** Past games with at least one lance, newest first. Once a recording has been received, a filter tells them apart. */
 export default function Games() {
   const { t, locale } = useT();
   const { reset, state } = useSession();
@@ -30,6 +33,9 @@ export default function Games() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- version is the change signal
     [version],
   );
+  const [filter, setFilter] = useState<Filter>('all');
+  const hasReceived = games.some((g) => g.session.received !== undefined);
+  const shown = !hasReceived || filter === 'all' ? games : games.filter((g) => (g.session.received !== undefined) === (filter === 'received'));
 
   // A game still being recorded has no end yet: it is never offered for deleting.
   const confirmDelete = (id: string, label: string, clips: number) => {
@@ -67,8 +73,15 @@ export default function Games() {
       <Text style={styles.title} accessibilityRole="header">
         {t('games.title')}
       </Text>
+      {hasReceived ? (
+        <View style={styles.filters}>
+          <Chip label={t('received.all')} selected={filter === 'all'} onPress={() => setFilter('all')} />
+          <Chip label={t('received.mine')} selected={filter === 'mine'} onPress={() => setFilter('mine')} />
+          <Chip label={t('received.receivedFilter')} selected={filter === 'received'} onPress={() => setFilter('received')} />
+        </View>
+      ) : null}
       <FlatList
-        data={games}
+        data={shown}
         keyExtractor={(g) => g.session.id}
         contentContainerStyle={styles.list}
         ListEmptyComponent={
@@ -110,6 +123,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: { fontFamily: fonts.displayBold, fontSize: 44, lineHeight: 46, color: colors.text },
+  filters: { flexDirection: 'row', gap: 8 },
   list: { gap: 10, paddingBottom: 24 },
   footer: { paddingBottom: 12, gap: 10 },
 });

@@ -16,7 +16,7 @@ original quality, and the link brings the athlete into the app and towards PRO.
 ## 2. Decisions (2026-11-16)
 
 1. **Link and QR code**, not usernames. A share is a link to a **recording** (all its clips) or to a single **clip**;
-   both use the same address, `www.reprizeapp.com/v/<code>`, and the server knows which one it is. Anyone holding the
+   both use the same address, `reprizeapp.com/v/<code>`, and the server knows which one it is. Anyone holding the
    link can open it.
 2. **Only PRO can share.** On the free plan the Share button shows the PRO lock and opens the paywall.
 3. **The link exists before the upload finishes.** Creating a share is one light request; the QR code is shown at once
@@ -41,7 +41,7 @@ original quality, and the link brings the athlete into the app and towards PRO.
 13. **iPhone only.** Android is out of planning and execution until the app is published on Google Play. On an Android
     phone the web page shows the cover preview and "Em breve no Android".
 14. **Individual users only.** No team or organisation accounts.
-15. **Link host:** `www.reprizeapp.com` (see §7).
+15. **Link host:** `reprizeapp.com`, without `www` (see §7).
 16. **Only an ended recording can be shared, and nothing uploads while recording.** The Share button appears once the
     recording has ended. If a new recording starts with uploads pending, the queue pauses and resumes when that
     recording ends. Reason: battery, performance and heat during a recording.
@@ -63,7 +63,7 @@ Reprize usernames.
 
 ### 3.2 Recipient
 
-1. Opens `www.reprizeapp.com/v/<code>`: match title, number of clips, cover preview, "Disponível por 24 horas", the
+1. Opens `reprizeapp.com/v/<code>`: match title, number of clips, cover preview, "Disponível por 24 horas", the
    **Ver todos no Reprize** button and Report.
 2. With the app installed the link opens the app. Without it, the button goes to the App Store; after installing, the
    user taps the link again or uses **Recebi um link** on the home screen (QR scanner or paste).
@@ -86,6 +86,19 @@ Reprize usernames.
 `useViewPlan` already treats every recording as paid while PRO is active; a received recording follows it. When the
 recipient's PRO ends, the free rules apply again; unused courtesies remain.
 
+Implemented (2026-11-18):
+
+- `share/entitlement.ts`: `useReceivedAccess(sessionId)` is `pro`, `courtesy` (spent on it, `Session.received.courtesy`)
+  or `locked`, and undefined for a recording made on the phone. `exportTierOf` gives the export tier: a received
+  recording without Pro is previewed and exported as `courtesy` (`share/exportOptions.ts`: the paid export capped at
+  Full HD, with the mark), whether or not a courtesy is spent yet; watching is free, the gate is on Save and Send.
+- `components/useCourtesyGate.tsx` and `components/CourtesySheet.tsx`, on the clip screen and the recording's batch
+  Save/Send: sign in, then "Usar 1 das suas 3 gravações de cortesia?" with the count left (`profiles.courtesies_used`),
+  or, with none left, Assinar o PRO only. `cloud/courtesy.ts` calls `use_courtesy`; the answer is kept with
+  `repo.setReceivedCourtesy`. A courtesy export skips the 4K/2K/Full HD choice. No free-export notice, no Single Pass:
+  `unlockRecording` and `repo.upgradeSession` refuse a received recording. Compilar stays PRO (`canCompile(plan)`).
+- The edit tools show no locks on a received recording (watching is free with every tool).
+
 ## 5. Architecture
 
 Today the app has no account and no server: recordings live on the phone (`data/repo.ts`, MMKV, files). This feature
@@ -99,7 +112,7 @@ for 24 hours.
 | Account | Sign in with Apple and with Google, both native sheets (`expo-apple-authentication`, `@react-native-google-signin/google-signin`, MIT), exchanged with `supabase.auth.signInWithIdToken` | Apple's option is required when a third-party sign-in is offered. Account deletion in-app. Code: `src/account/`, screen `/account`; behind `SHARING_ENABLED` (diagnostics builds only) until the feature ships |
 | Data and API | Managed Postgres with row-level rules and server functions (for example Supabase) | Shares, clips, members, courtesies, notice acceptances, reports |
 | Video files | Object storage with multipart upload and short-lived signed URLs (for example Cloudflare R2) | Never a public URL. Lifecycle rule plus a job that deletes at expiry |
-| Link page | Static page plus one function on `www.reprizeapp.com` (Vercel today) | `noindex`; social preview shows the cover image only |
+| Link page | Static page plus one function on `reprizeapp.com` (Vercel today) | `noindex`; social preview shows the cover image only |
 | Open in app | Universal Links for `/v/*`; `reprize://` as fallback | §7 |
 | Subscription | RevenueCat `logIn` with the account id (`identifyPurchaser`), `logOut` on sign-out | PRO follows the account, not only the device; anonymous purchases move to the account on first sign-in |
 | Push | Phase 2 | New clips; "link expires in 3 hours" |
@@ -126,7 +139,9 @@ the shares they own or joined (never `token_hash`) and may edit only their displ
 write that matters goes through Edge Functions with the service role. Files are not listed in the database: they live
 in R2 under `shares/<share id>/`.
 
-Courtesy use is decided by the server in one transaction (`public.use_courtesy(share)`, locks the profile row): if `courtesy_applied` is already true for this member and
+Courtesy use is decided by the server in one transaction (`public.use_courtesy(share, device)`, locks the profile row;
+`supabase/migrations/20261118200000_courtesy_device.sql` adds `device`: a phone that opened the link signed out has its
+member row moved to the account first, so a courtesy can be spent after the link expired): if `courtesy_applied` is already true for this member and
 share → allowed; else if `courtesies_used < 3` → increment and set it; else → refused. The app stores the answer on the
 recording and never decides by itself.
 
@@ -152,6 +167,60 @@ recording and never decides by itself.
 - Example: an 11 MB clip (15 s, Full HD, estimated from the backlog's 90 MB per 120 s) takes about 9 s at 10 Mbps up.
   Real sizes for Full HD and 4K, 15–60 s, are measured in Phase 0.
 
+Implemented (2026-11-18):
+- Native (`BackgroundUpload.swift`): `uploadStart` items carry `cellular` (per-request `allowsCellularAccess`);
+  `uploadPause` cancels every transfer and keeps it `paused` (`restore` leaves paused files alone), `uploadResume`
+  starts them again from the first byte with fresh attempts, `uploadRemove` cancels and forgets files.
+- Queue (`src/cloud/uploadQueue.ts`, wired in `src/cloud/appUploadQueue.ts`): plans per share in MMKV
+  (`uploadPlan.ts`, with the expiry); `sync` at launch, on coming to the front and after a new share; held while the
+  session phase is starting, recording or stopping, or the camera reports critical heat (`cloud/uploadHold.ts`, set by
+  `SessionProvider`); expired shares are cancelled and forgotten; each finished clip video is confirmed with the
+  `confirm-upload` Edge Function (HEAD in R2, size equal to `share_clips.bytes` → `upload_state = done`; another size →
+  `failed`, and the phone sends it again); Tentar de novo restarts files that gave up.
+- Progress counts clip videos ("7 de 12 clipes enviados") with a byte bar, on the share sheet
+  (`components/ShareUploadStatus.tsx`, with the "Enviar pelos dados móveis" switch, on by default) and on the
+  recording (`components/ShareStrip.tsx`: "Link ativo · … · Disponível por mais N horas", opens the sheet).
+- Swiped-away app (field test 2026-11-18: uploads did not start again on reopening): iOS reports those transfers as
+  cancelled on the next launch. A transfer cancelled while its file is still `running` (neither paused nor removed by
+  the app) now starts again; each transfer carries a token in its task description, so a late report from a replaced
+  transfer is ignored; and `sync` also calls `uploadRestore` (launch and every return to the front).
+- Owner controls on the sheet: **Pausar envio / Continuar envio** (kept across launches; a recording does not undo
+  it) and **Desligar link** (confirmation, then the `share-off` Edge Function sets the share `off`, the cron deletes its
+  files, the phone cancels and forgets its uploads and keeps the link as `off`; the sheet offers **Criar link novo**).
+- Cover (decision 6): every share asks for `cover.mp4` and `cover.jpg`. When the share sheet shows a live link whose
+  plan still waits for the cover, it exports the first clip as the free plan does (app mark, never sound;
+  `src/cloud/cover.ts`), takes a still of it (the native thumbnail, 640 px at most), moves both into
+  `Documents/shares/<id>/` (the exports cache is emptied at launch) and fills the plan, so the queue sends them. Until
+  then the cover uploads wait in the plan with an empty path. A sheet closed before the cover is made leaves it for the
+  next opening. iOS stops an export when the app leaves the front (the sender switching to WhatsApp): the sheet makes
+  the cover again when the app comes back. Test builds with the field-test unlock export the cover at their unlocked
+  quality.
+- Diagnostics: every queue step goes to the Diagnóstico log under the **ENVIO** area (started, paused and why,
+  resumed, each file done or FALHOU, retries, server confirmation, expired or turned-off links).
+
+### 5.4.1 Creating a share (`create-share`)
+
+- The app first stores the notice acceptance (`notice_acceptances`, version 1, through row-level security), then calls
+  the `create-share` Edge Function with the user's access token: kind, title, sport, whether a cover follows, and one
+  entry per clip (position, bytes, duration, checksum, edit data, which side files it has).
+- The server checks, in order: the session (401 `sign_in`), the body (400), the notice at the current version
+  (403 `notice`), at most 30 shares per account in 24 hours (429 `too_many`) and PRO on RevenueCat with the account id
+  (403 `not_pro`; 503 `pro_check` without `REVENUECAT_SECRET_KEY`). The app's own plan state is never trusted.
+  TEMP(field-test): on the development project only, the secret `PRO_CHECK=off` counts every signed-in account as
+  PRO, matching the app's `REPRIZE_FIELD_TEST_UNLOCK` (local builds, Release included). The production project must
+  never have it; remove it with the field-test unlock before launch.
+- It stores the share (the 22-character code only as its SHA-256) and its clips, and answers with the link, the expiry
+  and one presigned PUT URL per file, valid until the share expires, in queue order: thumbnails, cover still, cover
+  video, then each clip's video with its framing files. Keys: `shares/<id>/cover.{jpg,mp4}`,
+  `shares/<id>/clips/<n>/{video.mp4,thumb.jpg,focus.json,ball.json}`.
+- App client: `src/cloud/shares.ts` (`noticeAccepted`, `acceptNotice`, `createShare`); the request for a recording is
+  built by `src/cloud/shareInput.ts` (side files only when they exist on the phone; no cover yet), and
+  `src/cloud/shareRecording.ts` stores the link on the recording (`Session.shared`) and the paired upload items
+  (`src/cloud/uploadPlan.ts`) for the queue. A link with more than 5 minutes left is shown again instead of a new one.
+- Screen: **Compartilhar gravação** on the summary of an ended recording (lock and paywall without PRO; a Single Pass
+  does not share) opens `/share/[id]`: sign in, the notice (`components/ShareNotice.tsx`), then the QR code with
+  Copiar link and Enviar link (`components/ShareLinkPanel.tsx`; `react-native-qrcode-svg` and `expo-clipboard`, MIT).
+
 ### 5.5 Download and expiry
 
 - The recipient streams from signed URLs and the app downloads the originals in the background as soon as the share is
@@ -162,6 +231,41 @@ recording and never decides by itself.
   rule is the safety net. The share rows stay, so a courtesy can still be used on a recording already on the phone.
 - Whoever opened in time keeps the recording in the app. Whoever did not sees "Este link venceu. Peça um novo a quem
   gravou".
+
+### 5.5.1 Receiving in the app (2026-11-18)
+
+- `/v/[code]` in the app calls the `open-share` Edge Function (tried again after 0.8 s and 2 s on a network or server
+  error: a link tapped in another app often opens Reprize before its network is ready) (POST `{ code, deviceId }`, the access token when
+  signed in): it registers the opener in `share_members` (by account, else by a random per-install id kept in MMKV;
+  the device row moves to the account when that phone opens the link signed in), answers `own` to the sender, and
+  lists every clip with its edit data and, once its upload is confirmed, presigned GET URLs for the video and the
+  framing files, valid until the share expires. Thumbnails are made on the phone from the video.
+- The app makes the received recording once per share (`repo.startReceivedSession`, `Session.received` with the code,
+  the sender's first name, the expiry and the clip count; never `paid`) and opens it. `src/cloud/receiveQueue.ts`
+  downloads clip by clip into `Documents/received/<share id>/<n>.mp4` (framing files next to it, as the app names
+  them), and only a complete video becomes a clip (`repo.addReceivedClip`, with the sender's cut, bounds, number,
+  name, edit and framing; `Clip.sharePosition`). Clips not uploaded yet are asked for again every 10 s while the app
+  is in front; at launch and on every return to the front the queue resumes every received recording until it is
+  complete or the link expires.
+- The recording shows "Compartilhada por Ana", "Baixando 3 de 7" or "esperando o envio de quem gravou", and the time
+  left (`components/ReceivedBanner.tsx`); Minhas gravações marks it. A received recording has no Compartilhar button.
+- No "I got a link" screen in the app (decided 2026-11-18): the iPhone camera reads the sender's QR code and a tapped
+  link opens the app, so the app adds no entry of its own. A received recording shows only its clip count in the games
+  list (it has no recording time on this phone).
+- A link opened cold (nothing under `/v/[code]`) builds the usual stack, setup (or onboarding, if it was never done),
+  games, then the recording, so Back and "New recording" behave as after a game. The onboarding is skipped, not
+  marked done: it is still there under the games.
+- The games list shows an All / Mine / Received filter once at least one received recording is on the phone.
+- Still to do here: streaming before the download ends, and the export rules (§4: courtesies).
+
+### 5.5.2 Sessions on several phones (2026-11-18)
+
+- "Sair" signs out on this phone only (`scope: 'local'`). The SDK default is global: it ended the sessions of every
+  other phone on the same account, which kept looking signed in while the server refused them.
+- The account screen names the sign-in used on this phone (remembered when the button is pressed): Supabase joins an
+  Apple and a Google sign-in with the same email into one account, and does not say which one opened a session.
+- Once per account the app asks the server for the user (`getUser`): a session it no longer accepts signs this phone
+  out. A share refused with 401 tries a fresh token once, then signs out and asks to sign in again.
 
 ### 5.6 Account deletion
 
@@ -195,17 +299,30 @@ reserved for "recording". All new strings in pt-BR and en (`src/i18n/locales`).
 
 ## 7. Link host
 
-- `https://www.reprizeapp.com/v/<code>` for a recording or a single clip (`share.kind` tells them apart).
-- Tested 2026-11-16: `reprizeapp.com/g/teste` answers **308** to `www`; `www.reprizeapp.com/g/teste` answers 404 (any path behaves the same) with no
-  redirect. A redirecting link does not open the app on iPhone, so the app and the QR code always use `www`.
-- `apple-app-site-association` at `https://www.reprizeapp.com/.well-known/` (site repo `reprize-lp`, `public/`), served
+- `https://reprizeapp.com/v/<code>` for a recording or a single clip (`share.kind` tells them apart). Shorter on the
+  screen and a less dense QR code (2026-11-17).
+- A redirecting link does not open the app on iPhone: the system looks at the tapped domain before any redirect. Tested
+  2026-11-16, `reprizeapp.com` answered 308 to `www`; since 2026-11-17 both domains serve the site directly on Vercel
+  (no redirect either way), and the app claims both (`applinks:reprizeapp.com`, `applinks:www.reprizeapp.com`), so links
+  made before the change keep opening the app.
+- `apple-app-site-association` at `/.well-known/` on both domains (site repo `reprize-lp`, `public/`), served
   as `application/json` by `vercel.json`, no redirect. It lists the store app (`R885ZD42ZG.app.reprize.mobile`) and the
   team's development build (`R885ZD42ZG.app.reprize.develop`, so it can sit next to the store app; a Personal Team build
   cannot use associated domains); the app claims only `/v/*`
   (`associatedDomains` in `app/app.json`).
-- Until the link page exists, `vercel.json` rewrites `/v/*` to `/baixar`, which sends the phone to its store.
-  In the app, `src/app/v/[code].tsx` is a Phase 0 placeholder.
-- Checks: `curl -sI` on the association file (200); `https://app-site-association.cdn-apple.com/a/v1/www.reprizeapp.com`
+- Link page (2026-11-18): `reprize-lp` uses the `@astrojs/vercel` adapter; the site stays static and only
+  `src/pages/v/[code].astro` (and `/en/v/[code]`) render on each visit (`src/components/share-link-page.astro`). The
+  page asks the public `share-page` Edge Function (GET `?code=`; finds the share by the code's SHA-256) for title, clip
+  count, the sharer's first name, expiry, state and one-hour presigned GET URLs of the cover; the clips never reach
+  the web. It shows the cover playing muted (`og:image` is the cover still, for WhatsApp and iMessage), "Disponível
+  por mais N horas", **Ver todos no Reprize** and Denunciar (e-mail for now); states expired, off, removed (reported,
+  §8.3), not found. `noindex`, `Cache-Control: no-store`, out of the sitemap.
+- Opening the app: iOS hands a Universal Link to the app only when it is tapped from another domain, so the button
+  points to the other host (`www.` ↔ bare) with `?open=1`. With the app installed it opens; without it, the page loads
+  again with `?open=1` and sends the iPhone to the App Store ("Depois de instalar, toque no link de novo"). Android
+  sees "Em breve no Android"; a computer sees "Abra este link no iPhone".
+- In the app, `src/app/v/[code].tsx` is still the Phase 0 placeholder until the receive flow exists.
+- Checks: `curl -sI` on the association file (200); `https://app-site-association.cdn-apple.com/a/v1/reprizeapp.com` (and `www.`)
   (what iPhones use, may lag by hours); on the phone, tap a `/v/teste` link pasted into Notes (typing it in Safari's
   address bar always opens the site).
 - Fallback if the site host cannot serve these paths with a function: `go.reprizeapp.com`.
@@ -231,6 +348,14 @@ reserved for "recording". All new strings in pt-BR and en (`src/i18n/locales`).
 - Applies to every received recording on every plan. Own recordings are unchanged.
 - The browser cannot block capture, which is one reason the web shows only the watermarked cover clip.
 - Filming the screen with another device cannot be prevented.
+- Implemented (2026-11-18): `share/CaptureGuard.tsx` wraps the clip player of a received recording (the video, its
+  poster, Modo Foco and Seguir a Bola framing, and the watermark drawn over it) in `CaptureShieldView`, the native view
+  proved by spike 3. The message sits under the shield, so a screenshot shows it where the video was; during a screen
+  recording it also covers the video on the screen and the clip pauses. Both send `capture_blocked` (`screenshot` or
+  `recording`). Stills (the recording's thumbnails, the neighbouring clips while swiping) are not shielded.
+  iOS draws a copy of the screen without the shielded layer while a system sheet slides over it (the share sheet) and
+  while the screen leaves: the message would flash there, so the clip screen sets `quiet` (no message) from Enviar
+  until 0.7 s after the sheet closed, and on the way back to the recording.
 
 ### 8.3 Reports
 
@@ -258,7 +383,7 @@ labels change with this feature (account, user content stored on a server).
 ## 9. Analytics (PostHog)
 
 `share_created` (with time from tap to QR), `share_upload_done`, `share_opened` (web), `share_install`, `share_viewed`,
-`share_downloaded`, `courtesy_used` (1–3), `courtesy_exhausted`, `received_export_blocked`, `received_purchase`,
+`share_downloaded`, `courtesy_used` (with `remaining`), `courtesy_exhausted`, `received_export_blocked`, `received_purchase`,
 `capture_blocked`, `share_expired_unopened`, `received_user_first_recording`.
 
 Headline numbers: new users per share created, revenue per share created, GB stored per event.
@@ -272,7 +397,7 @@ Headline numbers: new users per share created, revenue per share created, GB sto
 | 3 | Capture protection | Screenshot shows black over the video and screen recording triggers the message, on the current iOS, with the app's player and Modo Foco overlay |
 
 Also in Phase 0: measure real clip sizes (Full HD and 4K, 15–60 s); choose account, database and storage services;
-set up Universal Links on `www.reprizeapp.com`; define the courtesy counter and the 24-hour cleanup on the server.
+set up Universal Links on `reprizeapp.com` and `www.reprizeapp.com`; define the courtesy counter and the 24-hour cleanup on the server.
 
 ## 11. Phases
 

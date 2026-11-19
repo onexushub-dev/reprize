@@ -24,8 +24,12 @@ export type ExportOptions = {
   focus?: { path: string; aspect: 'landscape' | 'portrait'; fill?: boolean };
 };
 
-/** Legacy tier names still accepted until the export takes only a `Plan`. */
-type Tier = Plan | 'pass' | 'pro';
+/**
+ * Legacy tier names still accepted until the export takes only a `Plan`. `courtesy`: a received recording exported by
+ * someone without Pro (a courtesy spent on it): the paid export capped at Full HD, with the app mark (sharing §2.9).
+ */
+export type ExportTier = Plan | 'pass' | 'pro' | 'courtesy';
+type Tier = ExportTier;
 
 /**
  * Free: HD (720x1280), no sound (the clip may have it: it is locked here, so a recording already made can be unlocked
@@ -53,7 +57,7 @@ export function exportOptions(
 ): ExportOptions {
   // What the export may carry (the field test unlocks it all); the screens still label the plan as it is.
   const paid = tier !== 'free' || accessPlan('free') === 'paid';
-  const { width: frameWidth, height: frameHeight } = sideSize(paid ? side : FREE_SIDE, true);
+  const { width: frameWidth, height: frameHeight } = sideSize(paid ? (tier === 'courtesy' ? 1080 : side) : FREE_SIDE, true);
   const short = frameHeight;
   const long = frameWidth;
   const { speed: chosenSpeed, muted, zoom, rotation, focus: focusOn, framing } = readEdit(edit);
@@ -74,7 +78,7 @@ export function exportOptions(
     crop: zoom && zoom.scale > 1 ? cropRect(zoom) : undefined,
     rotation,
     // The mark follows the plan as it is, also during the field test: it is the release look, not a locked feature.
-    watermark: WATERMARK_ON_EVERY_PLAN || tier === 'free',
+    watermark: WATERMARK_ON_EVERY_PLAN || tier === 'free' || tier === 'courtesy',
     ...(follow ? { focus: { path: focus.path, aspect: landscape ? ('landscape' as const) : ('portrait' as const) } } : {}),
     ...(ballOn && ball ? { focus: { path: ball.path, aspect: 'portrait' as const, fill: true } } : {}),
   };
