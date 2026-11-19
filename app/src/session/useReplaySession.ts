@@ -20,6 +20,7 @@ import { effectiveSettings } from '../modes/registry';
 import { clampZoom, lensFor } from '../modes/zoom';
 import { sessionSummary, track } from '../analytics';
 import { countBucket, recordingDurationBucket } from '../analytics/session';
+import { takeFirstRecordingAfterShare } from '../cloud/shareAcquisition';
 import { createTriggerBus } from '../triggers/bus';
 import { cutMsFor, keepMsFor } from './cut';
 import { initialState, reducer } from './reducer';
@@ -373,6 +374,7 @@ export function useReplaySession(deps: SessionDeps) {
             gesture: settings.gestureEnabled,
             voice: voiceOn,
           });
+          if (takeFirstRecordingAfterShare()) track('received_user_first_recording');
           return 'started';
         } catch (e) {
           // No game: body pose and voice go back off, as while positioning.

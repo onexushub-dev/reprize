@@ -32,6 +32,8 @@ export type ReceiveDeps = {
   /** Runs `fn` again after `ms` (a share whose sender is still uploading). Returns a cancel. */
   later(fn: () => void, ms: number): () => void;
   log(text: string): void;
+  /** Every clip of this received recording is on the phone now (once). */
+  downloaded?: (session: Session) => void;
 };
 
 /** How far a received recording is: clips on the phone of those the sender shared. */
@@ -109,6 +111,7 @@ export function createReceiveQueue(deps: ReceiveDeps) {
       }
       // The sender's phone is still uploading: ask again a little later.
       const now = deps.repo.getSession(sessionId);
+      if (now !== undefined && complete(now) && deps.downloaded) deps.downloaded(now);
       if (now !== undefined && !complete(now) && foreground && !timers.has(sessionId)) {
         timers.set(
           sessionId,

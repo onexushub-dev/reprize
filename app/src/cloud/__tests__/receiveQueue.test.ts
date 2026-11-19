@@ -12,7 +12,7 @@ const clip = (position: number, ready = true): OpenedClip => ({
   focus: ready && position === 1 ? `u/${position}.focus.json` : undefined,
 });
 
-function setup(options: { opened?: OpenResult; failVideo?: number; now?: number } = {}) {
+function setup(options: { opened?: OpenResult; failVideo?: number; now?: number; downloaded?: (s: Session) => void } = {}) {
   const session: Session = {
     id: 's1',
     sport: 'quadra',
@@ -54,6 +54,7 @@ function setup(options: { opened?: OpenResult; failVideo?: number; now?: number 
       return () => {};
     },
     log: () => {},
+    downloaded: options.downloaded,
   });
   return { queue, clips, download, later, setOpened: (o: OpenResult) => (opened = o) };
 }
@@ -118,4 +119,26 @@ test('asking the server again without anything new to download does not show as 
   await queue.run('s1');
   stop();
   expect(seen.every((d) => d === false)).toBe(true);
+});
+
+test('the last clip on the phone is reported once, as the whole recording downloaded', async () => {
+  const downloaded = jest.fn();
+  const { queue, setOpened } = setup({ downloaded });
+  await queue.run('s1');
+  expect(downloaded).not.toHaveBeenCalled();
+  setOpened({
+    state: 'active',
+    shareId: 'sh',
+    kind: 'recording',
+    title: null,
+    sport: null,
+    from: 'Ana',
+    expiresAt: 'x',
+    total: 3,
+    clips: [clip(1), clip(2), clip(3)],
+  });
+  await queue.run('s1');
+  expect(downloaded).toHaveBeenCalledTimes(1);
+  await queue.run('s1');
+  expect(downloaded).toHaveBeenCalledTimes(1);
 });

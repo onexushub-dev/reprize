@@ -409,6 +409,19 @@ labels change with this feature (account, user content stored on a server).
 
 Headline numbers: new users per share created, revenue per share created, GB stored per event.
 
+Implemented (2026-11-19), in the app (PostHog, `analytics/events.ts`):
+
+- `share_created` (`clips`, `wait`: tap to QR code), `share_upload_done` (`clips`, `duration` from creation),
+  `share_received` (`clips`, `new_user`: the phone had no recording of its own), `share_downloaded` (`clips`,
+  `duration` from the first opening), `received_user_first_recording` (once, for someone who came by a link),
+  `courtesy_used`, `courtesy_exhausted`, `capture_blocked`, `share_reported`, `share_turned_off`, `share_failed`.
+- `purchase_completed` carries the paywall's `source`: `received_export` is a purchase made from a received recording
+  (what `received_purchase` meant); `courtesy_exhausted` covers `received_export_blocked`.
+- The link page's views (`share_opened` on the web) are in Vercel Analytics (`/v/*`); an install that follows a link
+  shows as `share_received` with `new_user: true`.
+- Server-only numbers (links that expired unopened, phones per link, courtesies used, GB in R2):
+  `supabase/scripts/metrics.sql`.
+
 ## 10. Phase 0 — spikes and decisions
 
 | # | Spike | Passes when |

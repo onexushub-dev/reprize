@@ -8,8 +8,11 @@ import { supabase } from '../account/supabase';
 import { ballPath } from '../data/ballFile';
 import { focusPath } from '../data/focusFile';
 import { kv, repo } from '../data/mmkv';
+import { track } from '../analytics';
+import { countBucket, durationBucket } from '../analytics/session';
 import { diag } from '../diag/diagLog';
 import { createReceiveQueue, type OpenResult, type ReceiveProgress } from './receiveQueue';
+import { markCameByShare } from './shareAcquisition';
 
 const DEVICE_KEY = 'reprize:v1:device-id';
 
@@ -92,6 +95,11 @@ export const receiveQueue = createReceiveQueue({
     return () => clearTimeout(timer);
   },
   log: diag,
+  downloaded: (session) => {
+    const received = session.received;
+    if (received === undefined) return;
+    track('share_downloaded', { clips: countBucket(received.total), duration: durationBucket(Date.now() - received.receivedAt) });
+  },
 });
 
 export type ReceiveResult = { ok: true; sessionId: string } | { ok: false; state: Exclude<OpenResult['state'], 'active'> };
@@ -105,6 +113,10 @@ export async function receiveShare(code: string): Promise<ReceiveResult> {
   if (opened.state !== 'active') return { ok: false, state: opened.state };
   let session = repo.receivedSession(opened.shareId);
   if (session === undefined) {
+    // Nothing recorded on this phone yet: the person came to the app through this link.
+    const newUser = repo.listSessions().every((g) => g.session.received !== undefined);
+    if (newUser) markCameByShare();
+    track('share_received', { clips: countBucket(opened.total), new_user: newUser });
     session = repo.startReceivedSession({
       sport: repo.getPrefs().sport,
       name: opened.title || undefined,

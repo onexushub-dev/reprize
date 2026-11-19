@@ -10,6 +10,8 @@ import {
   startUploads,
   uploadState,
 } from '../../modules/replay-camera';
+import { track } from '../analytics';
+import { countBucket, durationBucket } from '../analytics/session';
 import { diag } from '../diag/diagLog';
 import { confirmUploads } from './shares';
 import { onUploadHold, uploadHeld } from './uploadHold';
@@ -47,6 +49,9 @@ export const uploadQueue = createUploadQueue({
   manualPause: { get: uploadsPaused, set: setUploadsPaused },
   now: Date.now,
   log: diag,
+  // A link lasts 24 hours from its creation: the plan's expiry says when it was made.
+  finished: (_shareId, clips, plan) =>
+    track('share_upload_done', { clips: countBucket(clips), duration: durationBucket(Date.now() - (plan.expiresAt - 24 * 60 * 60 * 1000)) }),
 });
 
 /**

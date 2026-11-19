@@ -20,6 +20,13 @@ export function liveShare(sessionId: string, now: number = Date.now()): SessionS
   return shared;
 }
 
+function waitBucket(ms: number): '<2s' | '2-5s' | '5-10s' | '>10s' {
+  if (ms < 2000) return '<2s';
+  if (ms < 5000) return '2-5s';
+  if (ms <= 10000) return '5-10s';
+  return '>10s';
+}
+
 /**
  * Makes the recording's link (sharing design §3.1): one request, then the link is stored on the recording and its
  * uploads are kept for the queue. A live link is returned as it is. The notice must have been accepted before.
@@ -32,7 +39,9 @@ export async function shareRecording(sessionId: string, now: () => number = Date
   if (session === undefined || session.endedAt === undefined || clips.length === 0) return { ok: false, reason: 'failed' };
 
   const { input, local } = recordingShareInput(session, clips, files);
+  const tapped = now();
   const result = await createShare(input);
+  const waitMs = now() - tapped;
   if (!result.ok) {
     track('share_failed', { reason: result.reason });
     return result;
@@ -49,7 +58,7 @@ export async function shareRecording(sessionId: string, now: () => number = Date
   saveUploadPlan(share.shareId, { expiresAt: shared.expiresAt, items: uploadItems(share, local) });
   repo.setShared(sessionId, shared);
   uploadQueue.sync();
-  track('share_created', { clips: countBucket(clips.length) });
+  track('share_created', { clips: countBucket(clips.length), wait: waitBucket(waitMs) });
   return { ok: true, shared };
 }
 

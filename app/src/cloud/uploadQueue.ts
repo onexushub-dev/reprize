@@ -29,6 +29,8 @@ export type UploadQueueDeps = {
   now(): number;
   /** A line for the diagnostics log. */
   log(text: string): void;
+  /** Every clip of this share is confirmed (once per share); `clips`: how many. */
+  finished?: (shareId: string, clips: number, plan: UploadPlan) => void;
 };
 
 /** Why the uploads wait: a recording (or the heat), or the player paused them. */
@@ -114,7 +116,11 @@ export function createUploadQueue(deps: UploadQueueDeps) {
       const result = await deps.confirm(shareId, pending);
       if (result === null) return;
       if (result.done.length > 0) {
-        deps.plans.setConfirmed(shareId, [...new Set([...deps.plans.confirmed(shareId), ...result.done])].sort((a, b) => a - b));
+        const total = plan.items.filter((item) => videoOf(item.id) !== undefined).length;
+        const before = deps.plans.confirmed(shareId).length;
+        const after = [...new Set([...deps.plans.confirmed(shareId), ...result.done])].sort((a, b) => a - b);
+        deps.plans.setConfirmed(shareId, after);
+        if (before < total && after.length >= total && deps.finished) deps.finished(shareId, total, plan);
       }
       // Arrived with another size: send those clips again.
       const again = plan.items.filter((item) => {

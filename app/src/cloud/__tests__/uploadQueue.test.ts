@@ -10,7 +10,14 @@ const PLAN: UploadPlan = {
 };
 
 function setup(
-  options: { plan?: UploadPlan; now?: number; confirm?: ConfirmResult | null; cellular?: boolean; paused?: boolean } = {},
+  options: {
+    plan?: UploadPlan;
+    now?: number;
+    confirm?: ConfirmResult | null;
+    cellular?: boolean;
+    paused?: boolean;
+    finished?: (shareId: string, clips: number, plan: UploadPlan) => void;
+  } = {},
 ) {
   const entries = new Map<string, UploadEntry>();
   const native = {
@@ -53,6 +60,7 @@ function setup(
     },
     now: () => (options.now === undefined ? 1000 : options.now),
     log: () => {},
+    finished: options.finished,
   });
   const finish = (key: string, status: UploadEntry['status']) => {
     const id = `shares/sh/${key}`;
@@ -201,4 +209,21 @@ test('a file not made yet (the cover while it exports) waits, and starts once it
   plan.items[0] = { ...plan.items[0], path: '/doc/cover.mp4' };
   queue.sync();
   expect(native.start).toHaveBeenCalledWith([expect.objectContaining({ id: 'shares/sh/cover.mp4', path: '/doc/cover.mp4' })]);
+});
+
+test('the link is reported as uploaded once, when its last clip is confirmed', async () => {
+  const finished = jest.fn();
+  const confirm = { done: [1], missing: [], failed: [] };
+  const { queue, finish, confirm: server } = setup({ finished, confirm });
+  queue.sync();
+  finish('clips/1/video.mp4', 'done');
+  queue.handleDone({ id: 'shares/sh/clips/1/video.mp4', ok: true });
+  await flush();
+  expect(finished).not.toHaveBeenCalled();
+  server.mockResolvedValue({ done: [2], missing: [], failed: [] });
+  finish('clips/2/video.mp4', 'done');
+  queue.handleDone({ id: 'shares/sh/clips/2/video.mp4', ok: true });
+  await flush();
+  expect(finished).toHaveBeenCalledTimes(1);
+  expect(finished).toHaveBeenCalledWith('sh', 2, PLAN);
 });

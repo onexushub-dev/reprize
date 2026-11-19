@@ -71,8 +71,16 @@ export type AnalyticsEvents = {
   pairing_failed: { reason: RemotePairFailure | 'invalid_link' };
 
   // Sharing (sharing design §9)
-  /** A link was created for a recording; `clips` is how many it carries. */
-  share_created: { clips: CountBucket };
+  /** A link was created for a recording; `clips` is how many it carries, `wait` the time from the tap to the QR code. */
+  share_created: { clips: CountBucket; wait: '<2s' | '2-5s' | '5-10s' | '>10s' };
+  /** Every clip of a link reached the cloud; `duration` from the link's creation. */
+  share_upload_done: { clips: CountBucket; duration: DurationBucket };
+  /** A link was opened in the app for the first time on this phone; `new_user`: the phone had no recording of its own. */
+  share_received: { clips: CountBucket; new_user: boolean };
+  /** Every clip of a received recording is on the phone; `duration` from the first opening. */
+  share_downloaded: { clips: CountBucket; duration: DurationBucket };
+  /** Someone who came by a link made their first own recording (once per phone). */
+  received_user_first_recording: undefined;
   /** The server refused or the request failed; never the error text. */
   share_failed: { reason: 'sign_in' | 'not_pro' | 'notice' | 'too_many' | 'failed' };
   /** The liability notice was accepted (once per account and notice version). */
@@ -91,7 +99,8 @@ export type AnalyticsEvents = {
   // Monetization
   /** `offering` is the paywall shown: Pro (`default`) or the Single Pass (`pass`). */
   paywall_viewed: { source: PaywallSource; offering: Offering };
-  purchase_completed: { offering: Offering };
+  /** `source`: where the paywall was opened (`received_export`: Save or Send of a received recording). */
+  purchase_completed: { offering: Offering; source: PaywallSource };
   /** The paywall ended in a restore of an earlier purchase. */
   purchase_restored: { offering: Offering };
   /** A Single Pass kept from before was spent on a recording (one bought for it is purchase_completed). */
