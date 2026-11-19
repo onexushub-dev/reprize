@@ -81,7 +81,7 @@ export type AnalyticsEvents = {
   share_turned_off: undefined;
   /** A received recording was kept out of a screenshot or a screen recording (capture protection, §8.2). */
   capture_blocked: { kind: 'screenshot' | 'recording' };
-  /** A courtesy was spent on a received recording; `remaining` after it (0–2). */
+  /** A courtesy was spent on a received recording; `remaining` after it (0 with one courtesy per account). */
   courtesy_used: { remaining: number };
   /** Save or Send of a received recording with no courtesy left and no Pro: the panel offers Pro only. */
   courtesy_exhausted: undefined;

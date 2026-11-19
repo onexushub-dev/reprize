@@ -29,9 +29,9 @@ original quality, and the link brings the athlete into the app and towards PRO.
    Opening a share in the app within the 24 hours downloads the videos into the app (not into the photo library).
 8. **PRO recipient:** a received recording behaves like one of their own (save, send, compile, 4K when recorded in 4K,
    no watermark).
-9. **Free recipient: 3 courtesy recordings**, lifetime, per account, no monthly renewal. A courtesy is spent on the
+9. **Free recipient: 1 courtesy recording** (3 until 2026-11-18), lifetime, per account, no renewal. A courtesy is spent on the
    first Save or Send of a received recording, after a confirmation, and unlocks every clip of that recording: Full HD,
-   sound, Modo Foco, **with the watermark**. After the three, Save and Send open the paywall. Compile is always PRO.
+   sound, Modo Foco, **with the watermark**. Once it is used, Save and Send of another received recording open the paywall. Compile is always PRO.
    4K export of a received recording is PRO only.
 10. **The Single Pass does not apply** to received recordings.
 11. **Screen capture protection is mandatory** on received recordings, on every plan: the video does not appear in
@@ -69,8 +69,8 @@ Reprize usernames.
    user taps the link again or uses **Recebi um link** on the home screen (QR scanner or paste).
 3. The recording appears under **Recebidas** with the marker "Compartilhada por <name>". Videos stream from the cloud and
    download into the app at the same time.
-4. Save / Send: PRO → as usual. Free → "Usar 1 das suas 3 gravações de cortesia?" (sign-in required), then the export
-   runs; with no courtesies left → the panel with **Assinar o PRO**.
+4. Save / Send: PRO → as usual. Free → "Usar sua gravação de cortesia?" (sign-in required), then the export
+   runs; with the courtesy already used on another recording → the panel with **Assinar o PRO**.
 
 ## 4. Plan rules in code
 
@@ -79,7 +79,7 @@ Reprize usernames.
 | Sharing is PRO only | new `canShare(plan)` in `payments/limits.ts`, next to `canCompile`; lock on the Share button in `app/session/[id].tsx` and `app/clip/[id].tsx` |
 | A received recording | `Session.received` (see §5.3) |
 | Export of a received recording | `share/exportOptions.ts`: PRO active → paid options; courtesy applied → paid options capped at Full HD with the watermark forced on; neither → blocked |
-| Gate before export | `components/useFreeExportGate.tsx` and a variant of `components/FreeExportSheet.tsx` with two states: "Usar cortesia (2 de 3)" and, with none left, "Assinar o PRO". No "Continuar no plano grátis", no Single Pass |
+| Gate before export | `components/useFreeExportGate.tsx` and a variant of `components/FreeExportSheet.tsx` with two states: "Usar cortesia" and, once it is used, "Assinar o PRO". No "Continuar no plano grátis", no Single Pass |
 | Compile on a received recording | `share/useBatchActions.ts`: PRO only |
 | Single Pass | `payments/unlock.ts` refuses a received recording |
 
@@ -93,8 +93,8 @@ Implemented (2026-11-18):
   recording without Pro is previewed and exported as `courtesy` (`share/exportOptions.ts`: the paid export capped at
   Full HD, with the mark), whether or not a courtesy is spent yet; watching is free, the gate is on Save and Send.
 - `components/useCourtesyGate.tsx` and `components/CourtesySheet.tsx`, on the clip screen and the recording's batch
-  Save/Send: sign in, then "Usar 1 das suas 3 gravações de cortesia?" with the count left (`profiles.courtesies_used`),
-  or, with none left, Assinar o PRO only. `cloud/courtesy.ts` calls `use_courtesy`; the answer is kept with
+  Save/Send: sign in, then "Usar sua gravação de cortesia?" (`profiles.courtesies_used` says whether it is used),
+  or, once it is used, Assinar o PRO only. `cloud/courtesy.ts` calls `use_courtesy`; the answer is kept with
   `repo.setReceivedCourtesy`. A courtesy export skips the 4K/2K/Full HD choice. No free-export notice, no Single Pass:
   `unlockRecording` and `repo.upgradeSession` refuse a received recording. Compilar stays PRO (`canCompile(plan)`).
 - The edit tools show no locks on a received recording (watching is free with every tool).
@@ -122,7 +122,7 @@ API (`app/AGENTS.md`).
 
 ### 5.2 Server data
 
-- `account`: id, display name, optional Instagram handle, RevenueCat id, `courtesies_used` (0–3).
+- `account`: id, display name, optional Instagram handle, RevenueCat id, `courtesies_used` (0–1; `20261118230000_one_courtesy.sql`, was 0–3).
 - `share`: id, owner, kind (`recording` | `clip`), title, sport, `token_hash`, created_at, expires_at (created + 24 h),
   state (`active` | `off` | `expired`), access mode (`link` | `restricted`).
 - `share_clip`: share, storage key, bytes, checksum, edit data (cut, zoom, rotation, speed), focus and ball files,
@@ -142,7 +142,7 @@ in R2 under `shares/<share id>/`.
 Courtesy use is decided by the server in one transaction (`public.use_courtesy(share, device)`, locks the profile row;
 `supabase/migrations/20261118200000_courtesy_device.sql` adds `device`: a phone that opened the link signed out has its
 member row moved to the account first, so a courtesy can be spent after the link expired): if `courtesy_applied` is already true for this member and
-share → allowed; else if `courtesies_used < 3` → increment and set it; else → refused. The app stores the answer on the
+share → allowed; else if `courtesies_used < 1` → increment and set it; else → refused. The app stores the answer on the
 recording and never decides by itself.
 
 ### 5.3 App data (`data/schema.ts`, `data/repo.ts`)
@@ -289,7 +289,7 @@ Implemented (2026-11-18):
 | Recording (`app/session/[id].tsx`) | **Compartilhar gravação** (PRO lock on free). With an active link, a strip: "Link ativo · 4 pessoas · vence em 18 h" |
 | Share sheet (new) | Large QR code at full brightness, editable title, Copy link, WhatsApp, More; upload progress, who joined, time left, restricted mode, Desligar link; the line "Você é responsável pelo que compartilha. Ver termo" |
 | Clip (`app/clip/[id].tsx`) | Two distinct actions: **Enviar arquivo** (today's export) and **Compartilhar pelo Reprize** (link) |
-| Received recording | Header "Compartilhada por Ana · 15 nov"; download progress and time left; free: "Cortesia · 2 de 3 restantes" on Save and Send, then the PRO lock and the card "Leve seus lances com o PRO"; no Share button |
+| Received recording | Header "Compartilhada por Ana · 15 nov"; download progress and time left; free: the courtesy question on Save and Send, then the PRO lock and the card "Leve seus lances com o PRO"; no Share button |
 | Home (`app/index.tsx`) | **Recebi um link**: scan a QR code or paste |
 | Arriving from a link | Skips the onboarding and lands on the received recording; recording tips appear when the user first records |
 | Settings | Account (sign in, sign out, delete), mobile data switch, active links |

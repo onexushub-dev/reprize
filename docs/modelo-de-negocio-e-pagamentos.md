@@ -30,7 +30,7 @@ Antes de exportar no grátis, o jogador sempre vê o que o PRO coloca no vídeo 
 | Compilar clipes | Bloqueado (abre o paywall) | Liberado |
 | Compartilhar gravação ou clipe por link | Bloqueado (cadeado "PRO", abre o paywall) | Liberado |
 | Gravação recebida: assistir no app | Tudo, na qualidade gravada, com som e Modo Foco | Igual |
-| Gravação recebida: salvar e enviar | **3 gravações de cortesia no total** (não renova): Full HD, som, Modo Foco, **com marca d'água**; depois delas, bloqueado (abre o paywall) | Full HD (4K ou 2K num clipe gravado em 4K), som, Modo Foco, sem marca |
+| Gravação recebida: salvar e enviar | **1 gravação de cortesia no total** (não renova): Full HD, som, Modo Foco, **com marca d'água**; depois delas, bloqueado (abre o paywall) | Full HD (4K ou 2K num clipe gravado em 4K), som, Modo Foco, sem marca |
 | Gravação recebida: compilar | Bloqueado (abre o paywall) | Liberado |
 | Gatilhos | Tela, voz, gesto, controle Bluetooth, celular controle | Todos, **incluindo o Apple Watch** |
 
@@ -84,7 +84,7 @@ Detalhes técnicos: `docs/superpowers/specs/2026-11-16-recording-sharing-design.
 - No app, **assistir é livre em qualquer plano**, na qualidade gravada, com som, Modo Foco e os ajustes de quem enviou. Abrir a gravação dentro das 24 horas baixa os vídeos para o aparelho; eles ficam dentro do app, fora da galeria.
 - Toda gravação recebida leva o marcador "Compartilhada por <nome>".
 - **PRO que recebe:** tudo liberado, como numa gravação própria.
-- **Grátis que recebe:** **3 gravações de cortesia**, no total, sem renovação mensal. A cortesia é gasta no primeiro Salvar ou Enviar de uma gravação, depois de uma confirmação, e libera todos os clipes daquela gravação: Full HD, som, Modo Foco, **com marca d'água**. Depois das 3, Salvar e Enviar abrem o paywall. Compilar é sempre do PRO.
+- **Grátis que recebe:** **1 gravação de cortesia**, no total, sem renovação (eram 3 até 18/11/2026). A cortesia é gasta no primeiro Salvar ou Enviar de uma gravação, depois de uma confirmação, e libera todos os clipes daquela gravação: Full HD, som, Modo Foco, **com marca d'água**. Depois de usada, Salvar e Enviar de outra gravação recebida abrem o paywall. Compilar é sempre do PRO.
 - O contador de cortesias fica no servidor, ligado à conta; por isso exportar uma gravação recebida exige conta.
 - O **Passe Avulso não se aplica** a gravações recebidas.
 - Quem recebe edita a própria cópia; nada volta para quem enviou. Quem recebe não cria link da gravação dos outros.

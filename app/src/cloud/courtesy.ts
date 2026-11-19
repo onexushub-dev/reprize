@@ -1,8 +1,8 @@
 import { supabase } from '../account/supabase';
 import { diag } from '../diag/diagLog';
 
-/** Courtesy recordings per account, lifetime (sharing design §2 decision 9). */
-export const COURTESIES = 3;
+/** Courtesy recordings per account, lifetime (sharing design §2 decision 9; 1 since 2026-11-18). */
+export const COURTESIES = 1;
 
 /** How many courtesies the account has left; null when the server could not say. */
 export async function courtesiesLeft(accountId: string): Promise<number | null> {

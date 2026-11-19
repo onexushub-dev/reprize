@@ -24,14 +24,14 @@ type Props = {
 /** Where the sheet is once the account is known. */
 type Step =
   | { kind: 'loading' }
-  | { kind: 'offer'; left: number }
-  | { kind: 'spending'; left: number }
+  | { kind: 'offer' }
+  | { kind: 'spending' }
   | { kind: 'exhausted' }
   | { kind: 'error'; message: 'failed' | 'notMember' };
 
 /**
  * Before the first Save or Send of a received recording without Pro (sharing design §2 decision 9, §3.2 step 4): sign
- * in, then "Usar 1 das suas 3 gravações de cortesia?"; with none left, Pro only. The server spends the courtesy; no
+ * in, then "Usar sua gravação de cortesia?" (one per account); once it is used, Pro only. The server spends the courtesy; no
  * free export, no Single Pass here.
  */
 export function CourtesySheet({ visible, shareId, onChoose, onDismissed }: Props) {
@@ -51,16 +51,16 @@ export function CourtesySheet({ visible, shareId, onChoose, onDismissed }: Props
       else if (left === 0) {
         track('courtesy_exhausted');
         setStep({ kind: 'exhausted' });
-      } else setStep({ kind: 'offer', left });
+      } else setStep({ kind: 'offer' });
     });
     return () => {
       alive = false;
     };
   }, [visible, accountId, attempt]);
 
-  async function spend(left: number) {
+  async function spend() {
     if (shareId === null) return;
-    setStep({ kind: 'spending', left });
+    setStep({ kind: 'spending' });
     const result = await spendCourtesy(shareId, deviceId());
     if (result.ok) {
       track('courtesy_used', { remaining: result.remaining });
@@ -127,8 +127,7 @@ export function CourtesySheet({ visible, shareId, onChoose, onDismissed }: Props
           {t('courtesy.askTitle')}
         </Text>
         <Text style={styles.text}>{t('courtesy.askBody')}</Text>
-        <Text style={styles.left}>{t('courtesy.left', { count: step.left })}</Text>
-        <Button label={t('courtesy.use')} loading={spending} disabled={spending} onPress={() => void spend(step.left)} />
+        <Button label={t('courtesy.use')} loading={spending} disabled={spending} onPress={() => void spend()} />
         <Button label={t('courtesy.pro')} variant="secondary" disabled={spending} onPress={() => onChoose('pro')} />
         <Text style={styles.note}>{t('courtesy.proNote')}</Text>
       </>
@@ -171,7 +170,6 @@ const styles = StyleSheet.create({
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border },
   title: { fontFamily: fonts.displayBold, fontSize: 26, color: colors.text, marginTop: 6 },
   text: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.soft },
-  left: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.accent },
   note: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.muted },
   loading: { alignItems: 'center', gap: 10, paddingVertical: 16 },
   cancel: { minHeight: 44, alignItems: 'center', justifyContent: 'center' },
