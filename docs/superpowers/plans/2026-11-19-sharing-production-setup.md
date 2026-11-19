@@ -48,12 +48,12 @@ R2_ACCOUNT_ID=...
 R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_BUCKET=reprize-shares
-REVENUECAT_SECRET_KEY=...          # RevenueCat v2 secret key of the app's project (entitlement "pro")
+REVENUECAT_SECRET_KEY=...          # RevenueCat v1 secret key (sk_...) of the app's project (entitlement "pro")
 CRON_KEY=...                       # openssl rand -hex 24; the same value goes in Vault (step 4)
 APPLE_TEAM_ID=R885ZD42ZG
 APPLE_KEY_ID=...                   # the Sign in with Apple key (.p8) used for revocation
 APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-APPLE_CLIENT_IDS=app.reprize.mobile
+APPLE_CLIENT_IDS=app.reprize.mobile,app.reprize.develop   # develop only while the field test runs against production
 ```
 
 ```
