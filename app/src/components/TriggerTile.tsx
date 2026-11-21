@@ -15,10 +15,13 @@ type Props = {
   onPress?: () => void;
   /** A "?" at the tile's end that opens how to use this way (its own press: the tile's press still toggles). */
   help?: { label: string; onPress: () => void };
+  /** Slimmer, for the settings on a phone held on its side (2026-11-20). */
+  dense?: boolean;
 };
 
 /** One way of saving a lance, with its live status (setup screen). */
-export function TriggerTile({ icon, title, status, active = false, disabled = false, lockedHint, onPress, help }: Props) {
+export function TriggerTile({ icon, title, status, active = false, disabled = false, lockedHint, onPress, help, dense = false }: Props) {
+  const tile = [styles.tile, dense ? styles.dense : null];
   const body = (
     <>
       {icon}
@@ -33,7 +36,7 @@ export function TriggerTile({ icon, title, status, active = false, disabled = fa
   const label = [title, status, lockedHint].filter((part) => part !== undefined).join(', ');
   if (!onPress) {
     return (
-      <View style={[styles.tile, disabled && styles.disabled]} accessible accessibilityLabel={label}>
+      <View style={[tile, disabled && styles.disabled]} accessible accessibilityLabel={label}>
         {body}
       </View>
     );
@@ -41,7 +44,7 @@ export function TriggerTile({ icon, title, status, active = false, disabled = fa
   if (help !== undefined) {
     // Side by side, not nested: VoiceOver reaches a button inside another button only as part of it.
     return (
-      <View style={[styles.tile, styles.withHelp, disabled && styles.disabled]}>
+      <View style={[tile, styles.withHelp, disabled && styles.disabled]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={label}
@@ -69,7 +72,7 @@ export function TriggerTile({ icon, title, status, active = false, disabled = fa
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={[styles.tile, disabled && styles.disabled]}>
+      style={[tile, disabled && styles.disabled]}>
       {body}
     </Pressable>
   );
@@ -88,6 +91,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  dense: { minHeight: 46, paddingVertical: 6 },
   disabled: { opacity: 0.5 },
   // minWidth 0: a long title wraps inside the tile instead of running past its edge.
   text: { flex: 1, flexShrink: 1, minWidth: 0 },

@@ -14,8 +14,10 @@ import {
   PanResponder,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,8 +35,6 @@ import {
   remoteHostControllers,
   ReplayCameraView,
   requestSpeechPermission,
-  setCameraIdle,
-  setScreenEconomy,
   signalAction,
   signalSaveFailed,
   supportsQuality,
@@ -44,14 +44,11 @@ import type {
   ReplayErrorCode,
 } from "../../modules/replay-camera/src/ReplayCamera.types";
 import { useCameraPinch } from "../camera/useCameraPinch";
-import { useDeviceLandscape } from "../camera/useDeviceLandscape";
-import { AboutLinks } from "../components/AboutLinks";
+import { useLandscapeTurn } from "../camera/useDeviceLandscape";
 import { Button } from "../components/Button";
 import { Chip } from "../components/Chip";
 import { CompactDock } from "../components/CompactDock";
 import { PrepareSheet } from "../components/PrepareSheet";
-import { EconomyButton } from "../components/EconomyButton";
-import { EconomyToast } from "../components/EconomyToast";
 import { GestureSheet, VoiceSheet } from "../components/PracticeSheet";
 import { modeTip } from "../components/format";
 import { sourceLabel } from "../components/sourceLabel";
@@ -60,6 +57,9 @@ import { PositionGuide } from "../components/PositionGuide";
 import { RecordingPanel } from "../components/RecordingPanel";
 import { ProBadge } from "../components/ProBadge";
 import {
+  CloseIcon,
+  GalleryIcon,
+  GearIcon,
   MicIcon,
   QrIcon,
   RemoteIcon,
@@ -69,15 +69,10 @@ import {
   WaveIcon,
 } from "../components/icons";
 import { TriggerTile } from "../components/TriggerTile";
-import { ZoomBubble } from "../components/ZoomBubble";
 import { ZoomButton } from "../components/ZoomButton";
-import { repo } from "../data/mmkv";
-import {
-  diagSetupPaused,
-  diagSetupResumed,
-  useSetupDiag,
-} from "../diag/useSetupDiag"; // TEMP(diag)
-import { useIdlePause } from "../session/useIdlePause";
+import { kv, repo } from "../data/mmkv";
+import { SHARING_ENABLED } from "../account/flags";
+import { useSetupDiag } from "../diag/useSetupDiag"; // TEMP(diag)
 import { openPaywall } from "../payments/feedback";
 import {
   FREE_MAX_SECONDS,
@@ -112,9 +107,6 @@ import { clampZoom, hasZoomChoice, lensFor, nextZoomStep } from "../modes/zoom";
 import { useSession } from "../session/SessionContext";
 import { colors, fonts, radius } from "../theme/tokens";
 import { useBluetoothRemote } from "../triggers/useBluetoothRemote";
-
-/** How long the zoom value stays over the preview after the last pinch move. */
-const BUBBLE_MS = 800;
 
 const START_ERRORS: Partial<Record<ReplayErrorCode, MessageKey>> = {
   LOW_STORAGE: "setup.lowStorage",
@@ -151,7 +143,9 @@ function cameraStatus(
 }
 
 /** How long the battery-saving notice stays after a tap on its button. */
-const ECONOMY_TOAST_MS = 3000;
+
+/** Set once the tip about the gear (Ajustes) was read. */
+const SETTINGS_TIP_KEY = "reprize:v1:settings-tip";
 
 export default function Setup() {
   const session = useSession();
@@ -178,23 +172,12 @@ export default function Setup() {
   const zoom = liveZoom !== null ? liveZoom : savedZoom;
   // With two fixed lenses (Android) crossing 1x means opening the other lens; with continuous zoom the session ignores it.
   const lens = lensFor(savedZoom);
-  const [bubble, setBubble] = useState(false);
-  const bubbleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-  const showBubble = () => {
-    setBubble(true);
-    if (bubbleTimer.current !== undefined) clearTimeout(bubbleTimer.current);
-    bubbleTimer.current = setTimeout(() => setBubble(false), BUBBLE_MS);
-  };
-  useEffect(() => () => clearTimeout(bubbleTimer.current), []);
   const pinch = useCameraPinch({
     zoom,
     range: zoomRange,
     onChange: (next) => {
       setLiveZoom(next);
       session.setZoom(next, false);
-      showBubble();
     },
     onCommit: (next) => {
       setLiveZoom(null);
@@ -304,16 +287,14 @@ export default function Setup() {
   const [has4k] = useState(() => supportsQuality("2160p30"));
   const fourKAllowed = qualityAllowed("2160p30", plan);
   const is4k = has4k && fourKAllowed && settings.quality === "2160p30";
-  // Battery saving: the round button beside the zoom; each tap says for a moment what it now does.
-  const [economyToast, setEconomyToast] = useState(0);
-  useEffect(() => {
-    if (economyToast === 0) return;
-    const hide = setTimeout(() => setEconomyToast(0), ECONOMY_TOAST_MS);
-    return () => clearTimeout(hide);
-  }, [economyToast]);
-  const toggleEconomy = () => {
-    update({ screenEconomy: !prefs.screenEconomy });
-    setEconomyToast((n) => n + 1);
+  // Ajustes moved to the gear: a tip the first time, until it is read or the gear is used.
+  const [settingsTip, setSettingsTip] = useState(
+    () => SHARING_ENABLED && kv.getString(SETTINGS_TIP_KEY) !== "seen",
+  );
+  const dismissSettingsTip = () => {
+    if (!settingsTip) return;
+    kv.set(SETTINGS_TIP_KEY, "seen");
+    setSettingsTip(false);
   };
   // The phone remote (a second iPhone that taps Salvar for this one). The camera phone waits for its paired remotes for
   // as long as the app is open (see the root layout); pairing happens on its own sheet (/pairing).
@@ -427,33 +408,9 @@ export default function Setup() {
   // Before a recording, until the player turns it off: how to keep the iPhone steady (no case, out of the sun).
   const [preparing, setPreparing] = useState(false);
 
-  // 35 s without a touch or a remote press pause the preview, dim the screen and drop the camera to ~5 fps, with a
-  // countdown in the last 5 s (2026-11-08 spec §3.2). The camera keeps running (same format, no buffer): iOS only sends the remote's capture events, and so
-  // its hold, to an app whose camera runs, so a hold starts the recording straight from the pause. Not while a sheet that needs the camera
-  // (practice, "Prepare o celular") or the Dispositivos sheet is open.
-  const idle = useIdlePause(
-    focused &&
-      !sheetOpen &&
-      phase === "idle" &&
-      practice === undefined &&
-      !preparing,
-    { onPause: diagSetupPaused, onResume: diagSetupResumed },
-  );
-  const paused = idle.paused;
-  // The pause's hint about the remote only when one is paired here.
-  const remotePaired =
-    remoteAllowed &&
-    (remoteView.state === "connected" || remoteView.state === "offline");
-  useEffect(() => {
-    if (!paused) return;
-    setScreenEconomy(true);
-    setCameraIdle(true);
-    return () => {
-      setCameraIdle(false);
-      setScreenEconomy(false);
-    };
-  }, [paused]);
-  useSetupDiag(focused && phase === "idle", paused);
+  // No rest on this screen (2026-11-20): the setup keeps the camera on while the player positions the phone; the
+  // screen rests (battery saving) only once a recording starts.
+  useSetupDiag(focused && phase === "idle", false);
 
   // Live preview while positioning: a preview only (30 fps, no buffer, 2026-11-08 spec §3.1); "Começar gravação"
   // starts the buffer on the open camera.
@@ -467,9 +424,8 @@ export default function Setup() {
     if (live && phase === "idle" && camera === "off") void prepare(modeId, plan);
   }, [live, phase, camera, prepare, modeId, plan]);
 
-  /** A remote press here: the connection test, and it wakes a paused camera. */
+  /** A remote press here: the connection test. */
   const remotePress = () => {
-    idle.activity("controle");
     remoteTest.press();
   };
 
@@ -552,8 +508,12 @@ export default function Setup() {
     : null;
 
   // On its side the phone shows only two small buttons (the settings open on demand), so the sheet does not cover the camera.
-  const landscape = useDeviceLandscape(live && phase === "idle");
-  const compact = landscape && !expanded;
+  // On its side, the buttons' contents turn upright (the app itself stays in portrait).
+  const turn = useLandscapeTurn(live && phase === "idle");
+  const landscape = turn !== 0;
+  const compact = landscape;
+  const upright = landscape ? { transform: [{ rotate: `${turn}deg` }] } : undefined;
+  const screen = useWindowDimensions();
 
   const inGame =
     phase === "recording" ||
@@ -562,53 +522,23 @@ export default function Setup() {
 
   // One camera view for the whole game: setup and recording only swap the controls drawn over it.
   return (
-    <View
-      testID="setup-root"
-      style={styles.root}
-      onTouchStart={() => idle.activity("toque")}
-    >
+    <View testID="setup-root" style={styles.root}>
       <ReplayCameraView style={StyleSheet.absoluteFill} />
       {inGame ? (
         <RecordingPanel
           clipSeconds={settings.cutSeconds}
           gesture={settings.gestureEnabled}
           voice={voiceOn}
+          // Continuous zoom only: a fixed lens cannot change while the camera records.
+          zoom={
+            zoomRange.continuous
+              ? { value: zoom, onPress: cycleZoom, pinch }
+              : undefined
+          }
         />
       ) : (
         renderSetupControls()
       )}
-      {idle.warning !== undefined && !inGame ? (
-        <View
-          testID="idle-warning"
-          pointerEvents="none"
-          accessibilityLiveRegion="polite"
-          style={styles.idleWarnWrap}
-        >
-          <View style={styles.idleWarn}>
-            <Text style={styles.idleWarnTitle}>
-              {t("setup.idleWarnTitle", { seconds: idle.warning })}
-            </Text>
-            <Text style={styles.idleWarnBody}>{t("setup.idleWarnBody")}</Text>
-          </View>
-        </View>
-      ) : null}
-      {paused && !inGame ? (
-        <Pressable
-          testID="camera-paused"
-          accessibilityRole="button"
-          accessibilityLabel={`${t("setup.idlePausedTitle")}. ${t("setup.idlePausedBody")}`}
-          onPress={() => idle.activity("toque")}
-          style={styles.paused}
-        >
-          <Text style={styles.pausedTitle}>{t("setup.idlePausedTitle")}</Text>
-          <Text style={styles.pausedText}>{t("setup.idlePausedBody")}</Text>
-          {remotePaired ? (
-            <Text style={styles.pausedHint}>
-              {t("setup.idlePausedRemote")}
-            </Text>
-          ) : null}
-        </Pressable>
-      ) : null}
       <PrepareSheet
         visible={preparing}
         onStart={startPrepared}
@@ -642,38 +572,68 @@ export default function Setup() {
             {...pinch}
           />
         ) : null}
-        {bubble ? (
-          <ZoomBubble value={zoom} bottom={(compact ? 72 : sheetHeight) + 16} />
-        ) : null}
-        {economyToast > 0 && !bubble ? (
-          <EconomyToast
-            on={prefs.screenEconomy}
-            bottom={(compact ? 72 : sheetHeight) + 16}
-          />
+        {/* The zoom sits over the sheet, in the middle, as in the Camera app (2026-11-20). */}
+        {hasZoomChoice(zoomRange) && !expanded && !compact ? (
+          <View
+            pointerEvents="box-none"
+            style={[styles.zoomDock, { bottom: (compact ? 72 : sheetHeight) + 16 }]}
+          >
+            <ZoomButton value={zoom} onPress={cycleZoom} />
+          </View>
         ) : null}
         <View
           testID="guide-area"
           pointerEvents="none"
-          style={[styles.guideArea, { bottom: compact ? 72 : sheetHeight }]}
+          style={[styles.guideArea, { bottom: landscape ? 72 : sheetHeight }]}
         >
           <PositionGuide guide={mode.guide} />
         </View>
 
         <SafeAreaView edges={["top"]} style={styles.top}>
+          {/* Gravações on the left, Ajustes on the right (2026-11-20: battery saving is only on the recording screen). */}
           <View style={styles.topRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("setup.myRecordings")}
-              onPress={() => router.push("/games")}
-              style={[styles.pill, styles.pillButton]}
-            >
-              <Text style={styles.pillText}>{t("setup.myRecordings")}</Text>
-            </Pressable>
-            <View style={styles.cameraButtons}>
-              <EconomyButton on={prefs.screenEconomy} onPress={toggleEconomy} />
-              {hasZoomChoice(zoomRange) ? <ZoomButton value={zoom} onPress={cycleZoom} /> : null}
+            <View style={styles.topSide}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("setup.myRecordings")}
+                onPress={() => router.push("/games")}
+                style={styles.galleryButton}
+              >
+                <View style={upright}>
+                  <GalleryIcon size={28} />
+                </View>
+              </Pressable>
+            </View>
+            <View style={[styles.topSide, styles.topSideEnd]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("setup.settings")}
+                onPress={() => {
+                  dismissSettingsTip();
+                  router.push("/account");
+                }}
+                style={styles.gearButton}
+              >
+                <View style={upright}>
+                  <GearIcon size={23} />
+                </View>
+              </Pressable>
             </View>
           </View>
+          {settingsTip && !compact ? (
+            <View style={styles.settingsTip}>
+              <View style={styles.settingsTipArrow} />
+              <Text style={styles.settingsTipTitle}>{t("setup.settingsTipTitle")}</Text>
+              <Text style={styles.settingsTipBody}>{t("setup.settingsTipBody")}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={dismissSettingsTip}
+                style={styles.settingsTipButton}
+              >
+                <Text style={styles.settingsTipButtonText}>{t("setup.settingsTipOk")}</Text>
+              </Pressable>
+            </View>
+          ) : null}
           {mode.tip && !compact ? (
             <View style={styles.tip}>
               <Text style={styles.tipText}>{modeTip(mode.group, locale)}</Text>
@@ -681,13 +641,19 @@ export default function Setup() {
           ) : null}
         </SafeAreaView>
 
-        {compact ? (
-          <CompactDock
-            busy={starting}
-            error={errorText}
-            onSettings={() => setExpanded(true)}
-            onStart={askThenStart}
-          />
+        {landscape ? (
+          <>
+            {expanded ? renderLandscapeSettings() : null}
+            {/* Over the settings: Ajustes toggles them, and Gravar with them open only closes them (2026-11-20). */}
+            <CompactDock
+              busy={starting}
+              error={expanded ? null : errorText}
+              onSettings={() => setExpanded(!expanded)}
+              onStart={() => (expanded ? setExpanded(false) : askThenStart())}
+              turn={turn}
+              zoom={hasZoomChoice(zoomRange) ? { value: zoom, onPress: cycleZoom } : undefined}
+            />
+          </>
         ) : (
           <View
             testID="setup-sheet"
@@ -723,10 +689,77 @@ export default function Setup() {
                 disabled={starting}
                 onPress={askThenStart}
               />
-              <AboutLinks />
             </SafeAreaView>
           </View>
         )}
+      </>
+    );
+  }
+
+  /**
+   * The settings with the phone on its side (2026-11-20): the app stays in portrait, so the panel is drawn turned a
+   * quarter to stand upright. It takes the whole screen but the round buttons' side, with every setting in view (three
+   * columns, no scrolling). Fechar, a tap outside it, or Gravar close it (Gravar records on the next tap).
+   */
+  function renderLandscapeSettings() {
+    const long = screen.height;
+    const short = screen.width;
+    // The round buttons (Ajustes, Gravar, zoom) stay in view on the side the phone's bottom is; the notch on the other.
+    const dockSide = turn === 90 ? "right" : "left";
+    const notchSide = turn === 90 ? "left" : "right";
+    return (
+      <>
+        <Pressable
+          testID="landscape-backdrop"
+          accessible={false}
+          onPress={() => setExpanded(false)}
+          style={styles.landscapeBackdrop}
+        />
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.landscapeFrame,
+            {
+              width: long,
+              height: short,
+              left: (short - long) / 2,
+              top: (long - short) / 2,
+              transform: [{ rotate: `${turn}deg` }],
+            },
+          ]}
+        >
+          <View
+            testID="setup-sheet"
+            style={[
+              styles.landscapePanel,
+              { [dockSide]: LANDSCAPE_DOCK, [notchSide]: LANDSCAPE_NOTCH },
+            ]}
+          >
+            <View style={styles.landscapeHead}>
+              <Text style={styles.landscapeTitle}>{t("setup.dockSettings")}</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("setup.closeSettings")}
+                onPress={() => setExpanded(false)}
+                hitSlop={10}
+                style={styles.landscapeClose}
+              >
+                <CloseIcon size={16} color={colors.onAccent} />
+                <Text style={styles.landscapeCloseText}>{t("common.close")}</Text>
+              </Pressable>
+            </View>
+            {/* Everything fits on a phone of today; the scroll is only a fallback for the smallest screens. */}
+            <ScrollView
+              style={styles.landscapeScroll}
+              contentContainerStyle={styles.landscapeContent}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+            >
+              {renderSettingsColumns()}
+            </ScrollView>
+            {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
+          </View>
+        </View>
       </>
     );
   }
@@ -763,308 +796,337 @@ export default function Setup() {
     );
   }
 
-  function renderSettings() {
+  /** The clip lengths, the paid ones under one "Pro" outline. */
+  function renderClipLength() {
     return (
-      <>
-        <View style={styles.clipLength}>
-          <Text style={styles.section}>{t("setup.clipLength")}</Text>
-          <View style={styles.chips}>
-            {CLIP_SECONDS_OPTIONS.filter(
-              (seconds) => !showPro || seconds <= FREE_MAX_SECONDS,
-            ).map((seconds) => (
-              <Chip
-                key={seconds}
-                label={`${seconds}s`}
-                selected={clipSeconds === seconds}
-                onPress={() => updateMode({ cutSeconds: seconds })}
-              />
-            ))}
-            {showPro ? (
-              // The paid lengths share one outline and one "Pro" badge instead of one each.
-              <View style={styles.proGroup}>
-                {proSeconds.map((seconds) =>
-                  isAllowed(seconds) ? (
-                    <Chip
-                      key={seconds}
-                      label={`${seconds}s`}
-                      grouped
-                      selected={clipSeconds === seconds}
-                      onPress={() => updateMode({ cutSeconds: seconds })}
-                    />
-                  ) : (
-                    <Chip
-                      key={seconds}
-                      label={`${seconds}s`}
-                      grouped
-                      lockedHint={t("setup.proOnly")}
-                      onPress={() => lockedFeature("clip_length")}
-                    />
-                  ),
-                )}
-                <ProBadge label={t("setup.proBadge")} right={6} />
-              </View>
-            ) : null}
-          </View>
+      <View style={styles.clipLength}>
+        <Text style={styles.section}>{t("setup.clipLength")}</Text>
+        <View style={styles.chips}>
+          {CLIP_SECONDS_OPTIONS.filter(
+            (seconds) => !showPro || seconds <= FREE_MAX_SECONDS,
+          ).map((seconds) => (
+            <Chip
+              key={seconds}
+              label={`${seconds}s`}
+              selected={clipSeconds === seconds}
+              onPress={() => updateMode({ cutSeconds: seconds })}
+            />
+          ))}
+          {showPro ? (
+            // The paid lengths share one outline and one "Pro" badge instead of one each.
+            <View style={styles.proGroup}>
+              {proSeconds.map((seconds) =>
+                isAllowed(seconds) ? (
+                  <Chip
+                    key={seconds}
+                    label={`${seconds}s`}
+                    grouped
+                    selected={clipSeconds === seconds}
+                    onPress={() => updateMode({ cutSeconds: seconds })}
+                  />
+                ) : (
+                  <Chip
+                    key={seconds}
+                    label={`${seconds}s`}
+                    grouped
+                    lockedHint={t("setup.proOnly")}
+                    onPress={() => lockedFeature("clip_length")}
+                  />
+                ),
+              )}
+              <ProBadge label={t("setup.proBadge")} right={6} />
+            </View>
+          ) : null}
         </View>
+      </View>
+    );
+  }
 
-        {has4k ? (
-          <View style={styles.clipLength}>
-            <Text style={styles.section}>{t("setup.quality")}</Text>
-            <View style={styles.chips}>
-              <Chip
-                label={t("setup.qualityFullHd")}
-                selected={!is4k}
-                onPress={() => updateMode({ quality: "1080p60" })}
-              />
-              {!showPro ? (
+  function renderQuality() {
+    if (!has4k) return null;
+    return (
+      <View style={styles.clipLength}>
+        <Text style={styles.section}>{t("setup.quality")}</Text>
+        <View style={styles.chips}>
+          <Chip
+            label={t("setup.qualityFullHd")}
+            selected={!is4k}
+            onPress={() => updateMode({ quality: "1080p60" })}
+          />
+          {!showPro ? (
+            <Chip
+              label={t("setup.quality4k")}
+              selected={is4k}
+              onPress={() => updateMode({ quality: "2160p30" })}
+            />
+          ) : (
+            <View style={styles.proGroup}>
+              {fourKAllowed ? (
                 <Chip
                   label={t("setup.quality4k")}
+                  grouped
                   selected={is4k}
                   onPress={() => updateMode({ quality: "2160p30" })}
                 />
               ) : (
-                <View style={styles.proGroup}>
-                  {fourKAllowed ? (
-                    <Chip
-                      label={t("setup.quality4k")}
-                      grouped
-                      selected={is4k}
-                      onPress={() => updateMode({ quality: "2160p30" })}
-                    />
-                  ) : (
-                    <Chip
-                      label={t("setup.quality4k")}
-                      grouped
-                      lockedHint={t("setup.proOnly")}
-                      onPress={() => lockedFeature("quality_4k")}
-                    />
-                  )}
-                  <ProBadge label={t("setup.proBadge")} right={6} />
-                </View>
+                <Chip
+                  label={t("setup.quality4k")}
+                  grouped
+                  lockedHint={t("setup.proOnly")}
+                  onPress={() => lockedFeature("quality_4k")}
+                />
               )}
+              <ProBadge label={t("setup.proBadge")} right={6} />
             </View>
-            <Text style={styles.clipLengthHint}>
-              {t(is4k ? "setup.quality4kHint" : "setup.qualityFullHdHint")}
-            </Text>
-          </View>
-        ) : null}
+          )}
+        </View>
+        <Text style={styles.clipLengthHint}>
+          {t(is4k ? "setup.quality4kHint" : "setup.qualityFullHdHint")}
+        </Text>
+      </View>
+    );
+  }
 
-        {/* The Bluetooth remote and the Apple Watch save a lance best (no false triggers, any distance): they come
-            first, under their own title that says why (2026-11-02). The watch keeps its "Pro" outline on the free plan. */}
-        <View style={styles.recommendedHead}>
-          <View style={styles.recommendedTitle}>
-            <StarIcon size={12} />
-            <Text style={[styles.section, styles.recommended]}>
-              {t("setup.recommendedTriggers")}
-            </Text>
-          </View>
-          <Text style={styles.recommendedHint}>
-            {t("setup.recommendedHint")}
+  /** The Bluetooth remote and the Apple Watch save a lance best: their own title says why (2026-11-02). */
+  function renderRecommendedHead() {
+    return (
+      <View style={styles.recommendedHead}>
+        <View style={styles.recommendedTitle}>
+          <StarIcon size={12} />
+          <Text style={[styles.section, styles.recommended]}>
+            {t("setup.recommendedTriggers")}
           </Text>
         </View>
+        <Text style={styles.recommendedHint}>{t("setup.recommendedHint")}</Text>
+      </View>
+    );
+  }
+
+  function renderRemoteTile(dense: boolean) {
+    return (
+      <TriggerTile
+        dense={dense}
+        icon={<RemoteIcon />}
+        title={t("setup.bluetoothRemote")}
+        status={remoteView.statusText}
+        active={remoteReady && remoteAllowed}
+        lockedHint={remoteAllowed ? undefined : t("setup.proOnly")}
+        onPress={
+          remoteAllowed
+            ? () => {
+                openingRemoteSheet(); // the camera stays on under the sheet (presses are heard through it)
+                router.push({
+                  pathname: "/devices",
+                  params: { kind: "remote" },
+                });
+              }
+            : () => void openPaywall(t, "locked_feature")
+        }
+      />
+    );
+  }
+
+  /** The paid trigger: in the free plan the Apple Watch tile alone carries the outline and the "Pro" badge. iPhone only. */
+  function renderWatchTile(dense: boolean) {
+    if (!watchSupported) return null;
+    return (
+      <View style={styles.proTile}>
+        {showPro ? <View pointerEvents="none" style={styles.proOutline} /> : null}
+        <TriggerTile
+          dense={dense}
+          icon={<WatchIcon />}
+          title={sourceLabel("watch", locale)}
+          status={watchStatus}
+          active={watchOn}
+          lockedHint={watchLocked ? t("setup.watchProOnly") : undefined}
+          onPress={watchLocked ? () => lockedFeature("watch") : watchHelp}
+        />
+        {showPro ? <ProBadge label={t("setup.proBadge")} top={-9} right={6} /> : null}
+      </View>
+    );
+  }
+
+  function renderVoiceTile(dense: boolean) {
+    if (!voiceOffered) return null;
+    return (
+      <TriggerTile
+        dense={dense}
+        icon={<MicIcon />}
+        title={sourceLabel("voice", locale)}
+        status={voiceStatus}
+        active={voiceOn}
+        disabled={!voiceSupported}
+        onPress={voiceSupported ? () => void toggleVoice() : undefined}
+        help={
+          voiceSupported
+            ? { label: t("voiceGuide.help"), onPress: () => openPractice("voice") }
+            : undefined
+        }
+      />
+    );
+  }
+
+  function renderWaveTile(dense: boolean) {
+    return (
+      <TriggerTile
+        dense={dense}
+        icon={<WaveIcon />}
+        title={sourceLabel("gesture", locale)}
+        status={settings.gestureEnabled ? t("setup.on") : t("setup.off")}
+        active={settings.gestureEnabled}
+        onPress={() => updateMode({ gestureEnabled: !settings.gestureEnabled })}
+        help={{ label: t("gestureGuide.help"), onPress: () => openPractice("gesture") }}
+      />
+    );
+  }
+
+  function renderPhoneRemoteTile(dense: boolean) {
+    if (!remoteSupported) return null;
+    return (
+      <TriggerTile
+        dense={dense}
+        icon={<QrIcon />}
+        title={t("setup.connectPhoneRemote")}
+        status={controllersStatus(t, remoteLinked)}
+        active={remoteLinked > 0}
+        onPress={() => router.push("/pairing")}
+      />
+    );
+  }
+
+  function renderUseAsRemoteTile(dense: boolean) {
+    if (!remoteSupported && !controllerSupported) return null;
+    return (
+      <TriggerTile
+        dense={dense}
+        icon={<TapIcon />}
+        title={t("setup.useAsRemote")}
+        status={cameraStatus(t, controlHost)}
+        active={controlHost !== null}
+        onPress={() => router.push("/remote")}
+      />
+    );
+  }
+
+  function renderDisconnect(dense: boolean) {
+    if (!(remoteSupported || controllerSupported) || controlHost === null) return null;
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={t("setup.disconnectThisPhone")}
+        hitSlop={8}
+        onPress={disconnectControl}
+        style={dense ? styles.remoteLinkDense : styles.remoteLinkBox}
+      >
+        <Text style={styles.remoteLink}>{t("setup.disconnectThisPhone")}</Text>
+      </Pressable>
+    );
+  }
+
+  function renderAlerts() {
+    return (
+      <View style={styles.feedbackRow}>
+        <Text style={styles.section}>{t("setup.saveAlerts")}</Text>
+        <View style={styles.chips}>
+          <Chip
+            label={t("setup.sound")}
+            selected={prefs.soundOnSave}
+            onPress={() => update({ soundOnSave: !prefs.soundOnSave })}
+          />
+          <Chip
+            label={t("setup.flash")}
+            selected={prefs.flashOnSave}
+            onPress={() => update({ flashOnSave: !prefs.flashOnSave })}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  /** Upright: the settings in one column, in the sheet. */
+  function renderSettings() {
+    return (
+      <>
+        {renderClipLength()}
+        {renderQuality()}
+        {renderRecommendedHead()}
         <View testID="recommended-triggers" style={styles.proTriggers}>
           <View style={styles.gridRow}>
-            <TriggerTile
-              icon={<RemoteIcon />}
-              title={t("setup.bluetoothRemote")}
-              status={remoteView.statusText}
-              active={remoteReady && remoteAllowed}
-              lockedHint={remoteAllowed ? undefined : t("setup.proOnly")}
-              onPress={
-                remoteAllowed
-                  ? () => {
-                      openingRemoteSheet(); // the camera stays on under the sheet (presses are heard through it)
-                      router.push({
-                        pathname: "/devices",
-                        params: { kind: "remote" },
-                      });
-                    }
-                  : () => void openPaywall(t, "locked_feature")
-              }
-            />
-            {/* The paid trigger: in the free plan the Apple Watch tile alone carries the outline and the "Pro" badge.
-                iPhone only: elsewhere there is no tile at all. */}
-            {watchSupported ? (
-              <View style={styles.proTile}>
-                {showPro ? (
-                  <View pointerEvents="none" style={styles.proOutline} />
-                ) : null}
-                <TriggerTile
-                  icon={<WatchIcon />}
-                  title={sourceLabel("watch", locale)}
-                  status={watchStatus}
-                  active={watchOn}
-                  lockedHint={watchLocked ? t("setup.watchProOnly") : undefined}
-                  onPress={
-                    watchLocked ? () => lockedFeature("watch") : watchHelp
-                  }
-                />
-                {showPro ? (
-                  <ProBadge label={t("setup.proBadge")} top={-9} right={6} />
-                ) : null}
-              </View>
-            ) : null}
+            {renderRemoteTile(false)}
+            {renderWatchTile(false)}
           </View>
         </View>
         <Text style={styles.section}>{t("setup.otherTriggers")}</Text>
         <View style={styles.grid}>
           <View style={styles.gridRow}>
-            {voiceOffered ? (
-              <TriggerTile
-                icon={<MicIcon />}
-                title={sourceLabel("voice", locale)}
-                status={voiceStatus}
-                active={voiceOn}
-                disabled={!voiceSupported}
-                onPress={voiceSupported ? () => void toggleVoice() : undefined}
-                help={
-                  voiceSupported
-                    ? {
-                        label: t("voiceGuide.help"),
-                        onPress: () => openPractice("voice"),
-                      }
-                    : undefined
-                }
-              />
-            ) : null}
-            <TriggerTile
-              icon={<WaveIcon />}
-              title={sourceLabel("gesture", locale)}
-              status={settings.gestureEnabled ? t("setup.on") : t("setup.off")}
-              active={settings.gestureEnabled}
-              onPress={() =>
-                updateMode({ gestureEnabled: !settings.gestureEnabled })
-              }
-              help={{
-                label: t("gestureGuide.help"),
-                onPress: () => openPractice("gesture"),
-              }}
-            />
+            {renderVoiceTile(false)}
+            {renderWaveTile(false)}
           </View>
         </View>
-
         <View style={styles.triggerPlain}>
           {remoteSupported || controllerSupported ? (
             <>
               <View style={styles.gridRow}>
-                {remoteSupported ? (
-                  <TriggerTile
-                    icon={<QrIcon />}
-                    title={t("setup.connectPhoneRemote")}
-                    status={controllersStatus(t, remoteLinked)}
-                    active={remoteLinked > 0}
-                    onPress={() => router.push("/pairing")}
-                  />
-                ) : null}
-                <TriggerTile
-                  icon={<TapIcon />}
-                  title={t("setup.useAsRemote")}
-                  status={cameraStatus(t, controlHost)}
-                  active={controlHost !== null}
-                  onPress={() => router.push("/remote")}
-                />
+                {renderPhoneRemoteTile(false)}
+                {renderUseAsRemoteTile(false)}
               </View>
-              {controlHost !== null ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t("setup.disconnectThisPhone")}
-                  hitSlop={8}
-                  onPress={disconnectControl}
-                  style={styles.remoteLinkBox}
-                >
-                  <Text style={styles.remoteLink}>
-                    {t("setup.disconnectThisPhone")}
-                  </Text>
-                </Pressable>
-              ) : null}
+              {renderDisconnect(false)}
             </>
           ) : null}
         </View>
-
-        {speechDenied ? (
-          <Text style={styles.error}>{t("setup.speechDenied")}</Text>
-        ) : null}
-
-        <View style={styles.feedbackRow}>
-          <Text style={styles.section}>{t("setup.saveAlerts")}</Text>
-          <View style={styles.chips}>
-            <Chip
-              label={t("setup.sound")}
-              selected={prefs.soundOnSave}
-              onPress={() => update({ soundOnSave: !prefs.soundOnSave })}
-            />
-            <Chip
-              label={t("setup.flash")}
-              selected={prefs.flashOnSave}
-              onPress={() => update({ flashOnSave: !prefs.flashOnSave })}
-            />
-          </View>
-        </View>
+        {speechDenied ? <Text style={styles.error}>{t("setup.speechDenied")}</Text> : null}
+        {renderAlerts()}
       </>
+    );
+  }
+
+  /**
+   * On its side (2026-11-20): every setting in view without scrolling, in two columns. Left: the clip (its lengths on
+   * one line, the quality); right: the triggers, recommended first, and the alerts in the corner.
+   */
+  function renderSettingsColumns() {
+    return (
+      <View style={styles.columns}>
+        <View style={[styles.column, styles.columnLeft]}>
+          {renderClipLength()}
+          {renderQuality()}
+        </View>
+        <View style={[styles.column, styles.columnRight]}>
+          <View style={styles.columnGroup}>
+            {renderRecommendedHead()}
+            <View testID="recommended-triggers" style={[styles.gridRow, styles.recommendedDense]}>
+              {renderRemoteTile(true)}
+              {renderWatchTile(true)}
+            </View>
+          </View>
+          <View style={styles.columnGroup}>
+            <Text style={styles.section}>{t("setup.otherTriggers")}</Text>
+            <View style={styles.gridRow}>
+              {renderVoiceTile(true)}
+              {renderWaveTile(true)}
+            </View>
+            {remoteSupported || controllerSupported ? (
+              <View style={styles.gridRow}>
+                {renderPhoneRemoteTile(true)}
+                {renderUseAsRemoteTile(true)}
+              </View>
+            ) : null}
+            {renderDisconnect(true)}
+            {speechDenied ? <Text style={styles.error}>{t("setup.speechDenied")}</Text> : null}
+          </View>
+          <View style={styles.columnCorner}>{renderAlerts()}</View>
+        </View>
+      </View>
     );
   }
 }
 
+/** On its side: how much of the screen the round buttons take, and the notch side (landscape points). */
+const LANDSCAPE_DOCK = 124;
+const LANDSCAPE_NOTCH = 52;
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ground },
-  paused: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: colors.ground,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 10,
-  },
-  pausedTitle: {
-    fontFamily: fonts.display,
-    fontSize: 30,
-    color: colors.text,
-    textAlign: "center",
-  },
-  pausedText: {
-    fontFamily: fonts.body,
-    fontSize: 16,
-    lineHeight: 23,
-    color: colors.soft,
-    textAlign: "center",
-  },
-  pausedHint: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.accent,
-    textAlign: "center",
-    marginTop: 8,
-  },
-  idleWarnWrap: {
-    ...StyleSheet.absoluteFill,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  idleWarn: {
-    maxWidth: 340,
-    gap: 4,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: "rgba(10,10,10,0.88)",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  idleWarnTitle: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 16,
-    color: colors.text,
-    textAlign: "center",
-  },
-  idleWarnBody: {
-    fontFamily: fonts.body,
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.soft,
-    textAlign: "center",
-  },
   top: { position: "absolute", top: 0, left: 16, right: 16, gap: 8 },
   topRow: {
     flexDirection: "row",
@@ -1072,23 +1134,103 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 8,
   },
-  pill: {
-    backgroundColor: "rgba(12,12,12,0.75)",
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-  },
-  pillButton: {
-    minHeight: 48,
+  topSide: { flex: 1, flexDirection: "row" },
+  topSideEnd: { justifyContent: "flex-end" },
+  galleryButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.accent,
+    alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 18,
+  },
+  gearButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(12,12,12,0.75)",
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsTip: {
+    alignSelf: "flex-end",
+    width: 270,
+    marginTop: 4,
+    padding: 14,
+    gap: 6,
+    borderRadius: 14,
+    backgroundColor: colors.text,
+  },
+  settingsTipArrow: {
+    position: "absolute",
+    top: -6,
+    right: 18,
+    width: 12,
+    height: 12,
+    backgroundColor: colors.text,
+    transform: [{ rotate: "45deg" }],
+  },
+  settingsTipTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.onAccent },
+  settingsTipBody: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: "#3A3A3A" },
+  settingsTipButton: {
+    alignSelf: "flex-end",
+    marginTop: 4,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: colors.ground,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsTipButtonText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
+  zoomDock: { position: "absolute", left: 0, right: 0, alignItems: "center" },
+  landscapeBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)" },
+  landscapeFrame: { position: "absolute" },
+  landscapePanel: {
+    position: "absolute",
+    top: 8,
+    bottom: 8,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 10,
+    backgroundColor: colors.ground,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  landscapeHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  landscapeTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 24,
+    color: colors.text,
+    textTransform: "uppercase",
+  },
+  // A plain "Fechar" on the accent, where the eye lands first (2026-11-20: the bare ✕ went unnoticed).
+  landscapeClose: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 20,
     backgroundColor: colors.accent,
   },
-  pillText: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 15,
-    color: colors.onAccent,
-  },
+  landscapeCloseText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.onAccent },
+  landscapeScroll: { flex: 1 },
+  landscapeContent: { flexGrow: 1 },
+  columns: { flexDirection: "row", gap: 20, flexGrow: 1 },
+  column: { flex: 1, gap: 12, minWidth: 0 },
+  // Wide enough for every clip length on one line; the triggers' column gets the rest.
+  columnLeft: { flex: 0.9 },
+  // Room on the right for the Apple Watch's "Pro" outline (4 pt outside its tile), which the scroll would cut.
+  columnRight: { flex: 1.25, gap: 10, paddingRight: 6 },
+  columnGroup: { gap: 8 },
+  recommendedDense: { marginTop: 4 }, // room for the watch's "Pro" badge
+  // Avisos ao salvar in the panel's bottom right corner.
+  columnCorner: { marginTop: "auto", alignItems: "flex-end" },
   tip: {
     alignSelf: "flex-start",
     backgroundColor: "rgba(12,12,12,0.8)",
@@ -1151,6 +1293,7 @@ const styles = StyleSheet.create({
   },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   remoteLinkBox: { minHeight: 48, justifyContent: "center" },
+  remoteLinkDense: { minHeight: 32, justifyContent: "center" },
   remoteLink: {
     fontFamily: fonts.bodySemi,
     fontSize: 14,
@@ -1178,10 +1321,10 @@ const styles = StyleSheet.create({
   grid: { gap: 8 },
   gridRow: { flexDirection: "row", gap: 8 },
   error: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.warning },
-  cameraButtons: { flexDirection: "row", alignItems: "center", gap: 10 },
   feedbackRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
   },
 });

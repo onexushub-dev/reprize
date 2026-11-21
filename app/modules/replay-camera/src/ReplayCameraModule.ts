@@ -6,6 +6,7 @@ import type {
   BallAnalysis,
   BluetoothConnected,
   DeviceUpright,
+  Gravity,
   ExportClipOptions,
   ExportedClip,
   FocusAnalysis,
@@ -38,6 +39,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   setGestureTrace?(enabled: boolean): void;
   // The phone's position (iOS only: missing on Android and in older builds).
   getUpright?(): DeviceUpright;
+  /** The raw accelerometer reading in g (iOS only), null before the first one. */
+  getGravity?(): Gravity | null;
   // Continuous zoom (iOS only: missing on Android and in older builds).
   getZoomRange?(): ZoomRange;
   setZoom?(factor: number, animated: boolean): void;

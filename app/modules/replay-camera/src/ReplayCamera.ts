@@ -6,6 +6,7 @@ import type {
   BallAnalysis,
   BluetoothConnected,
   DeviceUpright,
+  Gravity,
   ExportClipOptions,
   ExportedClip,
   FocusAnalysis,
@@ -72,6 +73,12 @@ export function setGestureTrace(enabled: boolean): void {
 export function getDeviceUpright(): DeviceUpright {
   if (typeof ReplayCameraModule.getUpright === 'function') return ReplayCameraModule.getUpright();
   return 'portrait';
+}
+
+/** The accelerometer's latest reading in g; null where the platform cannot tell (Android, older builds) or before the first one. */
+export function getDeviceGravity(): Gravity | null {
+  if (typeof ReplayCameraModule.getGravity === 'function') return ReplayCameraModule.getGravity() ?? null;
+  return null;
 }
 
 /** What the camera can zoom. Without native zoom there are only the two lenses: 0.5x and 1x, picked when the camera opens. */

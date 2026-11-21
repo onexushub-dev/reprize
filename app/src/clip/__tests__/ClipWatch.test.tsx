@@ -65,13 +65,29 @@ test('the Jogadores tag shows the percent while tracking, when the phone sends o
   expect(screen.queryByText('Rastreando os jogadores…')).toBeNull();
 });
 
-test('the 2x badge shows only while held, and the position and notice lines when given', async () => {
-  const view = await render(<ClipWatch {...props({ position: '2 de 3 · deslize para trocar', notice: 'Erro' })} />);
-  expect(screen.queryByText('2x')).toBeNull();
-  expect(screen.getByText('2 de 3 · deslize para trocar')).toBeTruthy();
+test('holding says "Velocidade: 2x" low on the screen, only while held; the notice line when given', async () => {
+  const view = await render(<ClipWatch {...props({ notice: 'Erro' })} />);
+  expect(screen.queryByText('Velocidade: 2x')).toBeNull();
   expect(screen.getByText('Erro')).toBeTruthy();
   await view.rerender(<ClipWatch {...props({ fast: true })} />);
-  expect(screen.getByText('2x')).toBeTruthy();
+  expect(screen.getByText('Velocidade: 2x')).toBeTruthy();
+  expect(screen.queryByText('2x')).toBeNull();
+});
+
+test('the strip of clips sits between the player and the actions', async () => {
+  await render(<ClipWatch {...props({ strip: <Text>miniaturas</Text> })} />);
+  expect(screen.getByText('progresso')).toBeTruthy();
+  expect(screen.getByText('miniaturas')).toBeTruthy();
+  expect(screen.queryByText(/deslize para trocar/)).toBeNull();
+});
+
+test('with the controls hidden (a tap on the video) only the video is left', async () => {
+  const view = await render(<ClipWatch {...props({ chrome: false })} />);
+  expect(screen.getByText('vídeo')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Voltar' })).toBeNull();
+  await view.rerender(<ClipWatch {...props({ chrome: true })} />);
+  expect(screen.getByRole('button', { name: 'Editar' })).toBeTruthy();
 });
 
 test('Salvar and Enviar wait while disabled', async () => {

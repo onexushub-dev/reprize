@@ -234,15 +234,22 @@ public class ReplayCameraModule: Module {
       }
     }
 
-    // Screen economy while recording: preview off and brightness down; false gives both back.
-    Function("setScreenEconomy") { (on: Bool) in
-      DispatchQueue.main.async { MainActor.assumeIsolated { ScreenEconomy.set(on) } }
+    // The raw accelerometer reading, so the setup screen can ask for a phone truly on its side (nil before the first one).
+    Function("getGravity") { () -> [String: Double]? in
+      guard let g = self.engine.gesture.currentGravity() else { return nil }
+      return ["x": g.x, "y": g.y, "z": g.z]
     }
 
-    // Screen economy on the remote phone: brightness down to a level that can still be read; false gives it back.
+    // Screen economy while recording: the JS side dims the picture (the camera stays in view, 2026-11-21); nothing
+    // native changes, and the phone's brightness is never touched. Kept so older JS keeps working.
+    Function("setScreenEconomy") { (on: Bool) in
+      DispatchQueue.main.async { MainActor.assumeIsolated { ScreenEconomy.set(on, pausePreview: false) } }
+    }
+
+    // Screen economy on the remote phone: nothing native to stop (the screen dims on the JS side); kept for older JS.
     Function("setRemoteScreenDim") { (on: Bool) in
       DispatchQueue.main.async {
-        MainActor.assumeIsolated { ScreenEconomy.set(on, brightness: ScreenEconomy.remoteBrightness, pausePreview: false) }
+        MainActor.assumeIsolated { ScreenEconomy.set(on, pausePreview: false) }
       }
     }
 

@@ -41,6 +41,18 @@ jest.mock('expo-image', () => {
   return { __shown: shown, Image: (p: any) => (shown.push(p.source.uri), null) };
 });
 jest.mock('expo-sharing', () => ({ shareAsync: jest.fn(async () => {}) }));
+jest.mock('react-native-volume-manager', () => {
+  const listeners: ((r: { volume: number }) => void)[] = [];
+  return {
+    __volume: (volume: number) => listeners.forEach((fn) => fn({ volume })),
+    VolumeManager: {
+      addVolumeListener: (fn: (r: { volume: number }) => void) => {
+        listeners.push(fn);
+        return { remove: () => listeners.splice(listeners.indexOf(fn), 1) };
+      },
+    },
+  };
+});
 jest.mock('expo-media-library', () => ({
   requestPermissionsAsync: jest.fn(async () => ({ granted: true })),
   Asset: { create: jest.fn(async () => ({})) },
@@ -185,7 +197,55 @@ test('the clip keeps the number it was saved with, not its place in the list', a
   __setClip({ ...base, number: 5 });
   await open();
   expect(screen.getByLabelText('Etiqueta do clipe').props.placeholder).toBe('Clipe #5 · 19:40');
-  expect(screen.getByText('2 de 2 · deslize para trocar')).toBeTruthy();
+  // The strip under the player: this clip wide and picked, the other one a tap away.
+  expect(screen.getByRole('button', { name: 'Clipe 5' })).toBeSelected();
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Clipe 1' })));
+  expect(router.setParams).toHaveBeenCalledWith({ id: 'c0' });
+});
+
+test('paused while watching, the disc in the middle plays again (2026-11-20)', async () => {
+  await open();
+  await pressAction('Pausar');
+  expect(player.pause).toHaveBeenCalled();
+  player.play.mockClear();
+  await act(async () => fireEvent.press(screen.getByTestId('paused-play')));
+  expect(player.play).toHaveBeenCalled();
+  expect(screen.queryByTestId('paused-play')).toBeNull();
+});
+
+test('the mute at the end of the player silences the clip while watching, and only while watching (2026-11-20)', async () => {
+  await open();
+  await pressAction('Silenciar');
+  expect(player.muted).toBe(true);
+  await pressAction('Ativar som');
+  expect(player.muted).toBe(false);
+});
+
+test('muted with the player\'s button, a press of the volume buttons gives the sound back (2026-11-21)', async () => {
+  await open();
+  await pressAction('Silenciar');
+  expect(player.muted).toBe(true);
+  await act(async () => jest.requireMock('react-native-volume-manager').__volume(0.7));
+  expect(player.muted).toBe(false);
+  expect(screen.getByRole('button', { name: 'Silenciar' })).toBeTruthy();
+});
+
+test('the volume buttons show the level over the clip, since iOS shows nothing here (2026-11-21)', async () => {
+  await open();
+  expect(screen.queryByTestId('volume-hud', { includeHiddenElements: true })).toBeNull();
+  await act(async () => jest.requireMock('react-native-volume-manager').__volume(0.6));
+  expect(screen.getByLabelText('Volume 60%', { includeHiddenElements: true })).toBeTruthy();
+});
+
+test('a tap on the video while watching hides the controls and leaves the clip playing; the next brings them back', async () => {
+  const { __props: video } = jest.requireMock('../../share/ZoomableVideo');
+  await open();
+  player.pause.mockClear();
+  await act(async () => video.last.onTap());
+  expect(player.pause).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull();
+  await act(async () => video.last.onTap());
+  expect(screen.getByRole('button', { name: 'Editar' })).toBeTruthy();
 });
 
 test('a named clip shows its name', async () => {
@@ -506,11 +566,11 @@ describe('watch and edit', () => {
     await act(async () => video.last.onHold(true));
     expect(player.playbackRate).toBe(2);
     expect(player.muted).toBe(true);
-    expect(screen.getByText('2x')).toBeTruthy();
+    expect(screen.getByText('Velocidade: 2x')).toBeTruthy();
     await act(async () => video.last.onHold(false));
     expect(player.playbackRate).toBe(0.5);
     expect(player.muted).toBe(true);
-    expect(screen.queryByText('2x')).toBeNull();
+    expect(screen.queryByText('Velocidade: 2x')).toBeNull();
   });
 
   test('an export right after Concluir has the edits just made, and is made once', async () => {

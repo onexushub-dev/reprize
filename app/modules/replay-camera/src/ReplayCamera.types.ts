@@ -39,6 +39,9 @@ export type SessionOptions = {
 /** Which edge of the phone points up (UIDeviceOrientation naming). */
 export type DeviceUpright = 'portrait' | 'portraitUpsideDown' | 'landscapeLeft' | 'landscapeRight';
 
+/** An accelerometer reading in g, device axes: x toward the right edge, y toward the top, z out of the screen. */
+export type Gravity = { x: number; y: number; z: number };
+
 export type ZoomRange = { min: number; max: number; continuous: boolean };
 /** `at` = ms since epoch when the trigger happened. */
 export type SaveClipOptions = {

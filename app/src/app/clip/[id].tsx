@@ -23,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { createThumbnail, exportClip, findContentStart, isFocusSupported, videoShape } from '../../../modules/replay-camera';
 import { ClipEdit } from '../../clip/ClipEdit';
+import { ClipStrip } from '../../clip/ClipStrip';
 import { ClipWatch } from '../../clip/ClipWatch';
 import { beginEdit, type EditSnapshot, hasChanges, lastTool, rememberTool, restorePatch, type ToolId } from '../../clip/editSession';
 import { IconButton, SCRIM } from '../../clip/IconButton';
@@ -44,6 +45,8 @@ import { TrimBar } from '../../components/TrimBar';
 import { knownShape, rememberShape } from '../../components/clipShape';
 import { useClipThumbnail } from '../../components/useClipThumbnail';
 import { useReduceMotion } from '../../components/useReduceMotion';
+import { VolumeHud } from '../../components/VolumeHud';
+import { VolumeManager } from 'react-native-volume-manager';
 import { sessionSummary, track as trackEvent } from '../../analytics';
 import { exportPlanOf } from '../../analytics/plans';
 import { askPhotos } from '../../share/askPhotos';
@@ -83,6 +86,10 @@ const RUBBER = 0.3;
 const POSTER_MAX_MS = 1500;
 /** Which side the next clip comes in from; set just before navigating, read by the screen that mounts. */
 let enterFrom: 1 | -1 | 0 = 0;
+/** Watch mode's controls hidden by a tap stay hidden on the next clip, as in Photos. */
+let chromeShown = true;
+/** Watch mode's mute (the player's own, not the clip's sound): kept from clip to clip, as in Photos. */
+let watchMuted = false;
 
 /** Loop back this much before the end of the cut: the last time update can land just short of it. */
 const LOOP_EARLY_S = 0.15;
@@ -248,14 +255,48 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const [zoomKey, setZoomKey] = useState(0);
   // Watch (clean, Salvar/Enviar) or edit (tool bar, Cancelar/Concluir); edit keeps what Cancelar puts back.
   const [mode, setMode] = useState<'watch' | 'edit'>('watch');
+  const [quietPlay, setQuietPlay] = useState(() => watchMuted);
+  // Muted with the player's button, a press of the phone's volume buttons gives the sound back (2026-11-21, as in Photos).
+  useEffect(() => {
+    if (!quietPlay) return;
+    let sub: { remove: () => void } | undefined;
+    try {
+      sub = VolumeManager.addVolumeListener(() => {
+        watchMuted = false;
+        setQuietPlay(false);
+      });
+    } catch {
+      // No volume module (web, tests without it): the button alone.
+    }
+    return () => {
+      if (sub !== undefined) sub.remove();
+    };
+  }, [quietPlay]);
+
   const snapshot = useRef<EditSnapshot | undefined>(undefined);
   // One report per tool per clip: flipping between tabs is browsing, not using.
   const reportedTools = useRef(new Set<string>());
   const [openTool, setOpenTool] = useState<ToolId>(lastTool);
   // A finger held on the video in watch mode: 2x while it stays down.
   const [fast, setFast] = useState(false);
+  // The clip's own sound off (an edit), or the player muted while watching (2026-11-20).
+  const silent = soundOff || (mode === 'watch' && quietPlay);
+  // Watch mode: a tap on the video hides the controls, the next brings them back (2026-11-20, like Photos).
+  const [chrome, setChromeState] = useState(() => chromeShown);
   const window = useWindowDimensions();
   const [name, setName] = useState(() => clip?.name ?? '');
+  // A name typed and left without Enter (back, swipe, next clip) is kept as well: saved when the screen goes.
+  const typedName = useRef(name);
+  useEffect(() => {
+    typedName.current = name;
+  }, [name]);
+  useEffect(
+    () => () => {
+      const saved = repo.getClip(id);
+      if (saved && typedName.current.trim() !== (saved.name ?? '')) repo.renameClip(id, typedName.current);
+    },
+    [id],
+  );
   const [playing, setPlayingState] = useState(true);
   const scrubbing = useRef(false);
   const wantsPlay = useRef(true);
@@ -566,7 +607,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // Loop the cut; follow speed and sound live. Time updates come every 0.1 s, so the last one before the end of the file
   // can miss it: the player then stops at the end by itself, and its own "reached the end" restarts the cut.
   useEffect(() => {
-    applyPlayback(player, edit.speed, soundOff);
+    applyPlayback(player, edit.speed, silent);
     const sub = player.addListener('timeUpdate', ({ currentTime }) => {
       if (scrubbing.current) return;
       if (currentTime >= trim.endMs / 1000 - LOOP_EARLY_S || currentTime < trim.startMs / 1000 - 0.5) seek(player, trim.startMs);
@@ -579,7 +620,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       sub.remove();
       end.remove();
     };
-  }, [player, trim, edit.speed, soundOff]);
+  }, [player, trim, edit.speed, silent]);
 
   // Android back while editing works as Cancelar, asking first when something changed (iOS has no back gesture here).
   useEffect(() => {
@@ -743,11 +784,29 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     trackEvent('clip_edit_tool_used', { tool });
   }
 
+  function toggleMute() {
+    watchMuted = !quietPlay;
+    setQuietPlay(watchMuted);
+  }
+
+  function toggleChrome() {
+    chromeShown = !chrome;
+    setChromeState(chromeShown);
+  }
+
+  /** A tap on another clip in the strip: it opens in place, this one kept on top until its first frame is up. */
+  function jumpTo(target: { id: string }) {
+    if (target.id === id) return;
+    enterFrom = 0;
+    onSwitch();
+    router.setParams({ id: target.id });
+  }
+
   /** Watch mode, like Reels: 2x (silent) while a finger is held on the video; the clip's own speed after. */
   function holdFast(down: boolean) {
     setFast(down);
     if (down) applyPlayback(player, 2, true);
-    else applyPlayback(player, edit.speed, soundOff);
+    else applyPlayback(player, edit.speed, silent);
   }
 
   function quietFor(ms: number | undefined) {
@@ -1049,7 +1108,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
               zoom={edit.zoom}
               rotation={edit.rotation}
               onCommit={editing ? commitZoom : () => {}}
-              onTap={togglePlay}
+              onTap={editing ? togglePlay : toggleChrome}
               onSwipe={editing ? undefined : goBy}
               onDrag={editing ? undefined : drag}
               onDragCancel={editing ? undefined : settleBack}
@@ -1069,10 +1128,11 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
             <BallChip state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} />
           ) : null}
           {!playing ? (
-            <View pointerEvents="none" style={styles.pausedBadge}>
-              <View style={styles.pausedDisc}>
+            // The disc plays again on a tap (2026-11-20); the player's own button is the one VoiceOver reads.
+            <View pointerEvents="box-none" style={styles.pausedBadge}>
+              <Pressable testID="paused-play" accessible={false} onPress={togglePlay} hitSlop={12} style={styles.pausedDisc}>
                 <PlayIcon color={colors.text} size={36} />
-              </View>
+              </Pressable>
             </View>
           ) : null}
         </View>
@@ -1106,7 +1166,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
                     trim={trim}
                     maxMs={maxMs}
                     onChange={scrub}
-                    onCommit={commitTrim}>
+                    onCommit={commitTrim}
+                    onScrub={scrubTo}
+                    onScrubEnd={endScrub}>
                     <Playhead
                       player={player}
                       durationMs={win.endMs}
@@ -1142,7 +1204,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           }
           onFocusTag={() => enterEdit('focus')}
           notice={tracking || busy || !notice ? undefined : t(notice)}
-          position={siblings.length > 1 ? t('clip.ofTotal', { number, total: siblings.length }) : undefined}
+          strip={<ClipStrip clips={siblings} currentId={id} onPick={jumpTo} />}
+          chrome={chrome}
           progress={
             <WatchProgress
               player={player}
@@ -1152,6 +1215,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
               onTogglePlay={togglePlay}
               onSeek={scrubTo}
               onSeekEnd={endScrub}
+              muted={silent}
+              onToggleMute={soundOff ? undefined : toggleMute}
             />
           }
           onEdit={() => enterEdit()}
@@ -1164,6 +1229,10 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           caption={showIntro ? t('clip.focusIntro') : undefined}
         />
       )}
+
+      <SafeAreaView edges={['top']} pointerEvents="none" style={styles.volumeLayer}>
+        <VolumeHud />
+      </SafeAreaView>
 
       {freeGate.sheet}
       {courtesyGate.sheet}
@@ -1215,6 +1284,7 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
   },
   offscreen: { position: 'absolute', left: -10000, top: 0 },
+  volumeLayer: { position: 'absolute', top: 0, left: 0, right: 0 },
   savedWrap: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   savedCard: {
     alignItems: 'center',
