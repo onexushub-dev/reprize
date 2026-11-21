@@ -53,6 +53,8 @@ export type SessionReceived = {
   receivedAt: number;
   expiresAt: number;
   total: number;
+  /** How long the recording ran on the sender's phone (ms); absent for links made before it was sent. */
+  recordedMs?: number;
   /** A courtesy was spent on it (the server said so, `use_courtesy`): its clips leave in Full HD with the mark. */
   courtesy?: boolean;
 };

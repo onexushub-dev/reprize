@@ -14,6 +14,7 @@ import { acceptNotice, noticeAccepted, type ShareRefusal } from '../../cloud/sha
 import { Button } from '../../components/Button';
 import { ShareLinkPanel } from '../../components/ShareLinkPanel';
 import { ShareNotice } from '../../components/ShareNotice';
+import { ShareSteps } from '../../components/ShareSteps';
 import type { SessionShare } from '../../data/schema';
 import { diag } from '../../diag/diagLog';
 import { useT } from '../../i18n/useT';
@@ -162,15 +163,27 @@ function ShareFlow({ sessionId }: { sessionId: string }) {
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={styles.content}>
-        {view === 'notice' ? null : <Text style={styles.title}>{t('sharing.title')}</Text>}
+        {view === 'notice' || view === 'signIn' ? null : (
+          <Text style={[styles.title, view === 'ready' && styles.titleCentered]} numberOfLines={1} adjustsFontSizeToFit>
+            {t('sharing.title')}
+          </Text>
+        )}
         {view === 'loading' ? <ActivityIndicator color={colors.accent} /> : null}
         {view === 'signIn' ? (
           <>
+            <ShareSteps step={1} />
+            <Text style={styles.heading}>{t('sharing.signInTitle')}</Text>
             <Text style={styles.body}>{t('sharing.signIn')}</Text>
             <SignInButtons />
           </>
         ) : null}
-        {view === 'notice' ? <ShareNotice busy={agreeing} onAgree={() => void agree()} /> : null}
+        {view === 'notice' ? (
+          <>
+            <ShareSteps step={2} />
+            <ShareNotice busy={agreeing} onAgree={() => void agree()} />
+            <Text style={styles.once}>{t('sharing.noticeOnce')}</Text>
+          </>
+        ) : null}
         {view === 'creating' ? (
           <View style={styles.creating}>
             <ActivityIndicator color={colors.accent} />
@@ -220,6 +233,9 @@ const styles = StyleSheet.create({
   back: { fontFamily: fonts.bodySemi, fontSize: 16, color: colors.accent },
   content: { paddingHorizontal: 20, paddingBottom: 40, gap: 16 },
   title: { fontFamily: fonts.displayBold, fontSize: 34, color: colors.text, textTransform: 'uppercase' },
+  titleCentered: { textAlign: 'center', fontSize: 30 },
+  heading: { fontFamily: fonts.bodyBold, fontSize: 22, lineHeight: 28, color: colors.text },
+  once: { fontFamily: fonts.body, fontSize: 12, color: colors.muted, textAlign: 'center' },
   body: { fontFamily: fonts.body, fontSize: 16, lineHeight: 22, color: colors.soft },
   creating: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   turnOff: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 },

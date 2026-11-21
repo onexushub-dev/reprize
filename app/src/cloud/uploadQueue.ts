@@ -210,6 +210,15 @@ export function createUploadQueue(deps: UploadQueueDeps) {
       if (plan !== undefined) deps.native.remove(plan.items.map((item) => item.id));
       deps.plans.forget(shareId);
       deps.log('envio: link desligado, arquivos esquecidos');
+      // "Pausar envio" was about the shares on their way: with none left, the next share starts sending (2026-11-20:
+      // a pause kept from a turned-off share held the next one).
+      load();
+      if (manual && deps.plans.shareIds().length === 0) {
+        manual = false;
+        deps.manualPause.set(false);
+        apply();
+        return;
+      }
       notify();
     },
 

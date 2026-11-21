@@ -41,8 +41,8 @@ final class BackgroundDownloader: NSObject, URLSessionDownloadDelegate {
     config.isDiscretionary = false
     config.sessionSendsLaunchEvents = true
     config.allowsCellularAccess = true
-    // A few clips at once: the whole recording is queued, and the phone is not flooded.
-    config.httpMaximumConnectionsPerHost = 3
+    // A few clips at once, in their order: the whole recording is queued, and the phone is not flooded.
+    config.httpMaximumConnectionsPerHost = TransferOrder.connections
     config.timeoutIntervalForResource = 24 * 3600
     return URLSession(configuration: config, delegate: self, delegateQueue: nil)
   }()
@@ -105,6 +105,7 @@ final class BackgroundDownloader: NSObject, URLSessionDownloadDelegate {
       return
     }
     let task = session.downloadTask(with: url)
+    task.priority = TransferOrder.priority(for: id)
     // The file's id plus a token for this transfer: an older transfer of the same file that reports late is ignored.
     let token = UUID().uuidString
     task.taskDescription = id + Self.separator + token

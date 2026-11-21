@@ -7,7 +7,7 @@
 // registered as a member of the share: by account when signed in, else by the phone's id (an install that opened the
 // link before signing in; joined to the account when that phone opens it signed in).
 // Answers
-//   { state: 'active', shareId, kind, title, sport, from, expiresAt, total, clips: [{ position, bytes, durationMs,
+//   { state: 'active', shareId, kind, title, sport, from, expiresAt, total, recordedMs, clips: [{ position, bytes, durationMs,
 //     edit, ready, video?, focus?, ball? }] }
 //   { state: 'own' }  the sender's own link
 //   { state: 'expired' | 'off' | 'removed' }, 404 { state: 'not_found' }
@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
 
   const found = await db
     .from('shares')
-    .select('id, owner, kind, title, sport, clip_count, state, expires_at')
+    .select('id, owner, kind, title, sport, clip_count, recorded_ms, state, expires_at')
     .eq('token_hash', `\\x${await sha256Hex(code)}`)
     .maybeSingle();
   if (found.error) return json({ error: 'server' }, 500);
@@ -84,9 +84,11 @@ Deno.serve(async (req) => {
   const prefix = `shares/${share.id}/clips`;
   // A clip whose video is in R2 with its full size counts as uploaded even if the sender's phone has not confirmed it
   // yet (it confirms with the sender's session, which may be signed out or offline right then): marked here.
+  // 2026-11-21 (90-clip test): one HEAD after the other made every open take ~10 s while the sender was still
+  // uploading, so the receiver saw new clips late. Now a dozen at a time.
   const confirmed: number[] = [];
-  for (const clip of clips.data || []) {
-    if (clip.upload_state === 'done') continue;
+  const unconfirmed = (clips.data || []).filter((clip) => clip.upload_state !== 'done');
+  await inBatches(unconfirmed, HEADS_AT_ONCE, async (clip) => {
     try {
       const size = await objectSize(`${prefix}/${clip.position}/video.mp4`);
       if (size !== null && size === Number(clip.bytes)) {
@@ -96,24 +98,31 @@ Deno.serve(async (req) => {
     } catch (e) {
       console.error('open-share head', share.id, clip.position, String(e));
     }
-  }
+  });
   if (confirmed.length > 0) {
     await db.from('share_clips').update({ upload_state: 'done' }).eq('share_id', share.id).in('position', confirmed);
   }
-  const out = [];
-  for (const clip of clips.data || []) {
-    const ready = clip.upload_state === 'done';
-    out.push({
-      position: clip.position,
-      bytes: Number(clip.bytes),
-      durationMs: clip.duration_ms,
-      edit: clip.edit,
-      ready,
-      video: ready ? await presign(`${prefix}/${clip.position}/video.mp4`, 'GET', seconds) : undefined,
-      focus: ready && clip.has_focus ? await presign(`${prefix}/${clip.position}/focus.json`, 'GET', seconds) : undefined,
-      ball: ready && clip.has_ball ? await presign(`${prefix}/${clip.position}/ball.json`, 'GET', seconds) : undefined,
-    });
-  }
+  // Signing is local work: all of them together.
+  const out = await Promise.all(
+    (clips.data || []).map(async (clip) => {
+      const ready = clip.upload_state === 'done';
+      const [video, focus, ball] = await Promise.all([
+        ready ? presign(`${prefix}/${clip.position}/video.mp4`, 'GET', seconds) : undefined,
+        ready && clip.has_focus ? presign(`${prefix}/${clip.position}/focus.json`, 'GET', seconds) : undefined,
+        ready && clip.has_ball ? presign(`${prefix}/${clip.position}/ball.json`, 'GET', seconds) : undefined,
+      ]);
+      return {
+        position: clip.position,
+        bytes: Number(clip.bytes),
+        durationMs: clip.duration_ms,
+        edit: clip.edit,
+        ready,
+        video,
+        focus,
+        ball,
+      };
+    }),
+  );
 
   return json({
     state: 'active',
@@ -124,6 +133,15 @@ Deno.serve(async (req) => {
     from: await firstName(share.owner),
     expiresAt: share.expires_at,
     total: share.clip_count,
+    recordedMs: share.recorded_ms,
     clips: out,
   });
 });
+
+/** How many R2 HEAD requests one open sends at once. */
+const HEADS_AT_ONCE = 12;
+
+/** Runs `fn` on every item, `size` at a time. */
+async function inBatches<T>(items: T[], size: number, fn: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += size) await Promise.all(items.slice(i, i + size).map(fn));
+}

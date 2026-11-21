@@ -227,3 +227,14 @@ test('the link is reported as uploaded once, when its last clip is confirmed', a
   expect(finished).toHaveBeenCalledTimes(1);
   expect(finished).toHaveBeenCalledWith('sh', 2, PLAN);
 });
+
+test('a pause left on the last share that was turned off does not hold the next one', () => {
+  const { queue, native, paused } = setup();
+  queue.sync();
+  queue.setManualPause(true);
+  expect(paused()).toBe(true);
+  queue.forget('sh');
+  expect(paused()).toBe(false);
+  expect(queue.held()).toBe(false);
+  expect(native.resume).toHaveBeenCalled();
+});

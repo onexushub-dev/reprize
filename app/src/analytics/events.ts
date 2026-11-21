@@ -3,7 +3,7 @@ import type { ModeId, TriggerSource } from '../data/schema';
 import type { Offering } from '../payments/types';
 
 /** Where the paywall was opened from; `locked_feature` is a tap on something Pro-only (see pro_feature_blocked). */
-export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature' | 'received_export';
+export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature' | 'received_export' | 'settings';
 
 /** A count sent as a range, so the number of distinct values stays small and nothing is a precise tally. */
 export type CountBucket = '0' | '1' | '2-5' | '6-20' | '21+';

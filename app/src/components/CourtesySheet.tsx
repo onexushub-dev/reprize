@@ -10,6 +10,18 @@ import { deviceId } from '../cloud/receive';
 import { useT } from '../i18n/useT';
 import { colors, fonts, radius } from '../theme/tokens';
 import { Button } from './Button';
+import { CheckIcon, GiftIcon } from './icons';
+import { SheetTitle } from './SheetTitle';
+
+/** One line of what unlocking (or Pro) gives, with an amber check. */
+function Perk({ text }: { text: string }) {
+  return (
+    <View style={styles.perk}>
+      <CheckIcon color={colors.accent} size={17} />
+      <Text style={styles.perkText}>{text}</Text>
+    </View>
+  );
+}
 
 export type CourtesyChoice = 'go' | 'pro' | 'cancel';
 
@@ -17,6 +29,8 @@ type Props = {
   visible: boolean;
   /** The received recording's share (what the server counts the courtesy on). */
   shareId: string | null;
+  /** How many clips the recording has: the list of what unlocking frees says it. */
+  clips: number;
   onChoose: (choice: CourtesyChoice) => void;
   onDismissed: () => void;
 };
@@ -31,10 +45,10 @@ type Step =
 
 /**
  * Before the first Save or Send of a received recording without Pro (sharing design §2 decision 9, §3.2 step 4): sign
- * in, then "Usar sua gravação de cortesia?" (one per account); once it is used, Pro only. The server spends the courtesy; no
+ * in, then "Liberar esta gravação?" (one free unlock per account); once it is used, Pro only. The server spends the courtesy; no
  * free export, no Single Pass here.
  */
-export function CourtesySheet({ visible, shareId, onChoose, onDismissed }: Props) {
+export function CourtesySheet({ visible, shareId, clips, onChoose, onDismissed }: Props) {
   const { t } = useT();
   const { ready, account } = useAccount();
   const accountId = account === null ? null : account.id;
@@ -72,15 +86,23 @@ export function CourtesySheet({ visible, shareId, onChoose, onDismissed }: Props
     else setStep({ kind: 'error', message: 'failed' });
   }
 
+  const unlockPerks = (
+    <View style={styles.perks}>
+      <Perk text={t('courtesy.perkQuality')} />
+      <Perk text={t('courtesy.perkFocus')} />
+      <Perk text={t('courtesy.perkClips', { count: clips })} />
+    </View>
+  );
+
   function body() {
     if (!ready) return <ActivityIndicator color={colors.accent} />;
     if (account === null) {
       return (
         <>
-          <Text accessibilityRole="header" style={styles.title}>
-            {t('courtesy.askTitle')}
-          </Text>
-          <Text style={styles.text}>{t('courtesy.signIn')}</Text>
+          <SheetTitle icon={<GiftIcon color={colors.accent} size={19} />} title={t('courtesy.askTitle')} />
+          <Text style={styles.text}>{t('courtesy.askBody')}</Text>
+          {unlockPerks}
+          <Text style={styles.note}>{t('courtesy.signIn')}</Text>
           <SignInButtons />
         </>
       );
@@ -96,10 +118,13 @@ export function CourtesySheet({ visible, shareId, onChoose, onDismissed }: Props
     if (step.kind === 'exhausted') {
       return (
         <>
-          <Text accessibilityRole="header" style={styles.title}>
-            {t('courtesy.exhaustedTitle')}
-          </Text>
+          <SheetTitle icon={<GiftIcon color={colors.muted} size={19} />} title={t('courtesy.exhaustedTitle')} tone="muted" />
           <Text style={styles.text}>{t('courtesy.exhaustedBody')}</Text>
+          <View style={styles.perks}>
+            <Perk text={t('courtesy.perk4k')} />
+            <Perk text={t('courtesy.perkCompile')} />
+            <Perk text={t('courtesy.perkShare')} />
+          </View>
           <Button label={t('courtesy.pro')} onPress={() => onChoose('pro')} />
         </>
       );
@@ -123,10 +148,9 @@ export function CourtesySheet({ visible, shareId, onChoose, onDismissed }: Props
     const spending = step.kind === 'spending';
     return (
       <>
-        <Text accessibilityRole="header" style={styles.title}>
-          {t('courtesy.askTitle')}
-        </Text>
-        <Text style={styles.text}>{t('courtesy.askBody')}</Text>
+        <SheetTitle icon={<GiftIcon color={colors.accent} size={19} />} title={t('courtesy.confirmTitle')} />
+        <Text style={styles.text}>{t('courtesy.confirmBody')}</Text>
+        {unlockPerks}
         <Button label={t('courtesy.use')} loading={spending} disabled={spending} onPress={() => void spend()} />
         <Button label={t('courtesy.pro')} variant="secondary" disabled={spending} onPress={() => onChoose('pro')} />
         <Text style={styles.note}>{t('courtesy.proNote')}</Text>
@@ -148,7 +172,7 @@ export function CourtesySheet({ visible, shareId, onChoose, onDismissed }: Props
           <View style={styles.grabber} />
           {body()}
           <Pressable accessibilityRole="button" hitSlop={8} onPress={() => onChoose('cancel')} style={styles.cancel}>
-            <Text style={styles.cancelText}>{t('common.cancel')}</Text>
+            <Text style={styles.cancelText}>{step.kind === 'exhausted' ? t('courtesy.notNow') : t('common.cancel')}</Text>
           </Pressable>
         </SafeAreaView>
       </View>
@@ -168,7 +192,9 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border },
-  title: { fontFamily: fonts.displayBold, fontSize: 26, color: colors.text, marginTop: 6 },
+  perks: { gap: 10 },
+  perk: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  perkText: { flex: 1, fontFamily: fonts.bodySemi, fontSize: 15, color: colors.text },
   text: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.soft },
   note: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.muted },
   loading: { alignItems: 'center', gap: 10, paddingVertical: 16 },

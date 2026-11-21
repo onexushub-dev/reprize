@@ -43,6 +43,12 @@ test('each clip goes in the recording order with its edit and only the side file
   ]);
 });
 
+test('the recording time goes with the link, so the recipient sees its minutes', () => {
+  const clips = [clip(1)];
+  expect(recordingShareInput(session, clips, probe({ '/clips/1.mp4': 1 }), 754_321.6).input.recordedMs).toBe(754_322);
+  expect(recordingShareInput(session, clips, probe({ '/clips/1.mp4': 1 })).input.recordedMs).toBeUndefined();
+});
+
 test('a framing file that is not on the phone is not announced', () => {
   const clips = [clip(1, { focus: { v: 1, status: 'ready', file: '/clips/1.focus.json' } })];
   const { input } = recordingShareInput(session, clips, probe({ '/clips/1.mp4': 1 }));

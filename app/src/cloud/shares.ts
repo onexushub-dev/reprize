@@ -22,6 +22,8 @@ export type ShareInput = {
   kind: 'recording' | 'clip';
   title?: string;
   sport?: string;
+  /** How long the recording ran (ms): the recipient sees its minutes. */
+  recordedMs?: number;
   /** Whether a cover preview (cover.mp4 and cover.jpg) will be uploaded for the web page. */
   cover: boolean;
   clips: ShareClipInput[];

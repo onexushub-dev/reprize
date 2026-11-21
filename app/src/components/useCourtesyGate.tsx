@@ -18,6 +18,7 @@ const DISMISS_FALLBACK_MS = 800;
 export function useCourtesyGate(): { ask: (sessionId: string) => Promise<boolean>; sheet: ReactNode } {
   const { t } = useT();
   const [shareId, setShareId] = useState<string | null>(null);
+  const [clips, setClips] = useState(0);
   // A fresh sheet for every ask: it starts by reading how many courtesies are left.
   const [asked, setAsked] = useState(0);
   const request = useRef<{ sessionId: string; resolve: (go: boolean) => void } | null>(null);
@@ -33,6 +34,7 @@ export function useCourtesyGate(): { ask: (sessionId: string) => Promise<boolean
         }
         request.current = { sessionId, resolve };
         setAsked((n) => n + 1);
+        setClips(session.received.total);
         setShareId(session.received.shareId);
       }),
     [],
@@ -67,6 +69,6 @@ export function useCourtesyGate(): { ask: (sessionId: string) => Promise<boolean
 
   return {
     ask,
-    sheet: <CourtesySheet key={asked} visible={shareId !== null} shareId={shareId} onChoose={choose} onDismissed={paywall} />,
+    sheet: <CourtesySheet key={asked} visible={shareId !== null} shareId={shareId} clips={clips} onChoose={choose} onDismissed={paywall} />,
   };
 }

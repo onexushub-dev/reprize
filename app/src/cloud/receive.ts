@@ -154,6 +154,7 @@ export async function receiveShare(code: string): Promise<ReceiveResult> {
         receivedAt: Date.now(),
         expiresAt: Date.parse(opened.expiresAt),
         total: opened.total,
+        recordedMs: typeof opened.recordedMs === 'number' ? opened.recordedMs : undefined,
       },
     });
     diag(`recebidas: link aberto (${opened.total} clipes)`);
@@ -183,7 +184,7 @@ export function startReceiveQueue(): () => void {
   };
 }
 
-const NONE: ReceiveProgress = { done: 0, total: 0, downloading: false, paused: false, state: 'active' };
+const NONE: ReceiveProgress = { done: 0, total: 0, downloading: false, paused: false, state: 'active', slots: [], running: [] };
 const snapshots = new Map<string, { version: number; value: ReceiveProgress }>();
 
 function snapshot(sessionId: string | undefined): ReceiveProgress {

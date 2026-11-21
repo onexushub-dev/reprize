@@ -38,7 +38,7 @@ export async function shareRecording(sessionId: string, now: () => number = Date
   const clips = repo.listClips(sessionId);
   if (session === undefined || session.endedAt === undefined || clips.length === 0) return { ok: false, reason: 'failed' };
 
-  const { input, local } = recordingShareInput(session, clips, files);
+  const { input, local } = recordingShareInput(session, clips, files, repo.sessionStats(sessionId).recordedMs);
   const tapped = now();
   const result = await createShare(input);
   const waitMs = now() - tapped;
@@ -57,6 +57,8 @@ export async function shareRecording(sessionId: string, now: () => number = Date
   };
   saveUploadPlan(share.shareId, { expiresAt: shared.expiresAt, items: uploadItems(share, local) });
   repo.setShared(sessionId, shared);
+  // A new link always starts sending: a "Pausar envio" left from before does not hold it.
+  uploadQueue.setManualPause(false);
   uploadQueue.sync();
   track('share_created', { clips: countBucket(clips.length), wait: waitBucket(waitMs) });
   return { ok: true, shared };

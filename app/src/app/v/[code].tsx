@@ -9,6 +9,7 @@ import { SHARING_ENABLED } from '../../account/flags';
 import { receiveShare, type ReceiveResult } from '../../cloud/receive';
 import { repo } from '../../data/mmkv';
 import { Button } from '../../components/Button';
+import { ClockIcon } from '../../components/icons';
 import { useT } from '../../i18n/useT';
 import { colors, fonts } from '../../theme/tokens';
 
@@ -75,7 +76,17 @@ function Receive({ code }: { code: string }) {
         </View>
       ) : (
         <View style={styles.center}>
-          <Text style={styles.body}>{message}</Text>
+          {failure === 'expired' ? (
+            <View style={styles.expired}>
+              <View style={styles.clock}>
+                <ClockIcon color={colors.accent} size={32} />
+              </View>
+              <Text style={styles.title}>{t('received.expiredTitle')}</Text>
+              <Text style={styles.body}>{t('received.expiredBody')}</Text>
+            </View>
+          ) : (
+            <Text style={styles.body}>{message}</Text>
+          )}
           {failure === 'error' ? (
             <Button
               label={t('common.tryAgain')}
@@ -96,4 +107,16 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ground },
   center: { flex: 1, alignItems: 'stretch', justifyContent: 'center', padding: 24, gap: 16 },
   body: { fontFamily: fonts.body, fontSize: 17, lineHeight: 24, color: colors.soft, textAlign: 'center' },
+  expired: { alignItems: 'center', gap: 14, marginBottom: 8 },
+  clock: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontFamily: fonts.displayBold, fontSize: 30, color: colors.text, textTransform: 'uppercase', textAlign: 'center' },
 });

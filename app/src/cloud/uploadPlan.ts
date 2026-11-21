@@ -11,7 +11,6 @@ export type UploadPlan = { expiresAt: number; items: UploadItem[] };
 
 const INDEX = 'reprize:v1:share-uploads';
 const keyOf = (shareId: string) => `reprize:v1:share-uploads:${shareId}`;
-const CELLULAR = 'reprize:v1:upload-cellular';
 const PAUSED = 'reprize:v1:uploads-paused';
 const confirmedKey = (shareId: string) => `reprize:v1:share-confirmed:${shareId}`;
 
@@ -75,12 +74,9 @@ export function setConfirmedPositions(shareId: string, positions: number[]): voi
 }
 
 /** "Enviar pelos dados móveis" (sharing design §5.4): on by default. */
+/** Uploads use mobile data whenever there is no Wi-Fi (2026-11-20: the switch that turned this off is gone). */
 export function uploadOnCellular(): boolean {
-  return kv.getString(CELLULAR) !== 'off';
-}
-
-export function setUploadOnCellular(on: boolean): void {
-  kv.set(CELLULAR, on ? 'on' : 'off');
+  return true;
 }
 
 /** "Pausar envio": every share's uploads wait until "Continuar envio". */

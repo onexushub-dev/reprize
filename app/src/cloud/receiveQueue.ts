@@ -13,6 +13,8 @@ export type OpenResult =
       from: string | null;
       expiresAt: string;
       total: number;
+      /** How long the recording ran on the sender's phone (ms); null for shares made before it was sent. */
+      recordedMs?: number | null;
       clips: OpenedClip[];
     }
   | { state: 'own' | 'expired' | 'off' | 'removed' | 'not_found' | 'error' };
@@ -58,11 +60,22 @@ export type ReceiveProgress = {
   total: number;
   downloading: boolean;
   paused: boolean;
+  /**
+   * Every clip of the share in the sender's order, with the number it has there (2026-11-21): the grid keeps one place
+   * per clip, so a clip that arrives fills its own place instead of the list moving under the player. Empty until the
+   * share's clip list is known.
+   */
+  slots: { position: number; number: number }[];
+  /** Positions whose video is downloading right now. */
+  running: number[];
   state: 'active' | 'expired' | 'off' | 'removed' | 'error';
 };
 
-/** While the sender is still uploading, the share is asked again this often (with the app in front). */
-export const RECHECK_MS = 10_000;
+/**
+ * While the sender is still uploading, the share is asked again this often (with the app in front). 5 s since
+ * 2026-11-21: at 10 s a clip the sender had just finished waited up to 20 s to start coming down.
+ */
+export const RECHECK_MS = 5_000;
 
 type Kind = 'video' | 'focus' | 'ball';
 
@@ -157,7 +170,8 @@ export function createReceiveQueue(deps: ReceiveDeps) {
   function request(shareId: string, clips: OpenedClip[], present: Set<number>): void {
     const known = entries();
     const items: DownloadItem[] = [];
-    for (const clip of clips) {
+    // In the clips' order: the downloader goes first to first (2026-11-21).
+    for (const clip of [...clips].sort((a, b) => a.position - b.position)) {
       if (!clip.ready || clip.video === undefined || present.has(clip.position)) continue;
       const target = deps.paths(shareId, clip.position);
       const files: [Kind, string | undefined, string][] = [
@@ -300,12 +314,25 @@ export function createReceiveQueue(deps: ReceiveDeps) {
       const prefix = received ? `recv/${received.shareId}/` : undefined;
       const mine = prefix === undefined ? [] : deps.native.state().filter((e) => e.id.startsWith(prefix));
       const waiting = mine.some((e) => e.status === 'running' || e.status === 'paused');
+      const listed = received ? deps.meta.get(received.shareId) : undefined;
+      const slots = (listed || [])
+        .map((c) => ({ position: c.position, number: typeof c.edit.number === 'number' ? c.edit.number : c.position }))
+        .sort((a, b) => a.position - b.position);
+      const running = held
+        ? []
+        : mine
+            .filter((e) => e.status === 'running')
+            .map((e) => parseId(e.id))
+            .filter((p): p is { shareId: string; position: number; kind: Kind } => p !== undefined && p.kind === 'video')
+            .map((p) => p.position);
       return {
         done,
         total,
         downloading: !held && mine.some((e) => e.status === 'running'),
         paused: held && done < total && (waiting || mine.length === 0),
         state,
+        slots,
+        running,
       };
     },
 

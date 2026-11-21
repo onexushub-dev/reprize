@@ -115,6 +115,18 @@ test('the uploaded clips and their framing files are queued at once; the rest is
   expect(later).toHaveLength(1);
 });
 
+test('the progress lists every place of the share with its number, and which videos are downloading (2026-11-21)', async () => {
+  const { queue } = setup({ opened: active([clip(3, false), clip(1), clip(2)]) });
+  await queue.run('s1');
+  const progress = queue.progress('s1');
+  expect(progress.slots).toEqual([
+    { position: 1, number: 1 },
+    { position: 2, number: 2 },
+    { position: 3, number: 3 },
+  ]);
+  expect(progress.running.sort()).toEqual([1, 2]);
+});
+
 test('a clip joins the recording once its video and its framing file have arrived', async () => {
   const { queue, clips, end, native } = setup();
   await queue.run('s1');

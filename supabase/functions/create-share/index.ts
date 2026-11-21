@@ -35,7 +35,15 @@ type ClipIn = {
   hasFocus: boolean;
   hasBall: boolean;
 };
-type ShareIn = { kind: 'recording' | 'clip'; title: string | null; sport: string | null; cover: boolean; clips: ClipIn[] };
+type ShareIn = {
+  kind: 'recording' | 'clip';
+  title: string | null;
+  sport: string | null;
+  /** How long the recording ran (ms); null when not sent. */
+  recordedMs: number | null;
+  cover: boolean;
+  clips: ClipIn[];
+};
 type Upload = { key: string; kind: string; position: number | null; url: string; contentType: string };
 
 /** 22 base62 characters (about 131 bits), without modulo bias. */
@@ -73,6 +81,8 @@ function parse(body: Record<string, unknown>): ShareIn | null {
   const title = optionalText(body.title, 80);
   const sport = optionalText(body.sport, 30);
   if (title === undefined || sport === undefined) return null;
+  const recordedMs = body.recordedMs === undefined || body.recordedMs === null ? null : body.recordedMs;
+  if (recordedMs !== null && !isInt(recordedMs, 0, 24 * 60 * 60 * 1000)) return null;
   if (!Array.isArray(body.clips) || body.clips.length < 1 || body.clips.length > MAX_CLIPS) return null;
   if (kind === 'clip' && body.clips.length !== 1) return null;
   const clips: ClipIn[] = [];
@@ -99,7 +109,7 @@ function parse(body: Record<string, unknown>): ShareIn | null {
     });
   }
   clips.sort((a, b) => a.position - b.position);
-  return { kind, title, sport, cover: body.cover !== false, clips };
+  return { kind, title, sport, recordedMs: recordedMs as number | null, cover: body.cover !== false, clips };
 }
 
 Deno.serve(async (req) => {
@@ -148,6 +158,7 @@ Deno.serve(async (req) => {
       sport: input.sport,
       token_hash: `\\x${await sha256Hex(code)}`,
       clip_count: input.clips.length,
+      recorded_ms: input.recordedMs,
       expires_at: expiresAt,
     })
     .select('id')

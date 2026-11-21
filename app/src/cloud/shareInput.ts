@@ -19,6 +19,8 @@ export function recordingShareInput(
   session: Session,
   clips: Clip[],
   files: FileProbe,
+  /** How long the recording ran (ms), sent so the recipient sees its minutes. */
+  recordedMs?: number,
 ): { input: ShareInput; local: LocalShareFile[] } {
   const local: LocalShareFile[] = [];
   const entries = clips.map((clip, index) => {
@@ -57,7 +59,9 @@ export function recordingShareInput(
   });
   const title = session.name ? session.name : undefined;
   const sport = session.ballSport && session.ballSport.sport ? session.ballSport.sport : undefined;
-  return { input: { kind: 'recording', title, sport, cover: true, clips: entries }, local };
+  const input: ShareInput = { kind: 'recording', title, sport, cover: true, clips: entries };
+  if (recordedMs !== undefined) input.recordedMs = Math.max(0, Math.round(recordedMs));
+  return { input, local };
 }
 
 /**
