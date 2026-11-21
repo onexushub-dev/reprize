@@ -484,6 +484,30 @@ describe('upgradeSession', () => {
   it('does nothing for a recording that is gone', () => {
     expect(setup().upgradeSession('nope', {})).toBeUndefined();
   });
+
+  it('never makes a received recording paid (Pro or a courtesy covers it)', () => {
+    const repo = setup();
+    const received = { shareId: 'sh1', code: 'c', receivedAt: 1, expiresAt: 2, total: 1 };
+    const s = repo.startReceivedSession({ sport: 'quadra', received, now: 1 });
+    expect(repo.upgradeSession(s.id, { passTransactionId: 'tx-1' })).toBeUndefined();
+    expect(repo.getSession(s.id)?.paid).toBeUndefined();
+    expect(repo.spentPasses().has('tx-1')).toBe(false);
+  });
+});
+
+test('setReceivedCourtesy marks a received recording once, and ignores one made here', () => {
+  const repo = setup();
+  const received = { shareId: 'sh1', code: 'c', receivedAt: 1, expiresAt: 2, total: 1 };
+  const s = repo.startReceivedSession({ sport: 'quadra', received, now: 1 });
+  const own = repo.startSession('quadra', 1, { paid: false });
+  const fn = jest.fn();
+  repo.subscribe(fn);
+  repo.setReceivedCourtesy(s.id);
+  repo.setReceivedCourtesy(s.id);
+  repo.setReceivedCourtesy(own.id);
+  expect(repo.getSession(s.id)?.received?.courtesy).toBe(true);
+  expect(repo.getSession(own.id)?.received).toBeUndefined();
+  expect(fn).toHaveBeenCalledTimes(1);
 });
 
 test('closeOpenSessions ends a recording a closed app left open, at its last clip, or at its start without clips', () => {
@@ -501,4 +525,14 @@ test('closeOpenSessions ends a recording a closed app left open, at its last cli
   expect(repo.getSession(empty.id)!.endedAt).toBe(20000);
   expect(repo.getSession(ended.id)!.endedAt).toBe(40000);
   expect(repo.closeOpenSessions()).toBe(0);
+});
+
+test('setShared keeps the link on the recording and undefined forgets it', () => {
+  const repo = setup();
+  const session = repo.startSession('quadra', 1000, { paid: true });
+  const shared = { shareId: 's1', url: 'https://www.reprizeapp.com/v/abc', createdAt: 2000, expiresAt: 90000, clips: 3, state: 'active' as const };
+  repo.setShared(session.id, shared);
+  expect(repo.getSession(session.id)!.shared).toEqual(shared);
+  repo.setShared(session.id, undefined);
+  expect(repo.getSession(session.id)).not.toHaveProperty('shared');
 });

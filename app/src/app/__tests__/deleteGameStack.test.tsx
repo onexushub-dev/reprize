@@ -2,12 +2,14 @@ import { useEffect } from 'react';
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import { router, useNavigation } from 'expo-router';
 import { renderRouter } from 'expo-router/testing-library';
-import { Alert, Text } from 'react-native';
+import { ActionSheetIOS, Alert, Text } from 'react-native';
 
 import Games from '../games';
 import SessionSummary from '../session/[id]';
 import ClipScreen from '../clip/[id]';
 
+// The courtesy sheet signs in (native Apple and Google modules): received recordings have their own tests.
+jest.mock('../../components/useCourtesyGate', () => ({ useCourtesyGate: () => ({ ask: async () => true, sheet: null }) }));
 jest.mock('expo-video', () => {
   const mockPlayer = { addListener: () => ({ remove() {} }), play: jest.fn(), pause: jest.fn(), currentTime: 0, playbackRate: 1, muted: false };
   return { useVideoPlayer: () => mockPlayer, VideoView: () => null };
@@ -78,7 +80,11 @@ async function deleteFreshGame() {
   );
   await act(async () => router.replace(`/session/${s.id}`));
   spy.navigation = undefined;
-  fireEvent.press(screen.getByRole('button', { name: 'Apagar gravação' }));
+  const menu = jest
+    .spyOn(ActionSheetIOS, 'showActionSheetWithOptions')
+    .mockImplementation((options, choose) => choose(options.options.indexOf('Apagar gravação')));
+  fireEvent.press(screen.getByRole('button', { name: 'Mais opções' }));
+  menu.mockRestore();
   const buttons = alert.mock.calls.at(-1)![2] as { text: string; onPress?: () => void }[];
   await act(async () => buttons.find((x) => x.text === 'Apagar')!.onPress!());
   await act(async () => {});

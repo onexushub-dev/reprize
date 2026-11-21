@@ -31,3 +31,14 @@ jest.mock('react-native-reanimated', () => {
     ReduceMotion: { System: 'system', Always: 'always', Never: 'never' },
   };
 });
+
+// The volume library talks to a native module that tests do not have: every screen that imports it (the clip screen
+// shows the volume level, 2026-11-21) gets this quiet stand-in. Tests that drive it mock it again in their own file.
+jest.mock('react-native-volume-manager', () => ({
+  VolumeManager: {
+    addVolumeListener: () => ({ remove: () => {} }),
+    getVolume: async () => ({ volume: 0.5 }),
+    setVolume: async () => {},
+    showNativeVolumeUI: async () => {},
+  },
+}));

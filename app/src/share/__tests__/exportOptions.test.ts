@@ -149,3 +149,19 @@ describe('Seguir a Bola', () => {
     expect(freeLosses({ edit: on, focus: undefined, ball: ready, trim: { startMs: 0, endMs: 1000 } }).focus).toBe(false);
   });
 });
+
+describe('a courtesy (a received recording exported without Pro)', () => {
+  it('leaves in Full HD, with its sound and the app mark, even from a 4K clip', () => {
+    expect(exportOptions('courtesy', undefined, trim, false, undefined, 2160)).toMatchObject({
+      width: 1080,
+      height: 1920,
+      muted: false,
+      watermark: true,
+    });
+  });
+
+  it('keeps Modo Foco', () => {
+    const ready = { path: '/c/1.focus.json', ready: true };
+    expect(exportOptions('courtesy', { muted: false }, trim, false, ready).focus).toEqual({ path: '/c/1.focus.json', aspect: 'portrait' });
+  });
+});

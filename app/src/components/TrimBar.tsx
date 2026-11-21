@@ -1,4 +1,4 @@
-import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
+import { type ComponentRef, type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { PanResponder, StyleSheet, View } from 'react-native';
 
 import { clampTrim } from '../share/trim';
@@ -19,25 +19,43 @@ type Props = {
   onCommit: (trim: Cut) => void;
   /** Drawn over the track under the handles (the playback cursor). */
   children?: ReactNode;
+  /**
+   * A finger anywhere on the track but the handles moves the cursor there at once and drags it, as in Photos
+   * (2026-11-20): no waiting for the cursor to leave a handle. The position is kept inside the cut.
+   */
+  onScrub?: (ms: number) => void;
+  onScrubEnd?: () => void;
 };
 
 const HANDLE = 44; // touch target
 
-/** The whole clip as a track, the cut as an accent window with a draggable handle on each edge. */
-export function TrimBar({ durationMs, trim, maxMs, floorMs = 0, onChange, onCommit, children }: Props) {
+/**
+ * The whole clip as a track, the cut as an accent window with a draggable handle on each edge. A finger anywhere else on
+ * the track moves the cursor (`onScrub`).
+ */
+export function TrimBar({ durationMs, trim, maxMs, floorMs = 0, onChange, onCommit, children, onScrub, onScrubEnd }: Props) {
   const { t } = useT();
   const [width, setWidth] = useState(0);
   // Pan callbacks read the latest props through this ref (updated after each commit).
-  const latest = useRef({ trim, width, durationMs, maxMs, floorMs, onChange, onCommit });
+  const latest = useRef({ trim, width, durationMs, maxMs, floorMs, onChange, onCommit, onScrub, onScrubEnd });
   useLayoutEffect(() => {
-    latest.current = { trim, width, durationMs, maxMs, floorMs, onChange, onCommit };
+    latest.current = { trim, width, durationMs, maxMs, floorMs, onChange, onCommit, onScrub, onScrubEnd };
   });
+  // Where the track starts on the screen, for a touch's position along it.
+  const track = useRef<ComponentRef<typeof View>>(null);
+  const trackX = useRef(0);
+  const measure = () => {
+    if (track.current) track.current.measureInWindow((x: number) => (trackX.current = x));
+  };
 
   const handle = (moved: 'start' | 'end') => {
     let origin: Cut = { startMs: 0, endMs: 0 };
     let current: Cut = origin;
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      // The track around the handle scrubs on a move of its own: a handle being dragged must not hand the finger over
+      // to it on the first move, which ended the drag at once (2026-11-20).
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         origin = latest.current.trim;
         current = origin;
@@ -61,13 +79,49 @@ export function TrimBar({ durationMs, trim, maxMs, floorMs = 0, onChange, onComm
   const [startPan] = useState(() => handle('start'));
   // eslint-disable-next-line react-hooks/refs -- same as above
   const [endPan] = useState(() => handle('end'));
+  // eslint-disable-next-line react-hooks/refs -- same as above
+  const [scrubPan] = useState(() => {
+    const at = (pageX: number) => {
+      const { width: w, durationMs: d, floorMs: floor, trim: cut } = latest.current;
+      const ms = floor + ((pageX - trackX.current) / Math.max(1, w)) * (d - floor);
+      return Math.min(Math.max(ms, cut.startMs), cut.endMs);
+    };
+    return PanResponder.create({
+      // Only a finger that lands on the track itself: never taken from a handle or the cursor mid-drag.
+      onStartShouldSetPanResponder: () => latest.current.onScrub !== undefined,
+      onPanResponderGrant: (e) => {
+        measure();
+        const scrubTo = latest.current.onScrub;
+        if (scrubTo) scrubTo(at(e.nativeEvent.pageX));
+      },
+      onPanResponderMove: (_, g) => {
+        const scrubTo = latest.current.onScrub;
+        if (scrubTo) scrubTo(at(g.moveX));
+      },
+      onPanResponderRelease: () => {
+        const end = latest.current.onScrubEnd;
+        if (end) end();
+      },
+      onPanResponderTerminate: () => {
+        const end = latest.current.onScrubEnd;
+        if (end) end();
+      },
+    });
+  });
 
   const span = durationMs - floorMs;
   const left = span > 0 ? ((trim.startMs - floorMs) / span) * width : 0;
   const right = span > 0 ? ((trim.endMs - floorMs) / span) * width : 0;
 
   return (
-    <View style={styles.track} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+    <View
+      ref={track}
+      {...scrubPan.panHandlers}
+      style={styles.track}
+      onLayout={(e) => {
+        setWidth(e.nativeEvent.layout.width);
+        measure();
+      }}>
       <View style={[styles.window, { left, width: Math.max(0, right - left) }]} />
       {children}
       <View

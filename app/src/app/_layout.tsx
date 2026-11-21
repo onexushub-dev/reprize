@@ -10,6 +10,8 @@ import { AppState } from 'react-native';
 import { isRemoteSupported, remoteHostStart, remoteHostStop } from '../../modules/replay-camera';
 import { analytics, initAnalytics, sessionSummary, track } from '../analytics';
 import { useScreenViews } from '../analytics/useScreenViews';
+import { startUploadQueue } from '../cloud/appUploadQueue';
+import { startReceiveQueue } from '../cloud/receive';
 import { startFocusQueue } from '../focus/appFocusQueue';
 import { useLocaleSync } from '../i18n/useT';
 import { payments } from '../payments';
@@ -68,6 +70,11 @@ export default function RootLayout() {
   // Modo Foco in the background: clips are analysed while the app is open and no recording runs.
   useEffect(() => startFocusQueue(), []);
 
+  // Shared recordings upload in the background; the queue starts again what a swiped-away app left (sharing design §5.4).
+  useEffect(() => startUploadQueue(), []);
+  // Received recordings download into the app while their link lasts (sharing design §5.5).
+  useEffect(() => startReceiveQueue(), []);
+
   // The camera phone answers its paired remotes for as long as the app is open, whatever screen is in front: tying it to
   // one screen dropped the link every time the player moved between the setup, the recording and the summary.
   // Coming back to the front starts the advertising over, since iOS may have dropped it while the app was away.
@@ -95,6 +102,8 @@ export default function RootLayout() {
         <Stack.Screen name="clip/[id]" options={{ gestureEnabled: false }} />
         {/* Dispositivos: a sheet over the setup screen, closed by swiping down. */}
         <Stack.Screen name="devices" options={{ presentation: 'modal' }} />
+        {/* Compartilhar gravação: a sheet over the recording, closed by swiping down. */}
+        <Stack.Screen name="share/[id]" options={{ presentation: 'modal' }} />
       </Stack>
     </SessionProvider>
   );

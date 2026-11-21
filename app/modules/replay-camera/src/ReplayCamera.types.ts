@@ -39,6 +39,9 @@ export type SessionOptions = {
 /** Which edge of the phone points up (UIDeviceOrientation naming). */
 export type DeviceUpright = 'portrait' | 'portraitUpsideDown' | 'landscapeLeft' | 'landscapeRight';
 
+/** An accelerometer reading in g, device axes: x toward the right edge, y toward the top, z out of the screen. */
+export type Gravity = { x: number; y: number; z: number };
+
 export type ZoomRange = { min: number; max: number; continuous: boolean };
 /** `at` = ms since epoch when the trigger happened. */
 export type SaveClipOptions = {
@@ -65,13 +68,32 @@ export type RemotePairing = { url: string; code: string; expiresAt: number; qrPa
 export type RemotePairFailure = 'expired' | 'locked' | 'notFound' | 'wrong' | 'denied' | 'full' | 'used' | 'closed';
 
 /** One file to upload with a presigned PUT URL (sharing design §5.4). */
-export type UploadItem = { id: string; path: string; url: string; contentType?: string };
+export type UploadItem = { id: string; path: string; url: string; contentType?: string; /** Mobile data allowed (default true). */ cellular?: boolean };
+
+/** A file to download into the app (a received clip or its framing file): a presigned GET URL and where it goes. */
+export type DownloadItem = { id: string; url: string; path: string };
+
+/** What the downloader knows about one file. Times are ms since 1970; `bytes` is known once the transfer began. */
+export type DownloadEntry = {
+  id: string;
+  url: string;
+  path: string;
+  status: 'running' | 'paused' | 'done' | 'failed';
+  bytes: number;
+  received: number;
+  attempts: number;
+  queuedAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  httpStatus?: number;
+  error?: string;
+};
 
 /** What the uploader knows about one file. Times are ms since 1970. */
 export type UploadEntry = {
   id: string;
   path: string;
-  status: 'running' | 'done' | 'failed';
+  status: 'running' | 'paused' | 'done' | 'failed';
   bytes: number;
   sent: number;
   attempts: number;
@@ -86,6 +108,8 @@ export type ReplayCameraModuleEvents = {
   onUploadProgress: (e: { id: string; sent: number; total: number }) => void;
   onUploadDone: (e: UploadEntry & { ok: boolean }) => void;
   onUploadRetry: (e: { id: string; attempt: number; error: string }) => void;
+  onDownloadDone: (e: DownloadEntry & { ok: boolean }) => void;
+  onDownloadRetry: (e: { id: string; attempt: number; error: string }) => void;
   onTrigger: (e: { source: TriggerSource; at: number }) => void;
   onWatchStatus: (e: { status: WatchStatus }) => void;
   /**

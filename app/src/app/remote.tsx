@@ -760,7 +760,8 @@ const styles = StyleSheet.create({
   notice: { backgroundColor: 'rgba(12,12,12,0.82)', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', gap: 2 },
   noticeTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.text, textAlign: 'center' },
   noticeBody: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.soft, textAlign: 'center' },
-  asleep: { alignItems: 'center', paddingTop: 96 },
+  // Dimmed here, not with the phone's brightness (2026-11-21: that leaked to the lock screen and other apps).
+  asleep: { alignItems: 'center', paddingTop: 96, backgroundColor: 'rgba(0,0,0,0.78)' },
   asleepPill: { backgroundColor: 'rgba(12,12,12,0.82)', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 16 },
   asleepText: { fontFamily: fonts.bodySemi, fontSize: 15, color: colors.soft, textAlign: 'center' },
   forgetButton: { minHeight: 44, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },

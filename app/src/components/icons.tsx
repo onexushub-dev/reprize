@@ -1,6 +1,6 @@
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Path, Rect, Text as SvgText } from 'react-native-svg';
 
-import { colors } from '../theme/tokens';
+import { colors, fonts } from '../theme/tokens';
 import { WavingFigure } from './WavingFigure';
 
 type IconProps = { color?: string; size?: number };
@@ -348,6 +348,184 @@ export function SunIcon({ color = colors.text, size = 22 }: IconProps) {
     <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
       <Circle cx={12} cy={12} r={4} {...stroke(color)} />
       <Path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Two photos, the back one tilted: the recordings (gallery) button on the setup screen. `under` paints the front photo
+ * over the back one, so it must be the colour of what the icon sits on. */
+export function GalleryIcon({ color = colors.onAccent, size = 26, under = colors.accent }: IconProps & { under?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x="2.6" y="4.6" width="13.4" height="10.4" rx="2.2" transform="rotate(-13 9.3 9.8)" {...stroke(color)} />
+      <Rect x="7.2" y="8.4" width="14.6" height="11.6" rx="2.4" {...stroke(color)} fill={under} />
+      <Circle cx={11.4} cy={12.2} r={1.55} fill={color} />
+      <Path d="M8.2 18.7 12.4 14.6 15 17.1 17.6 14.4 20.8 17.6V18a1.3 1.3 0 0 1-1.3 1.3H9.5a1.3 1.3 0 0 1-1.3-.6z" fill={color} />
+    </Svg>
+  );
+}
+
+/** A gear: Ajustes (account, plan, legal pages). */
+export function GearIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={12} cy={12} r={3} {...stroke(color)} />
+      <Path
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+        {...stroke(color)}
+      />
+    </Svg>
+  );
+}
+
+/** A door with an arrow out: sign out. */
+export function LogoutIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A price tag: a clip's label (etiqueta). */
+export function TagIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z" {...stroke(color)} />
+      <Circle cx={7.5} cy={7.5} r={1.5} {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A clock face: minutes recorded, or how long a link lasts. */
+export function ClockIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={12} cy={12} r={9} {...stroke(color)} />
+      <Path d="M12 7v5l3 2" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A stack of discs: space taken on the phone. */
+export function DiskIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M4 6c0 1.7 3.6 3 8 3s8-1.3 8-3-3.6-3-8-3-8 1.3-8 3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A gift box: freeing a shared recording without Pro. */
+export function GiftIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x="3" y="9" width="18" height="12" rx="2" {...stroke(color)} />
+      <Path d="M12 9v12M3 13h18M12 9c-1.5-3.5-6-4-6-1.5S12 9 12 9s6 0 6-1.5-4.5-2-6 1.5" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Three dots: more actions. */
+export function MoreIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={5} cy={12} r={1.8} fill={color} />
+      <Circle cx={12} cy={12} r={1.8} fill={color} />
+      <Circle cx={19} cy={12} r={1.8} fill={color} />
+    </Svg>
+  );
+}
+
+/** A chevron to the right: a row that opens another screen. */
+export function ChevronIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M9 6l6 6-6 6" {...stroke(color)} strokeWidth={2} />
+    </Svg>
+  );
+}
+
+/** A triangle with an exclamation mark: a step that cannot be undone. */
+export function AlertIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M12 3l10 18H2zM12 10v5M12 18v.5" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** An eye: how many phones opened a link. */
+export function EyeIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" {...stroke(color)} />
+      <Circle cx={12} cy={12} r={3} {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Two sheets: copy. */
+export function CopyIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x="9" y="9" width="11" height="11" rx="2" {...stroke(color)} />
+      <Path d="M5 15V5a2 2 0 0 1 2-2h10" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A head and shoulders: a person (the account). */
+export function UserIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={12} cy={8} r={4} {...stroke(color)} />
+      <Path d="M4 21c0-4 4-6 8-6s8 2 8 6" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Three sliders: the recording settings (Ajustes on the compact dock). */
+export function SlidersIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" {...stroke(color)} />
+      <Circle cx={16} cy={6} r={2} {...stroke(color)} />
+      <Circle cx={10} cy={12} r={2} {...stroke(color)} />
+      <Circle cx={18} cy={18} r={2} {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A calendar page: filter by date. */
+export function CalendarIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x="3" y="5" width="18" height="16" rx="2" {...stroke(color)} />
+      <Path d="M3 10h18M8 3v4M16 3v4" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/**
+ * The save button's mark (2026-11-21, option A): an arrow turning back with the clip length in it, like a player's "back
+ * 15 s": a save keeps the last seconds.
+ */
+export function SaveLastIcon({ seconds, color = colors.onAccent, size = 40 }: IconProps & { seconds: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" {...stroke(color)} strokeWidth={2.1} />
+      <Path d="M3 3.5V8h4.5" {...stroke(color)} strokeWidth={2.1} />
+      <SvgText
+        x={12.6}
+        y={15.6}
+        textAnchor="middle"
+        fontFamily={fonts.bodyBold}
+        fontWeight="800"
+        fontSize={seconds >= 100 ? 6 : 8}
+        fill={color}>
+        {String(seconds)}
+      </SvgText>
     </Svg>
   );
 }

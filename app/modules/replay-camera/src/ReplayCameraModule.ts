@@ -6,6 +6,7 @@ import type {
   BallAnalysis,
   BluetoothConnected,
   DeviceUpright,
+  Gravity,
   ExportClipOptions,
   ExportedClip,
   FocusAnalysis,
@@ -21,6 +22,8 @@ import type {
   Quality,
   UploadEntry,
   UploadItem,
+  DownloadEntry,
+  DownloadItem,
 } from './ReplayCamera.types';
 
 declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> {
@@ -36,6 +39,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   setGestureTrace?(enabled: boolean): void;
   // The phone's position (iOS only: missing on Android and in older builds).
   getUpright?(): DeviceUpright;
+  /** The raw accelerometer reading in g (iOS only), null before the first one. */
+  getGravity?(): Gravity | null;
   // Continuous zoom (iOS only: missing on Android and in older builds).
   getZoomRange?(): ZoomRange;
   setZoom?(factor: number, animated: boolean): void;
@@ -121,6 +126,18 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   uploadStart?(items: UploadItem[]): void;
   uploadState?(): UploadEntry[];
   uploadReset?(): void;
+  uploadPause?(): void;
+  uploadResume?(cellular: boolean): void;
+  uploadRemove?(ids: string[]): void;
+  uploadRestore?(): void;
+  // Background download of received clips (iOS only: missing on Android and in older builds).
+  downloadStart?(items: DownloadItem[], paused: boolean): void;
+  downloadState?(): DownloadEntry[];
+  downloadPause?(): void;
+  downloadResume?(): void;
+  downloadRemove?(ids: string[]): void;
+  downloadRestore?(): void;
+  downloadReset?(): void;
 }
 
 export default requireNativeModule<ReplayCameraModule>('ReplayCamera');

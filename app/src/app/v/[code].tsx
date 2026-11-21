@@ -1,8 +1,122 @@
-// A shared link, https://www.reprizeapp.com/v/<code>, for a whole recording or a single clip (sharing design §7): the
-// server knows which. Phase 0 placeholder: proves the Universal Link opens the app on this route. Phase 1 replaces it
-// with the received recording.
-import SharedLinkPlaceholder from '../../share/SharedLinkPlaceholder';
+// A shared link, https://reprizeapp.com/v/<code> (or www.), opened in the app (sharing design §3.2, §7): the received
+// recording is made (or found again), its clips start downloading, and the recording opens.
+import { Redirect, router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { SHARING_ENABLED } from '../../account/flags';
+import { receiveShare, type ReceiveResult } from '../../cloud/receive';
+import { repo } from '../../data/mmkv';
+import { Button } from '../../components/Button';
+import { ClockIcon } from '../../components/icons';
+import { useT } from '../../i18n/useT';
+import { colors, fonts } from '../../theme/tokens';
+
+type Failure = Extract<ReceiveResult, { ok: false }>['state'];
 
 export default function SharedLink() {
-  return <SharedLinkPlaceholder />;
+  const { code } = useLocalSearchParams<{ code: string }>();
+  if (!SHARING_ENABLED) return <Redirect href="/" />;
+  return <Receive code={code} />;
 }
+
+/**
+ * Opened from inside the app (or with the app already running), the recording replaces this screen. Opened cold from a
+ * link, nothing is under it: the usual stack is built (setup, games, the recording) so Back and "Nova gravação" work as
+ * after a game. Someone who installed the app only to watch skips the onboarding; it is still there, under the games.
+ */
+function openRecording(sessionId: string) {
+  const session = `/session/${sessionId}` as const;
+  if (router.canGoBack()) {
+    router.replace(session);
+    return;
+  }
+  router.replace(repo.getPrefs().onboardingDone ? '/setup' : '/onboarding');
+  router.push('/games');
+  router.push(session);
+}
+
+function Receive({ code }: { code: string }) {
+  const { t } = useT();
+  const [failure, setFailure] = useState<Failure | undefined>(undefined);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    receiveShare(code).then((result) => {
+      if (!alive) return;
+      if (result.ok) openRecording(result.sessionId);
+      else setFailure(result.state);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [code, attempt]);
+
+  const message =
+    failure === 'expired'
+      ? t('received.expired')
+      : failure === 'off'
+        ? t('received.off')
+        : failure === 'removed'
+          ? t('received.removed')
+          : failure === 'not_found'
+            ? t('received.notFound')
+            : failure === 'own'
+              ? t('received.own')
+              : t('received.error');
+
+  return (
+    <SafeAreaView style={styles.root}>
+      {failure === undefined ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.accent} />
+          <Text style={styles.body}>{t('received.opening')}</Text>
+        </View>
+      ) : (
+        <View style={styles.center}>
+          {failure === 'expired' ? (
+            <View style={styles.expired}>
+              <View style={styles.clock}>
+                <ClockIcon color={colors.accent} size={32} />
+              </View>
+              <Text style={styles.title}>{t('received.expiredTitle')}</Text>
+              <Text style={styles.body}>{t('received.expiredBody')}</Text>
+            </View>
+          ) : (
+            <Text style={styles.body}>{message}</Text>
+          )}
+          {failure === 'error' ? (
+            <Button
+              label={t('common.tryAgain')}
+              onPress={() => {
+                setFailure(undefined);
+                setAttempt((n) => n + 1);
+              }}
+            />
+          ) : null}
+          <Button label={t('received.home')} variant="secondary" onPress={() => router.replace('/')} />
+        </View>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.ground },
+  center: { flex: 1, alignItems: 'stretch', justifyContent: 'center', padding: 24, gap: 16 },
+  body: { fontFamily: fonts.body, fontSize: 17, lineHeight: 24, color: colors.soft, textAlign: 'center' },
+  expired: { alignItems: 'center', gap: 14, marginBottom: 8 },
+  clock: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: { fontFamily: fonts.displayBold, fontSize: 30, color: colors.text, textTransform: 'uppercase', textAlign: 'center' },
+});

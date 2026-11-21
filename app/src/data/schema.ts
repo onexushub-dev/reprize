@@ -43,7 +43,24 @@ export type ModeSettings = {
 /** What was saved for a mode: before zoom existed it held `lens` (read, never written). */
 export type StoredModeSettings = Partial<ModeSettings> & { lens?: 'ultraWide' | 'wide' };
 
-export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean; /** Seguir a Bola: whether the recording looks like basketball (test 43). */ ballSport?: BallSport };
+export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean; /** Seguir a Bola: whether the recording looks like basketball (test 43). */ ballSport?: BallSport; /** The link this recording was shared with (sharing design §5.3); absent = never shared. */ shared?: SessionShare; /** Set on a recording received through a link (sharing design §5.3): never `paid`, never a pass. */ received?: SessionReceived };
+
+/** A recording someone shared with this phone. `code` opens the link again to fetch what is missing (until `expiresAt`, ms). */
+export type SessionReceived = {
+  shareId: string;
+  code: string;
+  from?: string;
+  receivedAt: number;
+  expiresAt: number;
+  total: number;
+  /** How long the recording ran on the sender's phone (ms); absent for links made before it was sent. */
+  recordedMs?: number;
+  /** A courtesy was spent on it (the server said so, `use_courtesy`): its clips leave in Full HD with the mark. */
+  courtesy?: boolean;
+};
+
+/** The sender's link for a recording: what the share sheet shows again until it expires. Times in ms. */
+export type SessionShare = { shareId: string; url: string; createdAt: number; expiresAt: number; clips: number; state: 'active' | 'off' };
 
 /**
  * The recording's sport (spec 2026-11-11 §5), stored under its historical name. `sport`: the sport the player chose
@@ -168,6 +185,8 @@ export type Clip = {
   ball?: ClipBall;
   /** Optional name the player gives the clip (like a recording's name). */
   name?: string;
+  /** On a received recording: the clip's place in the share it came from (sharing design §5.5). */
+  sharePosition?: number;
   /** When the edited video was last saved to Photos / sent through the share sheet (the clip itself stays inside the app). */
   savedAt?: number;
   sharedAt?: number;

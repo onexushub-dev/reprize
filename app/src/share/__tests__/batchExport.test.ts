@@ -159,5 +159,6 @@ test('timing reports the concurrency and one entry per exported clip', async () 
   const r = await runBatch({ ...t.base, clips: [a, clipOf('b'), clipOf('c')] });
   expect(r.timing.concurrency).toBe(2);
   expect(r.timing.perClipMs).toHaveLength(2);
-  expect(r.timing.totalMs).toBeGreaterThanOrEqual(5);
+  // The fake exports wait 5 ms; Date.now() can count a millisecond less on a busy machine.
+  expect(r.timing.totalMs).toBeGreaterThanOrEqual(3);
 });

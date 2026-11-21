@@ -1,4 +1,4 @@
-import { type Clip, DEFAULT_PREFS, DEFAULT_TRIM_MS, MAX_CLIP_NAME, MAX_GAME_NAME, type Prefs, type Session, type Sport } from './schema';
+import { type Clip, DEFAULT_PREFS, DEFAULT_TRIM_MS, MAX_CLIP_NAME, MAX_GAME_NAME, type Prefs, type Session, type SessionReceived, type SessionShare, type Sport } from './schema';
 
 export interface KV {
   getString(key: string): string | undefined;
@@ -131,7 +131,8 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
      */
     upgradeSession(id: string, plan: { passTransactionId?: string }): Session | undefined {
       const session = getSession(id);
-      if (!session) return undefined;
+      // A received recording is never made paid: Pro covers it while active, a courtesy otherwise (sharing §2.10).
+      if (!session || session.received) return undefined;
       const { passTransactionId } = plan;
       const next: Session = { ...session, paid: true, ...(passTransactionId ? { passTransactionId } : {}) };
       write(key.session(id), next);
@@ -145,6 +146,65 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       const session = getSession(id);
       if (!session) return;
       write(key.session(id), { ...session, ballSport });
+      changed();
+    },
+
+    /**
+     * A recording received through a link (sharing design §5.3): ended, never paid. Clips arrive later, one by one,
+     * with `addReceivedClip`.
+     */
+    startReceivedSession(input: { sport: Sport; name?: string; received: SessionReceived; now: number }): Session {
+      const ids = sessionIds();
+      spentList();
+      const session: Session = {
+        id: newId(),
+        sport: input.sport,
+        startedAt: input.now,
+        endedAt: input.now,
+        received: input.received,
+        ...(input.name ? { name: input.name.trim().slice(0, MAX_GAME_NAME) } : {}),
+      };
+      write(key.session(session.id), session);
+      write(key.sessions, [...ids, session.id]);
+      changed();
+      return session;
+    },
+
+    /** Every recording received through a link, with or without clips yet. */
+    receivedSessions(): Session[] {
+      return sessionIds()
+        .map((id) => getSession(id))
+        .filter((s): s is Session => s !== undefined && s.received !== undefined);
+    },
+
+    /** The received recording of this share, if this phone has it. */
+    receivedSession(shareId: string): Session | undefined {
+      return this.receivedSessions().find((s) => s.received !== undefined && s.received.shareId === shareId);
+    },
+
+    /** A clip of a received recording, stored as the sender left it (cut, bounds, number, edit). */
+    addReceivedClip(input: Omit<Clip, 'id'>): Clip {
+      const clip: Clip = { ...input, id: newId() };
+      write(key.clip(clip.id), clip);
+      write(key.clipsOf(input.sessionId), [...clipIds(input.sessionId), clip.id]);
+      changed();
+      return clip;
+    },
+
+    /** The server spent (or had already spent) a courtesy on this received recording. */
+    setReceivedCourtesy(id: string): void {
+      const session = getSession(id);
+      if (!session || !session.received || session.received.courtesy) return;
+      write(key.session(id), { ...session, received: { ...session.received, courtesy: true } });
+      changed();
+    },
+
+    /** The link this recording was shared with; undefined forgets it. */
+    setShared(id: string, shared: SessionShare | undefined): void {
+      const session = getSession(id);
+      if (!session) return;
+      const { shared: _old, ...rest } = session;
+      write(key.session(id), shared === undefined ? rest : { ...rest, shared });
       changed();
     },
 

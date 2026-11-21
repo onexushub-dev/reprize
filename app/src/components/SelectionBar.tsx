@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useT } from '../i18n/useT';
 import { colors, fonts, radius } from '../theme/tokens';
 import { Button } from './Button';
-import { DownloadIcon, FilmIcon, LockIcon, ShareIcon, TrashIcon } from './icons';
+import { DownloadIcon, FilmIcon, LockIcon, ShareIcon, TagIcon, TrashIcon } from './icons';
 
 type Props = {
   count: number;
@@ -14,11 +14,13 @@ type Props = {
   onShare: () => void;
   onSave: () => void;
   onCompile: () => void;
+  /** Etiqueta: one label for every picked clip. */
+  onLabel: () => void;
   onDelete: () => void;
 };
 
-/** Actions for the clips picked on the recording screen: Enviar alone on top, the other three visible below. */
-export function SelectionBar({ count, paid, busy, onShare, onSave, onCompile, onDelete }: Props) {
+/** Actions for the clips picked on the recording screen: Enviar alone on top, the other four visible below. */
+export function SelectionBar({ count, paid, busy, onShare, onSave, onCompile, onLabel, onDelete }: Props) {
   const { t } = useT();
   const blocked = count === 0 || busy;
   return (
@@ -39,6 +41,13 @@ export function SelectionBar({ count, paid, busy, onShare, onSave, onCompile, on
           disabled={blocked}
           onPress={onCompile}
           icon={paid ? <FilmIcon size={20} /> : <LockIcon size={14} color={colors.muted} />}
+        />
+        <Action
+          label={t('summary.label')}
+          text={t('summary.label')}
+          disabled={blocked}
+          onPress={onLabel}
+          icon={<TagIcon size={20} />}
         />
         <Action
           label={count === 0 ? t('common.delete') : t('summary.deleteClips', { count })}
@@ -99,10 +108,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 4,
     borderRadius: radius.button,
   },
-  actionText: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
+  actionText: { flexShrink: 1, fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
   badge: {
     fontFamily: fonts.bodyBold,
     fontSize: 10,

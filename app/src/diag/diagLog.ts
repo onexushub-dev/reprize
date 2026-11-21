@@ -71,6 +71,8 @@ export const DIAG_AREAS = [
   'TELA',
   'APP',
   'FOCO',
+  'ENVIO',
+  'RECEBER',
   'OUTRO',
 ] as const;
 export type DiagArea = (typeof DIAG_AREAS)[number];
@@ -94,6 +96,8 @@ const RULES: { prefix: string; area: DiagArea; strip: boolean }[] = [
   { prefix: 'tela: ', area: 'TELA', strip: true },
   { prefix: 'app: ', area: 'APP', strip: true },
   { prefix: 'Modo Foco: ', area: 'FOCO', strip: true },
+  { prefix: 'envio', area: 'ENVIO', strip: false },
+  { prefix: 'recebidas: ', area: 'RECEBER', strip: true },
 ];
 
 /** Words that make a line a warning (⚠): something failed, was taken away or dropped. */

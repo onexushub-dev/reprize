@@ -10,6 +10,7 @@ import { usePlan } from '../share/entitlement';
 import { focusQueue } from '../focus/appFocusQueue';
 import { ballQueue } from '../focus/appBallQueue';
 import { focusHold } from '../focus/focusQueue';
+import { setUploadHold } from '../cloud/uploadHold';
 // TEMP(diag-remote)
 import { diag } from '../diag/diagLog';
 import { useSessionDiag } from '../diag/useSessionDiag';
@@ -67,6 +68,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     focusQueue.setHold(hold);
     ballQueue.setHold(hold);
   }, [hold]);
+  // Nothing uploads while a recording is on (sharing design, decision 16), nor when the phone is critically hot.
+  const phase = session.state.phase;
+  const uploadHold =
+    phase === 'starting' || phase === 'recording' || phase === 'stopping' || session.state.thermal.level === 'critical';
+  useEffect(() => setUploadHold(uploadHold), [uploadHold]);
   return <SessionContext.Provider value={session}>{children}</SessionContext.Provider>;
 }
 

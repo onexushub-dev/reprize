@@ -3,7 +3,7 @@ import type { ModeId, TriggerSource } from '../data/schema';
 import type { Offering } from '../payments/types';
 
 /** Where the paywall was opened from; `locked_feature` is a tap on something Pro-only (see pro_feature_blocked). */
-export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature';
+export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature' | 'received_export' | 'settings';
 
 /** A count sent as a range, so the number of distinct values stays small and nothing is a precise tally. */
 export type CountBucket = '0' | '1' | '2-5' | '6-20' | '21+';
@@ -70,16 +70,43 @@ export type AnalyticsEvents = {
   pairing_completed: { method: 'qr' | 'code'; kind: 'remote' };
   pairing_failed: { reason: RemotePairFailure | 'invalid_link' };
 
+  // Sharing (sharing design §9)
+  /** A link was created for a recording; `clips` is how many it carries, `wait` the time from the tap to the QR code. */
+  share_created: { clips: CountBucket; wait: '<2s' | '2-5s' | '5-10s' | '>10s' };
+  /** Every clip of a link reached the cloud; `duration` from the link's creation. */
+  share_upload_done: { clips: CountBucket; duration: DurationBucket };
+  /** A link was opened in the app for the first time on this phone; `new_user`: the phone had no recording of its own. */
+  share_received: { clips: CountBucket; new_user: boolean };
+  /** Every clip of a received recording is on the phone; `duration` from the first opening. */
+  share_downloaded: { clips: CountBucket; duration: DurationBucket };
+  /** Someone who came by a link made their first own recording (once per phone). */
+  received_user_first_recording: undefined;
+  /** The server refused or the request failed; never the error text. */
+  share_failed: { reason: 'sign_in' | 'not_pro' | 'notice' | 'too_many' | 'failed' };
+  /** The liability notice was accepted (once per account and notice version). */
+  share_notice_accepted: undefined;
+  /** The owner turned a link off (Desligar link). */
+  share_turned_off: undefined;
+  /** A received recording was kept out of a screenshot or a screen recording (capture protection, §8.2). */
+  capture_blocked: { kind: 'screenshot' | 'recording' };
+  /** A courtesy was spent on a received recording; `remaining` after it (0 with one courtesy per account). */
+  courtesy_used: { remaining: number };
+  /** Save or Send of a received recording with no courtesy left and no Pro: the panel offers Pro only. */
+  courtesy_exhausted: undefined;
+  /** A received link was reported from the app (the server takes it down until reviewed). */
+  share_reported: { category: 'not_authorized' | 'minor' | 'inappropriate' | 'other' };
+
   // Monetization
   /** `offering` is the paywall shown: Pro (`default`) or the Single Pass (`pass`). */
   paywall_viewed: { source: PaywallSource; offering: Offering };
-  purchase_completed: { offering: Offering };
+  /** `source`: where the paywall was opened (`received_export`: Save or Send of a received recording). */
+  purchase_completed: { offering: Offering; source: PaywallSource };
   /** The paywall ended in a restore of an earlier purchase. */
   purchase_restored: { offering: Offering };
   /** A Single Pass kept from before was spent on a recording (one bought for it is purchase_completed). */
   pass_used: undefined;
   purchase_failed: { reason: 'error' };
-  pro_feature_blocked: { feature: 'quality_4k' | 'clip_length' | 'watch' | 'compile' };
+  pro_feature_blocked: { feature: 'quality_4k' | 'clip_length' | 'watch' | 'compile' | 'share' };
   free_export_limit_hit: undefined;
   /** What the player picked on the free-plan sheet: from an export (`save`/`share`) or from the recording's PRO card (`unlock`). */
   free_export_choice: { choice: 'pro' | 'pass' | 'go' | 'cancel'; kind: 'save' | 'share' | 'unlock' };

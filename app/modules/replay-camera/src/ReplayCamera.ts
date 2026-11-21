@@ -6,6 +6,7 @@ import type {
   BallAnalysis,
   BluetoothConnected,
   DeviceUpright,
+  Gravity,
   ExportClipOptions,
   ExportedClip,
   FocusAnalysis,
@@ -21,6 +22,8 @@ import type {
   Quality,
   UploadEntry,
   UploadItem,
+  DownloadEntry,
+  DownloadItem,
 } from './ReplayCamera.types';
 
 // Native rejections carry `code` (a ReplayErrorCode), so callers can branch on it.
@@ -70,6 +73,12 @@ export function setGestureTrace(enabled: boolean): void {
 export function getDeviceUpright(): DeviceUpright {
   if (typeof ReplayCameraModule.getUpright === 'function') return ReplayCameraModule.getUpright();
   return 'portrait';
+}
+
+/** The accelerometer's latest reading in g; null where the platform cannot tell (Android, older builds) or before the first one. */
+export function getDeviceGravity(): Gravity | null {
+  if (typeof ReplayCameraModule.getGravity === 'function') return ReplayCameraModule.getGravity() ?? null;
+  return null;
 }
 
 /** What the camera can zoom. Without native zoom there are only the two lenses: 0.5x and 1x, picked when the camera opens. */
@@ -472,7 +481,68 @@ export function uploadState(): UploadEntry[] {
   return ReplayCameraModule.uploadState();
 }
 
+/** Stops every running upload and keeps it paused (a recording started). */
+export function pauseUploads(): void {
+  if (ReplayCameraModule.uploadPause) ReplayCameraModule.uploadPause();
+}
+
+/** Starts the paused uploads again; `cellular` false keeps them on Wi-Fi. */
+export function resumeUploads(cellular: boolean): void {
+  if (ReplayCameraModule.uploadResume) ReplayCameraModule.uploadResume(cellular);
+}
+
+/** Starts again every upload left running with no transfer behind it (the app was swiped away). */
+export function restoreUploads(): void {
+  if (ReplayCameraModule.uploadRestore) ReplayCameraModule.uploadRestore();
+}
+
+/** Cancels these uploads and forgets them. */
+export function removeUploads(ids: string[]): void {
+  if (ReplayCameraModule.uploadRemove) ReplayCameraModule.uploadRemove(ids);
+}
+
 /** Cancels every upload and forgets them. */
 export function resetUploads(): void {
   if (ReplayCameraModule.uploadReset) ReplayCameraModule.uploadReset();
+}
+
+/** Whether this build downloads in the system's background session (iOS builds from 2026-11-19 on). */
+export function downloadsAvailable(): boolean {
+  return ReplayCameraModule.downloadStart !== undefined;
+}
+
+/**
+ * Starts downloading these files in the system's background session (iOS): they go on with the screen locked. With
+ * `paused` they are queued but wait for `resumeDownloads` (a recording is on). False where the build has no downloader.
+ */
+export function startDownloads(items: DownloadItem[], paused: boolean): boolean {
+  if (!ReplayCameraModule.downloadStart) return false;
+  ReplayCameraModule.downloadStart(items, paused);
+  return true;
+}
+
+/** Every file the downloader knows about; empty where the build has no downloader. */
+export function downloadState(): DownloadEntry[] {
+  if (!ReplayCameraModule.downloadState) return [];
+  return ReplayCameraModule.downloadState();
+}
+
+/** Stops every running download and keeps it paused (a recording started). */
+export function pauseDownloads(): void {
+  if (ReplayCameraModule.downloadPause) ReplayCameraModule.downloadPause();
+}
+
+/** Starts the paused downloads again. */
+export function resumeDownloads(): void {
+  if (ReplayCameraModule.downloadResume) ReplayCameraModule.downloadResume();
+}
+
+/** Cancels these downloads and forgets them. */
+export function removeDownloads(ids: string[]): void {
+  if (ReplayCameraModule.downloadRemove) ReplayCameraModule.downloadRemove(ids);
+}
+
+/** Starts again every download left running with no transfer behind it (the app was swiped away). */
+export function restoreDownloads(): void {
+  if (ReplayCameraModule.downloadRestore) ReplayCameraModule.downloadRestore();
 }

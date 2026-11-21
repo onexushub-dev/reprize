@@ -1,3 +1,7 @@
 .superpowers/
 .DS_Store
 .build/
+# TEMP(dev-reset): the dev reset key, written by supabase/scripts/reset-sharing.sh --setup
+supabase/.reset-key
+# Supabase CLI state (which project this machine is linked to)
+supabase/.temp/

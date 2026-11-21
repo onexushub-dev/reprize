@@ -21,6 +21,7 @@ jest.mock("../../../modules/replay-camera", () => {
     getWatchStatus: jest.fn(() => "unsupported"),
     getZoomRange: jest.fn(() => ({ min: 0.5, max: 5, continuous: true })),
     getDeviceUpright: jest.fn(() => "portrait"),
+    getDeviceGravity: jest.fn(() => null),
     isRemoteSupported: jest.fn(() => false),
     isRemoteControllerSupported: jest.fn(() => false),
     supportsQuality: jest.fn(() => true),
@@ -331,21 +332,22 @@ describe("pinch on the preview", () => {
     expect(area.props.onStartShouldSetResponder).toBeUndefined();
   });
 
-  test("a bubble shows the value while pinching and goes away shortly after the fingers lift", async () => {
-    jest.useFakeTimers();
+  test("while pinching, the zoom button itself shows the value: no second bubble (2026-11-20)", async () => {
     session({});
     await render(<Setup />);
-    expect(screen.queryByTestId("zoom-bubble")).toBeNull();
     const area = screen.getByTestId("zoom-pinch");
     await fireEvent(area, "responderGrant", two(100));
     await fireEvent(area, "responderMove", two(150));
-    expect(screen.getByTestId("zoom-bubble")).toBeTruthy();
-    expect(screen.getByTestId("zoom-bubble")).toHaveTextContent("1.5x");
-    await fireEvent(area, "responderRelease", one);
-    expect(screen.getByTestId("zoom-bubble")).toBeTruthy();
-    await act(async () => jest.advanceTimersByTime(900));
+    expect(zoomButton("Zoom 1.5x")).toBeTruthy();
     expect(screen.queryByTestId("zoom-bubble")).toBeNull();
-    jest.useRealTimers();
+  });
+
+  test("the zoom button hides while the settings are open", async () => {
+    session({});
+    await render(<Setup />);
+    expect(zoomButton("Zoom 1x")).toBeTruthy();
+    await openSettings();
+    expect(screen.queryByRole("button", { name: "Zoom 1x" })).toBeNull();
   });
 
   test("a second pinch starts from where the first one ended", async () => {
@@ -539,7 +541,7 @@ test("Começar gravação starts the one mode and shows the recording controls o
 
   session({ phase: "recording", sessionId: "s1", startedAt: Date.now() });
   await view.rerender(<Setup />);
-  expect(screen.getByText(/Toque na tela para salvar os últimos/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Salvar os últimos/ })).toBeTruthy();
   expect(router.replace).not.toHaveBeenCalled();
 });
 
@@ -646,17 +648,17 @@ test("the voice tile says when this phone cannot recognize speech offline", asyn
   ).toHaveBeenCalledWith("pt-BR");
 });
 
-test("Minhas gravações opens the game list, and is hidden during a game", async () => {
+test("Gravações opens the game list, and is hidden during a game", async () => {
   session({});
   const view = await render(<Setup />);
   await fireEvent.press(
-    screen.getByRole("button", { name: "Minhas gravações" }),
+    screen.getByRole("button", { name: "Gravações" }),
   );
   expect(router.push).toHaveBeenCalledWith("/games");
 
   session({ phase: "recording", sessionId: "s1", startedAt: Date.now() });
   await view.rerender(<Setup />);
-  expect(screen.queryByRole("button", { name: "Minhas gravações" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Gravações" })).toBeNull();
 });
 
 test("voice on without speech permission shows Toque para ativar", async () => {
@@ -906,31 +908,10 @@ test("on the free tier 4K carries the Pro badge, opens the paywall and the game 
   );
 });
 
-test("battery saving sits beside the zoom: on by default, a tap turns it off and says what that means", async () => {
+test("battery saving is only on the recording screen: the setup screen has no switch for it (2026-11-20)", async () => {
   session({});
   await render(<Setup />);
-  const button = screen.getByRole("switch", { name: "Economia de bateria" });
-  expect(button.props.accessibilityState).toMatchObject({ checked: true });
-  expect(screen.queryByTestId("economy-toast")).toBeNull();
-  jest.useFakeTimers();
-  await fireEvent.press(button);
-  expect(repo.setPrefs).toHaveBeenLastCalledWith({ screenEconomy: false });
-  expect(
-    screen.getByRole("switch", { name: "Economia de bateria" }).props
-      .accessibilityState,
-  ).toMatchObject({ checked: false });
-  expect(screen.getByText("Economia de bateria desligada")).toBeTruthy();
-  expect(
-    screen.getByText("A tela fica acesa durante a gravação."),
-  ).toBeTruthy();
-  // On again, the notice says so; then it goes away by itself.
-  await fireEvent.press(
-    screen.getByRole("switch", { name: "Economia de bateria" }),
-  );
-  expect(screen.getByText("Economia de bateria ligada")).toBeTruthy();
-  await act(async () => jest.advanceTimersByTime(3000));
-  expect(screen.queryByTestId("economy-toast")).toBeNull();
-  jest.useRealTimers();
+  expect(screen.queryByRole("switch", { name: "Economia de bateria" })).toBeNull();
 });
 
 test("the settings sheet no longer has its own battery row", async () => {
@@ -1458,6 +1439,33 @@ describe("phone held on its side", () => {
     expect(screen.getByRole("button", { name: "Gravar" })).toBeTruthy();
   });
 
+  test("the settings popup has no Começar gravação, and a tap outside it closes it", async () => {
+    session({});
+    await render(<Setup />);
+    await fireEvent.press(screen.getByRole("button", { name: "Ajustes" }));
+    expect(screen.getByTestId("setup-sheet")).toBeTruthy();
+    // Every setting in view at once, in columns, and a plain Fechar.
+    for (const title of ["TAMANHO DO CLIPE", "GATILHOS RECOMENDADOS", "OUTROS GATILHOS", "AVISOS AO SALVAR"])
+      expect(screen.getByText(title)).toBeTruthy();
+    expect(screen.getByText("Fechar")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Começar gravação" }),
+    ).toBeNull();
+    await fireEvent.press(screen.getByTestId("landscape-backdrop"));
+    expect(screen.queryByTestId("setup-sheet")).toBeNull();
+  });
+
+  test("Gravar with the settings open only closes them; the next tap records", async () => {
+    const s = session({});
+    await render(<Setup />);
+    await fireEvent.press(screen.getByRole("button", { name: "Ajustes" }));
+    await fireEvent.press(screen.getByRole("button", { name: "Gravar" }));
+    expect(screen.queryByTestId("setup-sheet")).toBeNull();
+    expect(s.start).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole("button", { name: "Gravar" }));
+    expect(s.start).toHaveBeenCalledWith("quadra");
+  });
+
   test("Gravar waits while the camera opens", async () => {
     session({ camera: "starting" });
     await render(<Setup />);
@@ -1472,97 +1480,20 @@ test("held upright the setup sheet stays as it was", async () => {
   expect(screen.queryByRole("button", { name: "Gravar" })).toBeNull();
 });
 
-describe("35 s without a touch pause the camera, with a warning 5 s before (2026-11-08 spec §3.2)", () => {
-  afterEach(() => jest.useRealTimers());
-  const PAUSED = "Tela em descanso";
-
-  test("5 s before, a countdown says the screen will rest and how to keep the camera", async () => {
-    jest.useFakeTimers();
+test("the setup never rests: after minutes without a touch the camera stays on (2026-11-20, only a recording rests)", async () => {
+  jest.useFakeTimers();
+  try {
     session({});
     await render(<Setup />);
-    await act(async () => jest.advanceTimersByTime(29_999));
+    await act(async () => jest.advanceTimersByTime(120_000));
     expect(screen.queryByTestId("idle-warning")).toBeNull();
-    await act(async () => jest.advanceTimersByTime(1));
-    expect(screen.getByText("A tela vai descansar em 5 s")).toBeTruthy();
-    expect(
-      screen.getByText(
-        "Para poupar bateria. Toque na tela para continuar vendo a câmera.",
-      ),
-    ).toBeTruthy();
-    await act(async () => jest.advanceTimersByTime(3_000));
-    expect(screen.getByText("A tela vai descansar em 2 s")).toBeTruthy();
-  });
-
-  test("a touch during the countdown keeps the camera and hides the warning", async () => {
-    jest.useFakeTimers();
-    session({});
-    await render(<Setup />);
-    await act(async () => jest.advanceTimersByTime(32_000));
-    await fireEvent(screen.getByTestId("setup-root"), "touchStart");
-    expect(screen.queryByTestId("idle-warning")).toBeNull();
-    await act(async () => jest.advanceTimersByTime(10_000));
-    expect(screen.queryByText(PAUSED)).toBeNull();
-  });
-
-  test("then the screen dims and says how to come back; the camera keeps running for the remote", async () => {
-    jest.useFakeTimers();
-    const s = session({});
-    await render(<Setup />);
-    s.release.mockClear();
-    await act(async () => jest.advanceTimersByTime(35_000));
-    expect(screen.getByText(PAUSED)).toBeTruthy();
-    expect(
-      screen.getByText("Para poupar bateria. Toque uma vez para ver a câmera de novo."),
-    ).toBeTruthy();
-    expect(screen.queryByTestId("idle-warning")).toBeNull();
-    expect(s.release).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("camera-paused")).toBeNull();
     const native = jest.requireMock("../../../modules/replay-camera");
-    expect(native.setScreenEconomy).toHaveBeenLastCalledWith(true);
-    expect(native.setCameraIdle).toHaveBeenLastCalledWith(true);
-  });
-
-  test("a tap turns the screen back up", async () => {
-    jest.useFakeTimers();
-    session({});
-    await render(<Setup />);
-    await act(async () => jest.advanceTimersByTime(35_000));
-    await fireEvent.press(screen.getByTestId("camera-paused"));
-    expect(screen.queryByText(PAUSED)).toBeNull();
-    const native = jest.requireMock("../../../modules/replay-camera");
-    expect(native.setScreenEconomy).toHaveBeenLastCalledWith(false);
-    expect(native.setCameraIdle).toHaveBeenLastCalledWith(false);
-  });
-
-  test("a hold on the remote starts the recording straight from the pause, with no tap first", async () => {
-    jest.useFakeTimers();
-    const s = session({});
-    s.start.mockResolvedValue("started");
-    await render(<Setup />);
-    await act(async () => jest.advanceTimersByTime(35_000));
-    expect(screen.getByText(PAUSED)).toBeTruthy();
-    const { useVolumeRemote } = jest.requireMock(
-      "../../triggers/useVolumeRemote",
-    );
-    expect(useVolumeRemote).toHaveBeenLastCalledWith(
-      true,
-      expect.any(Function),
-      expect.anything(),
-    );
-    await act(async () => useVolumeRemote.mock.calls.at(-1)[2].onHold());
-    expect(s.start).toHaveBeenCalled();
-  });
-
-  test("a remote press also turns the screen back up", async () => {
-    jest.useFakeTimers();
-    session({});
-    await render(<Setup />);
-    await act(async () => jest.advanceTimersByTime(35_000));
-    const { useVolumeRemote } = jest.requireMock(
-      "../../triggers/useVolumeRemote",
-    );
-    await act(async () => useVolumeRemote.mock.calls.at(-1)[1]());
-    expect(screen.queryByText(PAUSED)).toBeNull();
-  });
+    expect(native.setScreenEconomy).not.toHaveBeenCalledWith(true);
+    expect(native.setCameraIdle).not.toHaveBeenCalledWith(true);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("coming back from another app, a remote shown as connected goes back to paired until it is pressed again", async () => {

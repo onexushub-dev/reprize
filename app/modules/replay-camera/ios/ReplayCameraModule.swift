@@ -173,7 +173,7 @@ public class ReplayCameraModule: Module {
            "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteStop",
            "onRemoteStart", "onRemoteFrame", "onRemoteCheck", "onRemoteVoice", "onCaptureButton", "onAudioChange",
            "onDiag", // onDiag: TEMP(diag-remote)
-           "onBallProgress", "onUploadProgress", "onUploadDone", "onUploadRetry")
+           "onBallProgress", "onUploadProgress", "onUploadDone", "onUploadRetry", "onDownloadDone", "onDownloadRetry")
 
     OnCreate {
       self.engine.emit = { [weak self] name, body in self?.sendEvent(name, body) }
@@ -190,6 +190,8 @@ public class ReplayCameraModule: Module {
       WatchBridge.shared.activate()
       BackgroundUploader.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
       BackgroundUploader.shared.restore()
+      BackgroundDownloader.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
+      BackgroundDownloader.shared.restore()
     }
 
     AsyncFunction("startSession") { (opts: SessionOptions) in
@@ -232,15 +234,22 @@ public class ReplayCameraModule: Module {
       }
     }
 
-    // Screen economy while recording: preview off and brightness down; false gives both back.
-    Function("setScreenEconomy") { (on: Bool) in
-      DispatchQueue.main.async { MainActor.assumeIsolated { ScreenEconomy.set(on) } }
+    // The raw accelerometer reading, so the setup screen can ask for a phone truly on its side (nil before the first one).
+    Function("getGravity") { () -> [String: Double]? in
+      guard let g = self.engine.gesture.currentGravity() else { return nil }
+      return ["x": g.x, "y": g.y, "z": g.z]
     }
 
-    // Screen economy on the remote phone: brightness down to a level that can still be read; false gives it back.
+    // Screen economy while recording: the JS side dims the picture (the camera stays in view, 2026-11-21); nothing
+    // native changes, and the phone's brightness is never touched. Kept so older JS keeps working.
+    Function("setScreenEconomy") { (on: Bool) in
+      DispatchQueue.main.async { MainActor.assumeIsolated { ScreenEconomy.set(on, pausePreview: false) } }
+    }
+
+    // Screen economy on the remote phone: nothing native to stop (the screen dims on the JS side); kept for older JS.
     Function("setRemoteScreenDim") { (on: Bool) in
       DispatchQueue.main.async {
-        MainActor.assumeIsolated { ScreenEconomy.set(on, brightness: ScreenEconomy.remoteBrightness, pausePreview: false) }
+        MainActor.assumeIsolated { ScreenEconomy.set(on, pausePreview: false) }
       }
     }
 
@@ -495,6 +504,18 @@ public class ReplayCameraModule: Module {
     Function("uploadStart") { (items: [UploadItem]) in BackgroundUploader.shared.start(items) }
     Function("uploadState") { () -> [[String: Any]] in BackgroundUploader.shared.state() }
     Function("uploadReset") { BackgroundUploader.shared.reset() }
+    Function("uploadPause") { BackgroundUploader.shared.pause() }
+    Function("uploadResume") { (cellular: Bool) in BackgroundUploader.shared.resume(cellular: cellular) }
+    Function("uploadRemove") { (ids: [String]) in BackgroundUploader.shared.remove(ids) }
+    Function("uploadRestore") { BackgroundUploader.shared.restore() }
+    // Background download of received clips (sharing design §5.5).
+    Function("downloadStart") { (items: [DownloadItem], paused: Bool) in BackgroundDownloader.shared.start(items, paused: paused) }
+    Function("downloadState") { () -> [[String: Any]] in BackgroundDownloader.shared.state() }
+    Function("downloadPause") { BackgroundDownloader.shared.pause() }
+    Function("downloadResume") { BackgroundDownloader.shared.resume() }
+    Function("downloadRemove") { (ids: [String]) in BackgroundDownloader.shared.remove(ids) }
+    Function("downloadRestore") { BackgroundDownloader.shared.restore() }
+    Function("downloadReset") { BackgroundDownloader.shared.reset() }
 
     // Spike 3 of the sharing design: children kept out of screenshots and screen recordings (CaptureShield.swift).
     View(CaptureShieldView.self) {

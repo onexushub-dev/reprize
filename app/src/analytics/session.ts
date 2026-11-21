@@ -12,7 +12,7 @@ export function countBucket(n: number): CountBucket {
   return '21+';
 }
 
-function durationBucket(ms: number): DurationBucket {
+export function durationBucket(ms: number): DurationBucket {
   const minutes = ms / 60_000;
   if (minutes < 1) return '<1m';
   if (minutes < 5) return '1-5m';

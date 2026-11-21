@@ -1,4 +1,4 @@
-// Design tokens from the Reprize brand guide (Placar palette): ground is Ink, text is Branco, accent is Âmbar. surface, border, muted and rec are the app interface colors of the guide; rec only ever means "recording". recordingGround, screenOff, soft and the warning pair are app-only. The UI is always dark.
+// Design tokens from the Reprize brand guide (Placar palette): ground is Ink, text is Branco, accent is Âmbar. surface, border, muted and rec are the app interface colors of the guide; rec only ever means "recording". recordingGround, screenOff, soft, the warning pair and the received pair are app-only. The UI is always dark.
 
 export const colors = {
   ground: '#0A0A0A',
@@ -15,6 +15,9 @@ export const colors = {
   rec: '#FF453A',
   warning: '#FF8A3D',
   warningGround: '#3A1D10',
+  /** A recording someone shared with this phone (its badge in Gravações). */
+  received: '#9CC3FF',
+  receivedGround: '#1F2A3A',
 } as const;
 
 export const fonts = {
