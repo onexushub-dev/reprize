@@ -110,8 +110,12 @@ export default function RootLayout() {
             contentStyle: { backgroundColor: 'transparent' },
           }}
         />
-        {/* Dispositivos: a sheet over the setup screen, closed by swiping down. */}
-        <Stack.Screen name="devices" options={{ presentation: 'modal' }} />
+        {/* Controle Bluetooth (2026-11-22): a sheet as tall as what it holds over the setup screen, like the app's other
+            sheets. Transparent, so the camera stays visible above it; the sheet rises on its own, the whole fades out. */}
+        <Stack.Screen
+          name="devices"
+          options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
+        />
         {/* Compartilhar gravação: a sheet over the recording, closed by swiping down. */}
         <Stack.Screen name="share/[id]" options={{ presentation: 'modal' }} />
       </Stack>

@@ -12,6 +12,8 @@ type Props = {
   onStart: () => void;
   /** The camera is opening or the game is starting: "Gravar" waits. */
   busy: boolean;
+  /** Shown waiting (the turning wheel): only once it takes a while, so a quick reopen does not flash. */
+  waiting?: boolean;
   error?: string | null;
   /** The quarter turn that stands the buttons' contents upright for the phone on its side. */
   turn: LandscapeTurn;
@@ -24,7 +26,7 @@ type Props = {
  * the Camera app, with their contents turned upright: Ajustes, Gravar in the middle and the zoom. The camera and its
  * positioning guide stay clear; the settings open on demand.
  */
-export function CompactDock({ onSettings, onStart, busy, error, turn, zoom }: Props) {
+export function CompactDock({ onSettings, onStart, busy, waiting = busy, error, turn, zoom }: Props) {
   const { t } = useT();
   const upright = { transform: [{ rotate: `${turn}deg` }] };
   return (
@@ -50,8 +52,8 @@ export function CompactDock({ onSettings, onStart, busy, error, turn, zoom }: Pr
           accessibilityState={{ disabled: busy, busy }}
           disabled={busy}
           onPress={onStart}
-          style={[styles.record, busy && styles.busy]}>
-          {busy ? <ActivityIndicator color={colors.text} /> : <View style={styles.recordFill} />}
+          style={[styles.record, waiting && styles.busy]}>
+          {waiting ? <ActivityIndicator color={colors.text} /> : <View style={styles.recordFill} />}
         </Pressable>
         {zoom ? (
           <Pressable
@@ -84,7 +86,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   spacer: { width: 52, height: 52 },
-  // As in the Camera app: a white ring with a gap, and the red disc inside (2026-11-20).
+  // As in the Camera app: a white ring with a gap and the disc inside, in the app's amber (2026-11-22; red before).
   record: {
     width: 74,
     height: 74,
@@ -95,7 +97,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  recordFill: { width: 58, height: 58, borderRadius: 29, backgroundColor: colors.rec },
+  recordFill: { width: 58, height: 58, borderRadius: 29, backgroundColor: colors.accent },
   busy: { opacity: 0.5 },
   zoomText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.accent },
   error: { backgroundColor: 'rgba(12,12,12,0.85)', paddingVertical: 8, paddingHorizontal: 14, borderRadius: 16, marginHorizontal: 16 },

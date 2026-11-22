@@ -8,13 +8,12 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  ActivityIndicator,
   Alert,
+  Animated,
   AppState,
-  PanResponder,
+  Easing,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -36,42 +35,43 @@ import {
   ReplayCameraView,
   requestSpeechPermission,
   signalAction,
+  signalSaved,
   signalSaveFailed,
   supportsQuality,
 } from "../../modules/replay-camera";
-import type {
-  RemotePeer,
-  ReplayErrorCode,
-} from "../../modules/replay-camera/src/ReplayCamera.types";
+import type { RemotePeer, ReplayErrorCode } from "../../modules/replay-camera/src/ReplayCamera.types";
 import { useCameraPinch } from "../camera/useCameraPinch";
 import { useLandscapeTurn } from "../camera/useDeviceLandscape";
-import { Button } from "../components/Button";
-import { Chip } from "../components/Chip";
-import { CompactDock } from "../components/CompactDock";
+import { CameraBar, type CameraPanel, type TriggerKey } from "../components/CameraBar";
+import { PhoneRemotePanel } from "../components/PhoneRemotePanel";
 import { PrepareSheet } from "../components/PrepareSheet";
-import { GestureSheet, VoiceSheet } from "../components/PracticeSheet";
 import { modeTip } from "../components/format";
 import { sourceLabel } from "../components/sourceLabel";
 import { sessionSummary, track } from "../analytics";
 import { PositionGuide } from "../components/PositionGuide";
 import { RecordingPanel } from "../components/RecordingPanel";
-import { ProBadge } from "../components/ProBadge";
 import {
-  CloseIcon,
-  GalleryIcon,
-  GearIcon,
+  PanelAction,
+  PanelGroup,
+  PanelInfo,
+  PanelOption,
+  panelColors,
+  ProGroup,
+  SetupPanel,
+  TriggerCircle,
+} from "../components/SetupPanel";
+import { TriggerTestPanel } from "../components/TriggerTestPanel";
+import {
+  BoltIcon,
   MicIcon,
-  QrIcon,
+  PhoneIcon,
   RemoteIcon,
-  StarIcon,
-  TapIcon,
+  SoundIcon,
   WatchIcon,
   WaveIcon,
 } from "../components/icons";
-import { TriggerTile } from "../components/TriggerTile";
 import { ZoomButton } from "../components/ZoomButton";
-import { kv, repo } from "../data/mmkv";
-import { SHARING_ENABLED } from "../account/flags";
+import { repo } from "../data/mmkv";
 import { useSetupDiag } from "../diag/useSetupDiag"; // TEMP(diag)
 import { openPaywall } from "../payments/feedback";
 import {
@@ -105,7 +105,7 @@ import {
 } from "../modes/registry";
 import { clampZoom, hasZoomChoice, lensFor, nextZoomStep } from "../modes/zoom";
 import { useSession } from "../session/SessionContext";
-import { colors, fonts, footer, radius } from "../theme/tokens";
+import { colors, fonts } from "../theme/tokens";
 import { useBluetoothRemote } from "../triggers/useBluetoothRemote";
 
 const START_ERRORS: Partial<Record<ReplayErrorCode, MessageKey>> = {
@@ -113,7 +113,6 @@ const START_ERRORS: Partial<Record<ReplayErrorCode, MessageKey>> = {
   CAMERA_PERMISSION: "common.cameraDenied",
 };
 
-/** Under "Conectar um celular controle": how many remotes are linked right now. Nothing when none is. */
 /** The watch link as the native side sees it now. Read on every render, not only on events: WatchConnectivity
  * activates when the module loads, and an activation that finishes before this screen listens is never heard. */
 function subscribeWatch(onChange: () => void): () => void {
@@ -121,6 +120,7 @@ function subscribeWatch(onChange: () => void): () => void {
   return () => sub.remove();
 }
 
+/** Under "Conectar um celular": how many remotes are linked right now. Nothing when none is. */
 function controllersStatus(t: TFunction, linked: number): string | undefined {
   if (linked <= 0) return undefined;
   return linked === 1
@@ -129,23 +129,24 @@ function controllersStatus(t: TFunction, linked: number): string | undefined {
 }
 
 /**
- * Under "Usar este celular como controle": the camera phone this one is paired with. It says "Pareado", not
- * "Conectado": this screen cannot tell if the link is up, because the remote side only connects while its own screen is open.
+ * Under "Usar este celular": the camera phone this one is paired with. It says "Pareado", not "Conectado": this screen
+ * cannot tell if the link is up, because the remote side only connects while its own screen is open.
  */
-function cameraStatus(
-  t: TFunction,
-  host: { name: string } | null,
-): string | undefined {
+function cameraStatus(t: TFunction, host: { name: string } | null): string | undefined {
   if (host === null) return undefined;
-  return host.name.length > 0
-    ? t("setup.pairedWith", { name: host.name })
-    : t("setup.paired");
+  return host.name.length > 0 ? t("setup.pairedWith", { name: host.name }) : t("setup.paired");
 }
 
 /** How long the battery-saving notice stays after a tap on its button. */
 
-/** Set once the tip about the gear (Ajustes) was read. */
-const SETTINGS_TIP_KEY = "reprize:v1:settings-tip";
+/** How long the buttons' contents take to turn upright after the phone turns. */
+const TURN_SPIN_MS = 280;
+
+/** How long the zoom button stays amber after the zoom changed. */
+const ZOOM_LIT_MS = 900;
+
+/** The camera opening says so only past this (a quick reopen, coming back from another screen, only flashed). */
+const OPENING_NOTE_MS = 700;
 
 export default function Setup() {
   const session = useSession();
@@ -181,13 +182,27 @@ export default function Setup() {
     },
     onCommit: (next) => {
       setLiveZoom(null);
+      lightZoom();
       if (Math.abs(next - savedZoom) > 1e-6) {
         updateMode({ zoom: next });
         sessionSummary.note("zoom");
       }
     },
   });
+  // The zoom button turns amber while the zoom changes, and a moment after (2026-11-22): the eye finds the new value.
+  const [zoomLit, setZoomLit] = useState(false);
+  const [zoomTouches, setZoomTouches] = useState(0);
+  const lightZoom = () => {
+    setZoomLit(true);
+    setZoomTouches((n) => n + 1);
+  };
+  useEffect(() => {
+    if (zoomTouches === 0) return;
+    const timer = setTimeout(() => setZoomLit(false), ZOOM_LIT_MS);
+    return () => clearTimeout(timer);
+  }, [zoomTouches]);
   const cycleZoom = () => {
+    lightZoom();
     const next = nextZoomStep(zoom, zoomRange);
     session.setZoom(next, true);
     updateMode({ zoom: next });
@@ -210,26 +225,17 @@ export default function Setup() {
   // tell (2026-11-01 field test). So its icon and tile light up only once a press is heard; the recording still listens
   // to it either way.
   const remoteReady = remoteView.state === "connected";
-  // The sheet opens collapsed so the camera and its guide stay visible; mode and triggers sit behind the summary.
-  const [expanded, setExpanded] = useState(false);
-  // A trigger's "?" (the wave gesture, voice): how to use it, and practice with the live camera.
-  const [practice, setPractice] = useState<"gesture" | "voice" | undefined>(
-    undefined,
-  );
-  /** Opens a trigger's guide; each opening counts as a guide in the session summary. */
-  const openPractice = (kind: "gesture" | "voice") => {
-    sessionSummary.note("guide");
-    setPractice(kind);
-  };
-  const [sheetHeight, setSheetHeight] = useState(0);
-  // Swipe up on the sheet opens it, swipe down closes it; taps still reach the controls inside.
-  const [swipe] = useState(() =>
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dy) > 12 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderRelease: (_, g) => setExpanded(g.dy < 0),
-    }),
-  );
+  // Upright (2026-11-22): the panel open over the camera (clip length, quality, triggers or their test), and the height
+  // of the button bar under the picture, which the panels, the zoom and the positioning guide sit above.
+  const [panel, setPanel] = useState<CameraPanel | undefined>(undefined);
+  const closePanel = () => setPanel(undefined);
+  const [barHeight, setBarHeight] = useState(0);
+  // The trigger test: a remote press heard since it opened. The remote's listener reads the open panel from a ref.
+  const [remoteHeard, setRemoteHeard] = useState(false);
+  const testing = useRef(false);
+  useEffect(() => {
+    testing.current = panel === "test";
+  }, [panel]);
   const [speechDenied, setSpeechDenied] = useState(false);
   // Offline recognition only: court audio is never streamed to a server.
   // Asked again if the language changes: the on-device model is per language.
@@ -287,26 +293,15 @@ export default function Setup() {
   const [has4k] = useState(() => supportsQuality("2160p30"));
   const fourKAllowed = qualityAllowed("2160p30", plan);
   const is4k = has4k && fourKAllowed && settings.quality === "2160p30";
-  // Ajustes moved to the gear: a tip the first time, until it is read or the gear is used.
-  const [settingsTip, setSettingsTip] = useState(
-    () => SHARING_ENABLED && kv.getString(SETTINGS_TIP_KEY) !== "seen",
-  );
-  const dismissSettingsTip = () => {
-    if (!settingsTip) return;
-    kv.set(SETTINGS_TIP_KEY, "seen");
-    setSettingsTip(false);
-  };
-  // The phone remote (a second iPhone that taps Salvar for this one). The camera phone waits for its paired remotes for
-  // as long as the app is open (see the root layout); pairing happens on its own sheet (/pairing).
-  // Android is only a remote for now (no camera side yet): each tile shows where its side exists.
+  // The phone remote (a second iPhone that taps Salvar for this one; back in the triggers panel 2026-11-22). The camera
+  // phone waits for its paired remotes for as long as the app is open (see the root layout); pairing happens on its own
+  // sheet (/pairing). Android is only a remote for now (no camera side yet): each button shows where its side exists.
   const [remoteSupported] = useState(() => isRemoteSupported());
   const [controllerSupported] = useState(() => isRemoteControllerSupported());
   const [controlHost, setControlHost] = useState<RemotePeer | null>(() =>
     isRemoteControllerSupported() ? remoteControllerHost() : null,
   );
-  const [remoteLinked, setRemoteLinked] = useState(() =>
-    remoteHostControllers(),
-  );
+  const [remoteLinked, setRemoteLinked] = useState(() => remoteHostControllers());
   useEffect(() => {
     if (!remoteSupported) return;
     const sub = addReplayListener("onRemoteStatus", (e) => {
@@ -326,6 +321,12 @@ export default function Setup() {
       if (remoteSupported) setRemoteLinked(remoteHostControllers());
     }
   }
+  // The phone remote (2026-11-22): one of the triggers, "Celular", under Mais opções; a tap opens its own panel.
+  const phoneOffered = remoteSupported || controllerSupported;
+  const linkedStatus = controllersStatus(t, remoteLinked);
+  const pairedStatus = cameraStatus(t, controlHost);
+  const phoneStatus = linkedStatus !== undefined ? linkedStatus : controlHost !== null ? t("setup.paired") : t("setup.phoneNone");
+  const openPhoneRemote = () => setPanel("phone");
   const disconnectControl = () => {
     const name = controlHost === null ? "" : controlHost.name;
     Alert.alert(t("remote.forgetTitle", { name }), t("remote.forgetBody"), [
@@ -352,13 +353,6 @@ export default function Setup() {
           ? t("setup.voiceDenied")
           : t("setup.tapToAllow");
 
-  /** The voice practice asks for the permission on its own (the trigger stays as the player set it). */
-  async function allowSpeech() {
-    const granted = await requestSpeechPermission();
-    track("permission_result", { kind: "speech", granted });
-    setSpeech(granted ? "granted" : "denied");
-  }
-
   async function toggleVoice() {
     if (voiceOn) return updateMode({ voiceEnabled: false });
     let granted = speechGranted;
@@ -371,38 +365,8 @@ export default function Setup() {
     if (granted) updateMode({ voiceEnabled: true });
   }
 
-  const summary = t("setup.summary", {
-    items: [
-      t("setup.summaryClip", { seconds: clipSeconds }),
-      ...(is4k ? [t("setup.summary4k")] : []),
-      ...(voiceOffered
-        ? [t(voiceOn ? "setup.summaryVoiceOn" : "setup.summaryVoiceOff")]
-        : []),
-      t(
-        settings.gestureEnabled
-          ? "setup.summaryGestureOn"
-          : "setup.summaryGestureOff",
-      ),
-      t(
-        !remoteAllowed
-          ? "setup.summaryRemoteNotConnected"
-          : remoteView.state === "connected"
-            ? "setup.summaryRemoteConnected"
-            : remoteLink === "bluetoothOff"
-              ? "setup.summaryBluetoothOff"
-              : remoteLink === "missing"
-                ? "setup.summaryRemoteMissing"
-                : remoteView.state === "offline"
-                  ? "setup.summaryRemotePaired"
-                  : "setup.summaryRemoteNotConnected",
-      ),
-      ...(watchOn ? [t("setup.summaryWatchReady")] : []),
-    ].join(", "),
-  });
-
   const { phase, error, camera } = session.state;
-  // The practice belongs to the setup: a game starting closes it.
-  if (practice !== undefined && phase !== "idle") setPractice(undefined);
+  if (panel !== undefined && phase !== "idle") setPanel(undefined);
   const { prepare, release } = session;
 
   // Before a recording, until the player turns it off: how to keep the iPhone steady (no case, out of the sun).
@@ -419,14 +383,28 @@ export default function Setup() {
     else void release();
   }, [live, prepare, release, modeId, lens, plan]);
 
+  // Back on the camera after a game (2026-11-22: Gravações has no "Nova gravação", the player just goes back): a game
+  // that ended still holds the live session, so it starts clean, as that button did. Only on coming back: the moment a
+  // game ends here, the screen is still on top while it moves on to the game's clips.
+  const wasFocused = useRef(focused);
+  useEffect(() => {
+    const back = focused && !wasFocused.current;
+    wasFocused.current = focused;
+    if (back && phase === "ended" && error === undefined) session.reset();
+  }, [focused, phase, error, session]);
+
   // A recording ended from the remote leaves the player on this screen: the camera comes back for the next hold.
   useEffect(() => {
     if (live && phase === "idle" && camera === "off") void prepare(modeId, plan);
   }, [live, phase, camera, prepare, modeId, plan]);
 
-  /** A remote press here: the connection test. */
+  /** A remote press here: the connection test, and a "Funcionou" in the trigger test (with the saved-clip chime). */
   const remotePress = () => {
     remoteTest.press();
+    if (testing.current) {
+      setRemoteHeard(true);
+      signalSaved({ sound: true, flash: false });
+    }
   };
 
   useEffect(() => {
@@ -503,6 +481,20 @@ export default function Setup() {
 
   const opening = camera === "starting";
   const starting = phase === "starting" || opening;
+  // Back from another screen the camera reopens in a moment, and saying so only flashed on screen (2026-11-22): the
+  // note and the waiting look show only once it takes longer than OPENING_NOTE_MS. The buttons wait for it either way;
+  // a tap on Gravar shows its wait at once.
+  const [slowOpen, setSlowOpen] = useState(false);
+  useEffect(() => {
+    if (!opening) return;
+    const timer = setTimeout(() => setSlowOpen(true), OPENING_NOTE_MS);
+    return () => {
+      clearTimeout(timer);
+      setSlowOpen(false);
+    };
+  }, [opening]);
+  const showOpening = opening && slowOpen;
+  const waiting = phase === "starting" || showOpening;
   const errorText = error
     ? t(START_ERRORS[error] ?? "setup.cameraFailed")
     : null;
@@ -511,9 +503,30 @@ export default function Setup() {
   // On its side, the buttons' contents turn upright (the app itself stays in portrait).
   const turn = useLandscapeTurn(live && phase === "idle");
   const landscape = turn !== 0;
-  const compact = landscape;
-  const upright = landscape ? { transform: [{ rotate: `${turn}deg` }] } : undefined;
+  // In the turned frame: the phone's bottom edge (the column, as in the Camera app) and the notch's side.
+  const columnSide = turn === 90 ? "right" : "left";
+  const notchSide = turn === 90 ? "left" : "right";
+  // Turning the phone turns what is in the buttons, as in the Camera app (2026-11-22): animated, from where it was.
+  const [spin] = useState(() => new Animated.Value(turn));
+  useEffect(() => {
+    Animated.timing(spin, {
+      toValue: turn,
+      duration: TURN_SPIN_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [turn, spin]);
+  const spinDeg = spin.interpolate({ inputRange: [-90, 90], outputRange: ["-90deg", "90deg"] });
   const screen = useWindowDimensions();
+
+  // What the triggers' button draws: the ones on right now (a remote only once a press proved it works).
+  const triggersOn: TriggerKey[] = [
+    ...(remoteReady && remoteAllowed ? (["remote"] as const) : []),
+    ...(watchOn ? (["watch"] as const) : []),
+    ...(voiceOn ? (["voice"] as const) : []),
+    ...(settings.gestureEnabled ? (["wave"] as const) : []),
+    ...(remoteLinked > 0 ? (["phone"] as const) : []),
+  ];
 
   const inGame =
     phase === "recording" ||
@@ -544,25 +557,49 @@ export default function Setup() {
         onStart={startPrepared}
         onClose={() => setPreparing(false)}
       />
-      {practice === "gesture" ? (
-        <GestureSheet
-          visible={live && phase === "idle"}
-          onClose={() => setPractice(undefined)}
-        />
-      ) : null}
-      {practice === "voice" ? (
-        <VoiceSheet
-          visible={live && phase === "idle"}
-          onClose={() => setPractice(undefined)}
-          locale={locale}
-          speech={speech}
-          onAllow={() => void allowSpeech()}
-        />
-      ) : null}
     </View>
   );
 
   function renderSetupControls() {
+    // What is going on sits over the camera beside the buttons: the camera opening (once slow), or why a start failed.
+    const message = errorText !== null ? errorText : showOpening ? t("setup.openingCamera") : null;
+    const showZoom = hasZoomChoice(zoomRange) && panel === undefined && message === null;
+    const bar = (
+      <CameraBar
+        clipSeconds={clipSeconds}
+        quality={is4k ? t("setup.quality4k") : t("setup.qualityFullHd")}
+        qualityFixed={!has4k}
+        triggers={triggersOn}
+        panel={panel}
+        onPanel={(kind) => setPanel(panel === kind ? undefined : kind)}
+        busy={starting}
+        waiting={waiting}
+        onRecord={() => {
+          closePanel();
+          askThenStart();
+        }}
+        onRecordings={() => router.push("/games")}
+        onSettings={() => router.push("/account")}
+        onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}
+        spin={spinDeg}
+        turned={landscape}
+        reversed={landscape && turn === 90}
+      />
+    );
+    // A tap on the camera around an open panel closes it.
+    const backdrop =
+      panel === undefined ? null : (
+        <Pressable testID="panel-backdrop" accessible={false} onPress={closePanel} style={StyleSheet.absoluteFill} />
+      );
+    const messageText =
+      message === null ? null : (
+        <Text
+          accessibilityRole={errorText !== null ? "alert" : "text"}
+          style={[styles.message, errorText !== null && styles.messageError]}
+        >
+          {message}
+        </Text>
+      );
     return (
       <>
         {zoomRange.continuous ? (
@@ -572,69 +609,25 @@ export default function Setup() {
             {...pinch}
           />
         ) : null}
-        {/* The zoom sits over the sheet, in the middle, as in the Camera app (2026-11-20). */}
-        {hasZoomChoice(zoomRange) && !expanded && !compact ? (
-          <View
-            pointerEvents="box-none"
-            style={[styles.zoomDock, { bottom: (compact ? 72 : sheetHeight) + 16 }]}
-          >
-            <ZoomButton value={zoom} onPress={cycleZoom} />
-          </View>
-        ) : null}
         <View
           testID="guide-area"
           pointerEvents="none"
-          style={[styles.guideArea, { bottom: landscape ? 72 : sheetHeight }]}
+          style={[styles.guideArea, { bottom: barHeight }]}
         >
           <PositionGuide guide={mode.guide} />
         </View>
 
-        <SafeAreaView edges={["top"]} style={styles.top}>
-          {/* Gravações on the left, Ajustes on the right (2026-11-20: battery saving is only on the recording screen). */}
-          <View style={styles.topRow}>
-            <View style={styles.topSide}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("setup.myRecordings")}
-                onPress={() => router.push("/games")}
-                style={styles.galleryButton}
-              >
-                <View style={upright}>
-                  <GalleryIcon size={28} />
-                </View>
-              </Pressable>
-            </View>
-            <View style={[styles.topSide, styles.topSideEnd]}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("setup.settings")}
-                onPress={() => {
-                  dismissSettingsTip();
-                  router.push("/account");
-                }}
-                style={styles.gearButton}
-              >
-                <View style={upright}>
-                  <GearIcon size={23} />
-                </View>
-              </Pressable>
-            </View>
-          </View>
-          {settingsTip && !compact ? (
-            <View style={styles.settingsTip}>
-              <View style={styles.settingsTipArrow} />
-              <Text style={styles.settingsTipTitle}>{t("setup.settingsTipTitle")}</Text>
-              <Text style={styles.settingsTipBody}>{t("setup.settingsTipBody")}</Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={dismissSettingsTip}
-                style={styles.settingsTipButton}
-              >
-                <Text style={styles.settingsTipButtonText}>{t("setup.settingsTipOk")}</Text>
-              </Pressable>
+        <SafeAreaView edges={["top"]} pointerEvents="box-none" style={styles.top}>
+          {/* The zoom at the top of the screen (2026-11-22), upright and on its side in the same place: on its side
+              only its text turns to stand upright. */}
+          {showZoom ? (
+            <View testID="zoom-dock" pointerEvents="box-none" style={styles.zoomTop}>
+              <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
+                <ZoomButton value={zoom} onPress={cycleZoom} lit={liveZoom !== null || zoomLit} />
+              </Animated.View>
             </View>
           ) : null}
-          {mode.tip && !compact ? (
+          {mode.tip && !landscape ? (
             <View style={styles.tip}>
               <Text style={styles.tipText}>{modeTip(mode.group, locale)}</Text>
             </View>
@@ -642,595 +635,318 @@ export default function Setup() {
         </SafeAreaView>
 
         {landscape ? (
-          <>
-            {expanded ? renderLandscapeSettings() : null}
-            {/* Over the settings: Ajustes toggles them, and Gravar with them open only closes them (2026-11-20). */}
-            <CompactDock
-              busy={starting}
-              error={expanded ? null : errorText}
-              onSettings={() => setExpanded(!expanded)}
-              onStart={() => (expanded ? setExpanded(false) : askThenStart())}
-              turn={turn}
-              zoom={hasZoomChoice(zoomRange) ? { value: zoom, onPress: cycleZoom } : undefined}
-            />
-          </>
-        ) : (
+          // On its side (2026-11-22): the panels and the notes are drawn in a frame turned a quarter to stand upright
+          // (the app itself stays in portrait), beside the bar, which is on the phone's bottom edge.
           <View
-            testID="setup-sheet"
-            style={styles.sheet}
-            onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
-          >
-            <SafeAreaView
-              edges={["bottom"]}
-              style={styles.sheetBody}
-              {...swipe.panHandlers}
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  expanded ? t("setup.closeSettings") : t("setup.openSettings")
-                }
-                onPress={() => setExpanded(!expanded)}
-                hitSlop={12}
-                style={styles.handleArea}
-              >
-                <View style={styles.handle} />
-              </Pressable>
-              {expanded ? renderSettings() : renderSummary()}
-
-              {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
-              <Button
-                label={opening ? t("setup.openingCamera") : t("setup.start")}
-                icon={
-                  starting ? (
-                    <ActivityIndicator color={colors.onAccent} />
-                  ) : undefined
-                }
-                disabled={starting}
-                onPress={askThenStart}
-              />
-            </SafeAreaView>
-          </View>
-        )}
-      </>
-    );
-  }
-
-  /**
-   * The settings with the phone on its side (2026-11-20): the app stays in portrait, so the panel is drawn turned a
-   * quarter to stand upright. It takes the whole screen but the round buttons' side, with every setting in view (three
-   * columns, no scrolling). Fechar, a tap outside it, or Gravar close it (Gravar records on the next tap).
-   */
-  function renderLandscapeSettings() {
-    const long = screen.height;
-    const short = screen.width;
-    // The round buttons (Ajustes, Gravar, zoom) stay in view on the side the phone's bottom is; the notch on the other.
-    const dockSide = turn === 90 ? "right" : "left";
-    const notchSide = turn === 90 ? "left" : "right";
-    return (
-      <>
-        <Pressable
-          testID="landscape-backdrop"
-          accessible={false}
-          onPress={() => setExpanded(false)}
-          style={styles.landscapeBackdrop}
-        />
-        <View
-          pointerEvents="box-none"
-          style={[
-            styles.landscapeFrame,
-            {
-              width: long,
-              height: short,
-              left: (short - long) / 2,
-              top: (long - short) / 2,
-              transform: [{ rotate: `${turn}deg` }],
-            },
-          ]}
-        >
-          <View
-            testID="setup-sheet"
+            testID="landscape-frame"
+            pointerEvents="box-none"
             style={[
-              styles.landscapePanel,
-              { [dockSide]: LANDSCAPE_DOCK, [notchSide]: LANDSCAPE_NOTCH },
+              styles.landscapeFrame,
+              {
+                width: screen.height,
+                height: screen.width,
+                left: (screen.width - screen.height) / 2,
+                top: (screen.height - screen.width) / 2,
+                transform: [{ rotate: `${turn}deg` }],
+              },
             ]}
           >
-            <View style={styles.landscapeHead}>
-              <Text style={styles.landscapeTitle}>{t("setup.dockSettings")}</Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("setup.closeSettings")}
-                onPress={() => setExpanded(false)}
-                hitSlop={10}
-                style={styles.landscapeClose}
+            {messageText === null ? null : (
+              <View
+                pointerEvents="none"
+                style={[styles.landscapeMessage, { [columnSide]: barHeight + 14, [notchSide]: LANDSCAPE_NOTCH }]}
               >
-                <CloseIcon size={16} color={colors.onAccent} />
-                <Text style={styles.landscapeCloseText}>{t("common.close")}</Text>
-              </Pressable>
-            </View>
-            {/* Everything fits on a phone of today; the scroll is only a fallback for the smallest screens. */}
-            <ScrollView
-              style={styles.landscapeScroll}
-              contentContainerStyle={styles.landscapeContent}
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-            >
-              {renderSettingsColumns()}
-            </ScrollView>
-            {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
+                {messageText}
+              </View>
+            )}
+            {backdrop}
+            {panel === undefined ? null : (
+              <View
+                pointerEvents="box-none"
+                style={[styles.landscapePanel, { [columnSide]: barHeight + 10, [notchSide]: LANDSCAPE_NOTCH }]}
+              >
+                {renderPanel()}
+              </View>
+            )}
           </View>
-        </View>
+        ) : (
+          <>
+            {messageText === null ? null : (
+              <View pointerEvents="none" style={[styles.messageDock, { bottom: barHeight + 14 }]}>
+                {messageText}
+              </View>
+            )}
+            {backdrop}
+            {renderPanel()}
+          </>
+        )}
+        {/* The same bar either way (2026-11-22): on its side it stays where it is on the phone and only its contents
+            turn, so nothing moves or flashes when the phone turns. */}
+        {bar}
       </>
     );
   }
 
-  function renderSummary() {
-    const iconColor = (on: boolean) => (on ? colors.accent : colors.muted);
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={summary}
-        onPress={() => setExpanded(true)}
-        style={styles.summary}
-      >
-        <View style={styles.summaryHead}>
-          <Text style={styles.section}>{t("setup.howToSave")}</Text>
-        </View>
-        <View style={styles.summaryIcons}>
-          {voiceOffered ? (
-            <MicIcon color={iconColor(voiceOn)} size={32} />
-          ) : null}
-          <WaveIcon color={iconColor(settings.gestureEnabled)} size={32} />
-          <RemoteIcon
-            color={iconColor(remoteReady && remoteAllowed)}
-            size={32}
-          />
-          {watchSupported ? (
-            <WatchIcon color={iconColor(watchOn)} size={32} />
-          ) : null}
-          {remoteSupported ? (
-            <QrIcon color={iconColor(remoteLinked > 0)} size={32} />
-          ) : null}
-        </View>
-      </Pressable>
-    );
-  }
-
-  /** The clip lengths, the paid ones under one "Pro" outline. */
-  function renderClipLength() {
-    return (
-      <View style={styles.clipLength}>
-        <Text style={styles.section}>{t("setup.clipLength")}</Text>
-        <View style={styles.chips}>
-          {CLIP_SECONDS_OPTIONS.filter(
-            (seconds) => !showPro || seconds <= FREE_MAX_SECONDS,
-          ).map((seconds) => (
-            <Chip
-              key={seconds}
-              label={`${seconds}s`}
-              selected={clipSeconds === seconds}
-              onPress={() => updateMode({ cutSeconds: seconds })}
-            />
-          ))}
-          {showPro ? (
-            // The paid lengths share one outline and one "Pro" badge instead of one each.
-            <View style={styles.proGroup}>
-              {proSeconds.map((seconds) =>
-                isAllowed(seconds) ? (
-                  <Chip
-                    key={seconds}
-                    label={`${seconds}s`}
-                    grouped
-                    selected={clipSeconds === seconds}
-                    onPress={() => updateMode({ cutSeconds: seconds })}
-                  />
-                ) : (
-                  <Chip
-                    key={seconds}
-                    label={`${seconds}s`}
-                    grouped
-                    lockedHint={t("setup.proOnly")}
-                    onPress={() => lockedFeature("clip_length")}
-                  />
-                ),
-              )}
-              <ProBadge label={t("setup.proBadge")} right={6} />
+  /** The panel open over the camera: upright just above the bar's buttons; on its side beside the column, centred. */
+  function renderPanel() {
+    const place = landscape
+      ? { maxHeight: screen.width - 16 }
+      : { position: "absolute" as const, left: 8, right: 8, bottom: barHeight + 8, maxHeight: Math.max(260, screen.height - barHeight - 70) };
+    // A sideways swipe on a panel goes through the settings in their order (2026-11-22); no quality without 4K.
+    const order: CameraPanel[] = has4k ? ["clip", "quality", "triggers"] : ["clip", "triggers"];
+    const swipeTo = (to: "next" | "previous") => {
+      const at = panel === undefined ? -1 : order.indexOf(panel);
+      if (at < 0) return;
+      const next = order[at + (to === "next" ? 1 : -1)];
+      if (next !== undefined) setPanel(next);
+    };
+    const swipe = (kind: CameraPanel) => ({
+      onSwipe: swipeTo,
+      page: { index: order.indexOf(kind), count: order.length },
+    });
+    if (panel === "clip") {
+      const freeSeconds = CLIP_SECONDS_OPTIONS.filter((seconds) => seconds <= FREE_MAX_SECONDS);
+      return (
+        <SetupPanel key="clip" testID="clip-panel" {...swipe("clip")} title={t("setup.clipTitle")} onClose={closePanel} place={place} turn={turn}>
+          <PanelGroup label={t("setup.clipQuestion")}>
+            <View style={styles.optionRow}>
+              {showPro ? freeSeconds.map(renderClipOption) : CLIP_SECONDS_OPTIONS.map(renderClipOption)}
+              {/* The paid lengths together under one outline and one "Pro" mark (2026-11-22). */}
+              {showPro ? <ProGroup label={t("setup.proBadge")}>{proSeconds.map(renderClipOption)}</ProGroup> : null}
             </View>
-          ) : null}
-        </View>
-      </View>
-    );
-  }
-
-  function renderQuality() {
-    if (!has4k) return null;
-    return (
-      <View style={styles.clipLength}>
-        <Text style={styles.section}>{t("setup.quality")}</Text>
-        <View style={styles.chips}>
-          <Chip
-            label={t("setup.qualityFullHd")}
-            selected={!is4k}
-            onPress={() => updateMode({ quality: "1080p60" })}
-          />
-          {!showPro ? (
-            <Chip
-              label={t("setup.quality4k")}
-              selected={is4k}
-              onPress={() => updateMode({ quality: "2160p30" })}
-            />
-          ) : (
-            <View style={styles.proGroup}>
-              {fourKAllowed ? (
-                <Chip
-                  label={t("setup.quality4k")}
-                  grouped
-                  selected={is4k}
-                  onPress={() => updateMode({ quality: "2160p30" })}
+          </PanelGroup>
+          <PanelInfo text={t("setup.clipInfo")} />
+        </SetupPanel>
+      );
+    }
+    if (panel === "quality") {
+      const fourKLocked = showPro && !fourKAllowed;
+      return (
+        <SetupPanel key="quality" testID="quality-panel" {...swipe("quality")} title={t("setup.qualityTitle")} onClose={closePanel} place={place} turn={turn}>
+          {/* Rectangles like the clip lengths (2026-11-22, trying it instead of the two circles); 4K under the "Pro" mark. */}
+          <PanelGroup label={t("setup.qualityQuestion")}>
+            <View style={styles.optionRow}>
+              <PanelOption
+                label={t("setup.qualityFullHd")}
+                sub={t("setup.fps60")}
+                selected={!is4k}
+                onPress={() => updateMode({ quality: "1080p60" })}
+              />
+              {showPro ? <ProGroup label={t("setup.proBadge")} flex={1}>{renderFourK(fourKLocked)}</ProGroup> : renderFourK(fourKLocked)}
+            </View>
+          </PanelGroup>
+          <PanelInfo text={t(is4k ? "setup.quality4kInfo" : "setup.qualityFullHdInfo")} />
+        </SetupPanel>
+      );
+    }
+    if (panel === "triggers") {
+      const triggerIcon = 24;
+      // On its side the two groups share a line: each takes room for its triggers, so every circle is as wide.
+      const recommendedCount = watchSupported ? 2 : 1;
+      const moreCount = (voiceOffered ? 1 : 0) + 1 + (phoneOffered ? 1 : 0);
+      return (
+        <SetupPanel key="triggers" testID="triggers-panel" {...swipe("triggers")} title={t("setup.triggersTitle")} onClose={closePanel} place={place} turn={turn}>
+          <View style={landscape ? styles.wideRow : styles.tallColumn}>
+          <PanelGroup label={t("setup.recommendedShort")} style={landscape ? { ...styles.wideGroup, flex: recommendedCount } : undefined}>
+            <View testID="recommended-triggers" style={styles.circleRow}>
+              <TriggerCircle
+                icon={(color) => <RemoteIcon size={triggerIcon} color={color} />}
+                title={t("setup.remoteShort")}
+                status={remoteView.statusText}
+                on={remoteReady && remoteAllowed}
+                ok={remoteReady && remoteAllowed}
+                onPress={remoteAllowed ? openRemoteSheet : () => void openPaywall(t, "locked_feature")}
+              />
+              {watchSupported ? (
+                <TriggerCircle
+                  icon={(color) => <WatchIcon size={triggerIcon} color={color} />}
+                  title={sourceLabel("watch", locale)}
+                  status={watchLocked ? t("setup.watchProOnly") : watchStatus}
+                  on={watchOn}
+                  ok={watchOn}
+                  pro={showPro ? t("setup.proBadge") : undefined}
+                  onPress={watchLocked ? () => lockedFeature("watch") : watchHelp}
                 />
-              ) : (
-                <Chip
-                  label={t("setup.quality4k")}
-                  grouped
-                  lockedHint={t("setup.proOnly")}
-                  onPress={() => lockedFeature("quality_4k")}
+              ) : null}
+            </View>
+          </PanelGroup>
+          <PanelGroup label={t("setup.othersShort")} style={landscape ? { ...styles.wideGroup, flex: moreCount } : undefined}>
+            <View testID="more-triggers" style={styles.circleRow}>
+              {voiceOffered ? (
+                <TriggerCircle
+                  icon={(color) => <MicIcon size={triggerIcon} color={color} />}
+                  title={sourceLabel("voice", locale)}
+                  status={voiceStatus}
+                  on={voiceOn}
+                  ok={voiceOn}
+                  disabled={!voiceSupported}
+                  onPress={voiceSupported ? () => void toggleVoice() : undefined}
                 />
-              )}
-              <ProBadge label={t("setup.proBadge")} right={6} />
+              ) : null}
+              <TriggerCircle
+                icon={(color) => <WaveIcon size={triggerIcon} color={color} />}
+                title={t("setup.waveShort")}
+                status={settings.gestureEnabled ? t("setup.on") : t("setup.off")}
+                on={settings.gestureEnabled}
+                ok={settings.gestureEnabled}
+                onPress={() => updateMode({ gestureEnabled: !settings.gestureEnabled })}
+              />
+              {phoneOffered ? (
+                <TriggerCircle
+                  icon={(color) => <PhoneIcon size={triggerIcon} color={color} />}
+                  title={sourceLabel("phone", locale)}
+                  status={phoneStatus}
+                  on={remoteLinked > 0}
+                  ok={remoteLinked > 0}
+                  onPress={openPhoneRemote}
+                />
+              ) : null}
             </View>
-          )}
-        </View>
-        <Text style={styles.clipLengthHint}>
-          {t(is4k ? "setup.quality4kHint" : "setup.qualityFullHdHint")}
-        </Text>
-      </View>
-    );
-  }
-
-  /** The Bluetooth remote and the Apple Watch save a lance best: their own title says why (2026-11-02). */
-  function renderRecommendedHead() {
-    return (
-      <View style={styles.recommendedHead}>
-        <View style={styles.recommendedTitle}>
-          <StarIcon size={12} />
-          <Text style={[styles.section, styles.recommended]}>
-            {t("setup.recommendedTriggers")}
-          </Text>
-        </View>
-        <Text style={styles.recommendedHint}>{t("setup.recommendedHint")}</Text>
-      </View>
-    );
-  }
-
-  function renderRemoteTile(dense: boolean) {
-    return (
-      <TriggerTile
-        dense={dense}
-        icon={<RemoteIcon />}
-        title={t("setup.bluetoothRemote")}
-        status={remoteView.statusText}
-        active={remoteReady && remoteAllowed}
-        lockedHint={remoteAllowed ? undefined : t("setup.proOnly")}
-        onPress={
-          remoteAllowed
-            ? () => {
-                openingRemoteSheet(); // the camera stays on under the sheet (presses are heard through it)
-                router.push({
-                  pathname: "/devices",
-                  params: { kind: "remote" },
-                });
-              }
-            : () => void openPaywall(t, "locked_feature")
-        }
-      />
-    );
-  }
-
-  /** The paid trigger: in the free plan the Apple Watch tile alone carries the outline and the "Pro" badge. iPhone only. */
-  function renderWatchTile(dense: boolean) {
-    if (!watchSupported) return null;
-    return (
-      <View style={styles.proTile}>
-        {showPro ? <View pointerEvents="none" style={styles.proOutline} /> : null}
-        <TriggerTile
-          dense={dense}
-          icon={<WatchIcon />}
-          title={sourceLabel("watch", locale)}
-          status={watchStatus}
-          active={watchOn}
-          lockedHint={watchLocked ? t("setup.watchProOnly") : undefined}
-          onPress={watchLocked ? () => lockedFeature("watch") : watchHelp}
-        />
-        {showPro ? <ProBadge label={t("setup.proBadge")} top={-9} right={6} /> : null}
-      </View>
-    );
-  }
-
-  function renderVoiceTile(dense: boolean) {
-    if (!voiceOffered) return null;
-    return (
-      <TriggerTile
-        dense={dense}
-        icon={<MicIcon />}
-        title={sourceLabel("voice", locale)}
-        status={voiceStatus}
-        active={voiceOn}
-        disabled={!voiceSupported}
-        onPress={voiceSupported ? () => void toggleVoice() : undefined}
-        help={
-          voiceSupported
-            ? { label: t("voiceGuide.help"), onPress: () => openPractice("voice") }
-            : undefined
-        }
-      />
-    );
-  }
-
-  function renderWaveTile(dense: boolean) {
-    return (
-      <TriggerTile
-        dense={dense}
-        icon={<WaveIcon />}
-        title={sourceLabel("gesture", locale)}
-        status={settings.gestureEnabled ? t("setup.on") : t("setup.off")}
-        active={settings.gestureEnabled}
-        onPress={() => updateMode({ gestureEnabled: !settings.gestureEnabled })}
-        help={{ label: t("gestureGuide.help"), onPress: () => openPractice("gesture") }}
-      />
-    );
-  }
-
-  function renderPhoneRemoteTile(dense: boolean) {
-    if (!remoteSupported) return null;
-    return (
-      <TriggerTile
-        dense={dense}
-        icon={<QrIcon />}
-        title={t("setup.connectPhoneRemote")}
-        status={controllersStatus(t, remoteLinked)}
-        active={remoteLinked > 0}
-        onPress={() => router.push("/pairing")}
-      />
-    );
-  }
-
-  function renderUseAsRemoteTile(dense: boolean) {
-    if (!remoteSupported && !controllerSupported) return null;
-    return (
-      <TriggerTile
-        dense={dense}
-        icon={<TapIcon />}
-        title={t("setup.useAsRemote")}
-        status={cameraStatus(t, controlHost)}
-        active={controlHost !== null}
-        onPress={() => router.push("/remote")}
-      />
-    );
-  }
-
-  function renderDisconnect(dense: boolean) {
-    if (!(remoteSupported || controllerSupported) || controlHost === null) return null;
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t("setup.disconnectThisPhone")}
-        hitSlop={8}
-        onPress={disconnectControl}
-        style={dense ? styles.remoteLinkDense : styles.remoteLinkBox}
-      >
-        <Text style={styles.remoteLink}>{t("setup.disconnectThisPhone")}</Text>
-      </Pressable>
-    );
-  }
-
-  function renderAlerts() {
-    return (
-      <View style={styles.feedbackRow}>
-        <Text style={styles.section}>{t("setup.saveAlerts")}</Text>
-        <View style={styles.chips}>
-          <Chip
-            label={t("setup.sound")}
-            selected={prefs.soundOnSave}
-            onPress={() => update({ soundOnSave: !prefs.soundOnSave })}
-          />
-          <Chip
-            label={t("setup.flash")}
-            selected={prefs.flashOnSave}
-            onPress={() => update({ flashOnSave: !prefs.flashOnSave })}
-          />
-        </View>
-      </View>
-    );
-  }
-
-  /** Upright: the settings in one column, in the sheet. */
-  function renderSettings() {
-    return (
-      <>
-        {renderClipLength()}
-        {renderQuality()}
-        {renderRecommendedHead()}
-        <View testID="recommended-triggers" style={styles.proTriggers}>
-          <View style={styles.gridRow}>
-            {renderRemoteTile(false)}
-            {renderWatchTile(false)}
-          </View>
-        </View>
-        <Text style={styles.section}>{t("setup.otherTriggers")}</Text>
-        <View style={styles.grid}>
-          <View style={styles.gridRow}>
-            {renderVoiceTile(false)}
-            {renderWaveTile(false)}
-          </View>
-        </View>
-        <View style={styles.triggerPlain}>
-          {remoteSupported || controllerSupported ? (
-            <>
-              <View style={styles.gridRow}>
-                {renderPhoneRemoteTile(false)}
-                {renderUseAsRemoteTile(false)}
-              </View>
-              {renderDisconnect(false)}
-            </>
-          ) : null}
-        </View>
-        {speechDenied ? <Text style={styles.error}>{t("setup.speechDenied")}</Text> : null}
-        {renderAlerts()}
-      </>
-    );
-  }
-
-  /**
-   * On its side (2026-11-20): every setting in view without scrolling, in two columns. Left: the clip (its lengths on
-   * one line, the quality); right: the triggers, recommended first, and the alerts in the corner.
-   */
-  function renderSettingsColumns() {
-    return (
-      <View style={styles.columns}>
-        <View style={[styles.column, styles.columnLeft]}>
-          {renderClipLength()}
-          {renderQuality()}
-        </View>
-        <View style={[styles.column, styles.columnRight]}>
-          <View style={styles.columnGroup}>
-            {renderRecommendedHead()}
-            <View testID="recommended-triggers" style={[styles.gridRow, styles.recommendedDense]}>
-              {renderRemoteTile(true)}
-              {renderWatchTile(true)}
-            </View>
-          </View>
-          <View style={styles.columnGroup}>
-            <Text style={styles.section}>{t("setup.otherTriggers")}</Text>
-            <View style={styles.gridRow}>
-              {renderVoiceTile(true)}
-              {renderWaveTile(true)}
-            </View>
-            {remoteSupported || controllerSupported ? (
-              <View style={styles.gridRow}>
-                {renderPhoneRemoteTile(true)}
-                {renderUseAsRemoteTile(true)}
-              </View>
-            ) : null}
-            {renderDisconnect(true)}
             {speechDenied ? <Text style={styles.error}>{t("setup.speechDenied")}</Text> : null}
+          </PanelGroup>
           </View>
-          <View style={styles.columnCorner}>{renderAlerts()}</View>
-        </View>
-      </View>
+          <View style={landscape ? styles.wideRow : styles.tallColumn}>
+          {/* One short line (2026-11-22): the label and two small toggles. */}
+          <View style={[styles.alertRow, landscape && styles.wideGroup]}>
+            <Text style={styles.alertLabel}>{t("setup.saveAlert")}</Text>
+            <View style={styles.alertOptions}>
+              <PanelOption
+                small
+                label={t("setup.sound")}
+                selected={prefs.soundOnSave}
+                icon={(color) => <SoundIcon size={16} color={color} />}
+                onPress={() => update({ soundOnSave: !prefs.soundOnSave })}
+              />
+              <PanelOption
+                small
+                label={t("setup.flash")}
+                selected={prefs.flashOnSave}
+                icon={(color) => <BoltIcon size={16} color={color} />}
+                onPress={() => update({ flashOnSave: !prefs.flashOnSave })}
+              />
+            </View>
+          </View>
+          <View style={landscape ? styles.wideAction : undefined}>
+            <PanelAction
+              label={t("setup.testTriggers")}
+              icon={<BoltIcon size={19} color={colors.accent} />}
+              onPress={() => {
+                setRemoteHeard(false);
+                setPanel("test");
+              }}
+            />
+          </View>
+          </View>
+        </SetupPanel>
+      );
+    }
+    if (panel === "phone") {
+      return (
+        <PhoneRemotePanel
+          title={sourceLabel("phone", locale)}
+          canHost={remoteSupported}
+          linkedStatus={linkedStatus}
+          pairedStatus={pairedStatus}
+          place={place}
+          onConnect={() => router.push("/pairing")}
+          onUseAsRemote={() => router.push("/remote")}
+          onDisconnect={disconnectControl}
+          onDone={() => setPanel("triggers")}
+        />
+      );
+    }
+    if (panel === "test") {
+      return (
+        <TriggerTestPanel
+          // The remote takes part once it was ever heard on this phone (one never set up would wait forever).
+          remote={remoteAllowed && remoteView.state !== "setup"}
+          watch={watchOn}
+          voice={voiceOn}
+          wave={settings.gestureEnabled}
+          remoteHeard={remoteHeard}
+          locale={locale}
+          place={place}
+          onDone={() => setPanel("triggers")}
+        />
+      );
+    }
+    return null;
+  }
+
+  function renderFourK(locked: boolean) {
+    return (
+      <PanelOption
+        label={t("setup.quality4k")}
+        sub={t("setup.fps30")}
+        selected={is4k}
+        locked={locked}
+        lockedHint={t("setup.proOnly")}
+        onPress={locked ? () => lockedFeature("quality_4k") : () => updateMode({ quality: "2160p30" })}
+      />
     );
+  }
+
+  function renderClipOption(seconds: number) {
+    return isAllowed(seconds) ? (
+      <PanelOption
+        key={seconds}
+        label={`${seconds}s`}
+        selected={clipSeconds === seconds}
+        onPress={() => updateMode({ cutSeconds: seconds })}
+      />
+    ) : (
+      <PanelOption
+        key={seconds}
+        label={`${seconds}s`}
+        locked
+        lockedHint={t("setup.proOnly")}
+        onPress={() => lockedFeature("clip_length")}
+      />
+    );
+  }
+
+  function openRemoteSheet() {
+    openingRemoteSheet(); // the camera stays on under the sheet (presses are heard through it)
+    router.push({ pathname: "/devices", params: { kind: "remote" } });
   }
 }
 
-/** On its side: how much of the screen the round buttons take, and the notch side (landscape points). */
-const LANDSCAPE_DOCK = 124;
+/** On its side: room left on the notch's side (landscape points). */
 const LANDSCAPE_NOTCH = 52;
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ground },
   top: { position: "absolute", top: 0, left: 16, right: 16, gap: 8 },
-  topRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  topSide: { flex: 1, flexDirection: "row" },
-  topSideEnd: { justifyContent: "flex-end" },
-  galleryButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: colors.accent,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  gearButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(12,12,12,0.75)",
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  settingsTip: {
-    alignSelf: "flex-end",
-    width: 270,
-    marginTop: 4,
-    padding: 14,
-    gap: 6,
-    borderRadius: 14,
-    backgroundColor: colors.text,
-  },
-  settingsTipArrow: {
-    position: "absolute",
-    top: -6,
-    right: 18,
-    width: 12,
-    height: 12,
-    backgroundColor: colors.text,
-    transform: [{ rotate: "45deg" }],
-  },
-  settingsTipTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.onAccent },
-  settingsTipBody: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: "#3A3A3A" },
-  settingsTipButton: {
-    alignSelf: "flex-end",
-    marginTop: 4,
-    height: 34,
+  messageDock: { position: "absolute", left: 16, right: 16, alignItems: "center" },
+  message: {
+    overflow: "hidden",
+    backgroundColor: "rgba(12,12,12,0.88)",
+    borderRadius: 16,
+    paddingVertical: 9,
     paddingHorizontal: 14,
-    borderRadius: 12,
-    backgroundColor: colors.ground,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  settingsTipButtonText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
-  zoomDock: { position: "absolute", left: 0, right: 0, alignItems: "center" },
-  landscapeBackdrop: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)" },
-  landscapeFrame: { position: "absolute" },
-  landscapePanel: {
-    position: "absolute",
-    top: 8,
-    bottom: 8,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 12,
-    gap: 10,
-    backgroundColor: colors.ground,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  landscapeHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  landscapeTitle: {
-    fontFamily: fonts.displayBold,
-    fontSize: 24,
+    fontFamily: fonts.bodySemi,
+    fontSize: 13.5,
+    lineHeight: 18,
     color: colors.text,
-    textTransform: "uppercase",
+    textAlign: "center",
   },
-  // A plain "Fechar" on the accent, where the eye lands first (2026-11-20: the bare ✕ went unnoticed).
-  landscapeClose: {
+  messageError: { color: colors.warning },
+  optionRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  circleRow: { flexDirection: "row" },
+  alertRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    minHeight: 40,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
+    gap: 8,
+    backgroundColor: panelColors.GROUP,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingRight: 8,
+    paddingLeft: 14,
   },
-  landscapeCloseText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.onAccent },
-  landscapeScroll: { flex: 1 },
-  landscapeContent: { flexGrow: 1 },
-  columns: { flexDirection: "row", gap: 20, flexGrow: 1 },
-  column: { flex: 1, gap: 12, minWidth: 0 },
-  // Wide enough for every clip length on one line; the triggers' column gets the rest.
-  columnLeft: { flex: 0.9 },
-  // Room on the right for the Apple Watch's "Pro" outline (4 pt outside its tile), which the scroll would cut.
-  columnRight: { flex: 1.25, gap: 10, paddingRight: 6 },
-  columnGroup: { gap: 8 },
-  recommendedDense: { marginTop: 4 }, // room for the watch's "Pro" badge
-  // Avisos ao salvar in the panel's bottom right corner.
-  columnCorner: { marginTop: "auto", alignItems: "flex-end" },
+  alertLabel: { flex: 1, fontFamily: fonts.bodySemi, fontSize: 13.5, color: colors.muted },
+  alertOptions: { flexDirection: "row", gap: 6, width: 190 },
+  zoomTop: { alignItems: "center", marginTop: 8 },
+  landscapeFrame: { position: "absolute" },
   tip: {
     alignSelf: "flex-start",
     backgroundColor: "rgba(12,12,12,0.8)",
@@ -1239,92 +955,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   tipText: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.ground,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-  },
-  sheetBody: { paddingHorizontal: footer.side, paddingTop: 8, paddingBottom: footer.bottom, gap: 12 },
   guideArea: { position: "absolute", top: 0, left: 0, right: 0 },
-  handleArea: {
-    alignSelf: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 40,
-    minHeight: 24,
-    justifyContent: "center",
-  },
-  handle: {
-    width: 40,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.muted,
-  },
-  summary: { gap: 8, minHeight: 44 },
-  summaryHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  summaryChevron: { fontSize: 12, color: colors.muted },
-  summaryIcons: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-evenly",
-    minHeight: 48,
-  },
-  clipLength: { gap: 8 },
-  clipLengthHint: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
-  section: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 12,
-    letterSpacing: 1,
-    color: colors.muted,
-  },
-  proGroup: {
-    flexDirection: "row",
-    borderWidth: 1,
-    borderColor: colors.accent,
-    borderRadius: radius.chip,
-  },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  remoteLinkBox: { minHeight: 48, justifyContent: "center" },
-  remoteLinkDense: { minHeight: 32, justifyContent: "center" },
-  remoteLink: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 14,
-    color: colors.soft,
-    textDecorationLine: "underline",
-  },
-  // The outline is drawn around the tiles, out in the sheet's side padding, so the tiles keep the width of the free ones.
-  proTriggers: { marginTop: 8, marginBottom: 4 }, // room for the badge under the section title
-  recommendedHead: { gap: 2 },
-  recommendedTitle: { flexDirection: "row", alignItems: "center", gap: 5 },
-  recommended: { color: colors.accent },
-  recommendedHint: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
-  proTile: { flex: 1, flexDirection: "row" },
-  proOutline: {
-    position: "absolute",
-    top: -4,
-    left: -4,
-    right: -4,
-    bottom: -4,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    borderRadius: 15,
-  },
-  triggerPlain: { gap: 8 },
-  grid: { gap: 8 },
-  gridRow: { flexDirection: "row", gap: 8 },
   error: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.warning },
-  feedbackRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
+  // On its side (2026-11-22, L1): beside the column, in the middle of the height.
+  landscapeMessage: { position: "absolute", top: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
+  landscapePanel: { position: "absolute", top: 8, bottom: 8, justifyContent: "center" },
+  // The triggers on its side: the two groups side by side, then the alert line and the test on one line.
+  wideRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  tallColumn: { gap: 14 },
+  wideGroup: { flex: 1, minWidth: 0 },
+  wideAction: { width: 210 },
 });

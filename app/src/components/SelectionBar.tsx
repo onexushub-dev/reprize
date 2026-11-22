@@ -1,14 +1,13 @@
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActionSheetIOS, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useT } from '../i18n/useT';
-import { colors, fonts, radius } from '../theme/tokens';
-import { Button } from './Button';
-import { DownloadIcon, FilmIcon, LockIcon, ShareIcon, TagIcon, TrashIcon } from './icons';
+import { colors, fonts } from '../theme/tokens';
+import { MoreIcon, ShareIcon, TrashIcon } from './icons';
 
 type Props = {
   count: number;
-  /** Compilar is a paid feature: on the free plan it shows "Pro" and opens the paywall. */
+  /** Compilar is a paid feature: on the free plan it says "PRO" and opens the paywall. */
   paid: boolean;
   busy: boolean;
   onShare: () => void;
@@ -19,61 +18,102 @@ type Props = {
   onDelete: () => void;
 };
 
-/** Actions for the clips picked on the recording screen: Enviar alone on top, the other four visible below. */
+/**
+ * Actions for the clips picked on the recording screen, as in the iPhone's Photos (2026-11-22): one line of icons,
+ * Enviar on the left, how many are picked in the middle, Apagar and "…" (Salvar, Compilar, Etiqueta) on the right, all
+ * in the app's amber.
+ */
 export function SelectionBar({ count, paid, busy, onShare, onSave, onCompile, onLabel, onDelete }: Props) {
   const { t } = useT();
   const blocked = count === 0 || busy;
+
+  function openMore() {
+    const options = [
+      { text: t('clip.save'), run: onSave },
+      { text: paid ? t('summary.compile') : `${t('summary.compile')} (${t('summary.proBadge')})`, run: onCompile },
+      { text: t('summary.label'), run: onLabel },
+    ];
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: [...options.map((o) => o.text), t('common.cancel')],
+          cancelButtonIndex: options.length,
+          userInterfaceStyle: 'dark',
+        },
+        (index) => {
+          if (index < options.length) options[index].run();
+        },
+      );
+      return;
+    }
+    Alert.alert(t('summary.more'), undefined, [
+      ...options.map((o) => ({ text: o.text, onPress: o.run })),
+      { text: t('common.cancel'), style: 'cancel' as const },
+    ]);
+  }
+
   return (
-    <View style={styles.card}>
-      <Button
-        label={t('summary.share', { count })}
-        icon={<ShareIcon color={colors.onAccent} size={22} />}
-        disabled={blocked}
-        onPress={onShare}
-      />
-      <View style={styles.row}>
-        <Action label={t('summary.save', { count })} text={t('clip.save')} disabled={blocked} onPress={onSave} icon={<DownloadIcon size={20} />} />
-        <Action
-          label={t('summary.compile')}
-          text={t('summary.compile')}
-          hint={paid ? undefined : t('summary.compileLocked')}
-          badge={paid ? undefined : t('summary.proBadge')}
-          disabled={blocked}
-          onPress={onCompile}
-          icon={paid ? <FilmIcon size={20} /> : <LockIcon size={14} color={colors.muted} />}
-        />
-        <Action
-          label={t('summary.label')}
-          text={t('summary.label')}
-          disabled={blocked}
-          onPress={onLabel}
-          icon={<TagIcon size={20} />}
-        />
-        <Action
-          label={count === 0 ? t('common.delete') : t('summary.deleteClips', { count })}
-          text={t('common.delete')}
-          danger
-          disabled={blocked}
-          onPress={onDelete}
-          icon={<TrashIcon size={20} color={colors.rec} />}
-        />
+    <PickBar
+      text={count === 0 ? t('summary.tapClips') : t('summary.selectedClips', { count })}
+      left={[
+        { label: t('summary.share', { count }), disabled: blocked, onPress: onShare, icon: <ShareIcon size={26} color={colors.accent} /> },
+      ]}
+      right={[
+        {
+          label: count === 0 ? t('common.delete') : t('summary.deleteClips', { count }),
+          disabled: blocked,
+          onPress: onDelete,
+          icon: <TrashIcon size={26} color={colors.accent} />,
+        },
+        {
+          label: t('summary.more'),
+          hint: paid ? undefined : t('summary.compileLocked'),
+          disabled: blocked,
+          onPress: openMore,
+          icon: (
+            <View style={styles.more}>
+              <MoreIcon size={20} color={colors.accent} />
+            </View>
+          ),
+        },
+      ]}
+    />
+  );
+}
+
+export type PickAction = { label: string; hint?: string; disabled: boolean; onPress: () => void; icon: ReactNode };
+
+/**
+ * The bar of a selection, as in the iPhone's Photos (2026-11-22): icons on the left and on the right, how many are
+ * picked in the middle, all in the app's amber. The recording's clips and Minhas gravações share it.
+ */
+export function PickBar({ text, left, right }: { text: string; left: PickAction[]; right: PickAction[] }) {
+  return (
+    <View style={styles.bar}>
+      <View style={styles.side}>
+        {left.map((a) => (
+          <Action key={a.label} label={a.label} hint={a.hint} disabled={a.disabled} onPress={a.onPress}>
+            {a.icon}
+          </Action>
+        ))}
+      </View>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8} style={styles.count}>
+        {text}
+      </Text>
+      <View style={[styles.side, styles.sideEnd]}>
+        {right.map((a) => (
+          <Action key={a.label} label={a.label} hint={a.hint} disabled={a.disabled} onPress={a.onPress}>
+            {a.icon}
+          </Action>
+        ))}
       </View>
     </View>
   );
 }
 
-type ActionProps = {
-  label: string;
-  text: string;
-  icon: ReactNode;
-  onPress: () => void;
-  disabled: boolean;
-  danger?: boolean;
-  hint?: string;
-  badge?: string;
-};
+type ActionProps = { label: string; hint?: string; disabled: boolean; onPress: () => void; children: ReactNode };
 
-function Action({ label, text, icon, onPress, disabled, danger = false, hint, badge }: ActionProps) {
+function Action({ label, hint, disabled, onPress, children }: ActionProps) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -81,45 +121,28 @@ function Action({ label, text, icon, onPress, disabled, danger = false, hint, ba
       accessibilityHint={hint}
       accessibilityState={{ disabled }}
       disabled={disabled}
+      hitSlop={6}
       onPress={onPress}
-      style={({ pressed }) => [styles.action, (pressed || disabled) && { opacity: disabled ? 0.4 : 0.85 }]}>
-      {icon}
-      <Text numberOfLines={1} style={[styles.actionText, danger && { color: colors.rec }]}>
-        {text}
-      </Text>
-      {badge ? <Text style={styles.badge}>{badge}</Text> : null}
+      style={({ pressed }) => [styles.action, (pressed || disabled) && { opacity: disabled ? 0.35 : 0.7 }]}>
+      {children}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    gap: 8,
-    padding: 10,
-    borderRadius: radius.sheet,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  row: { flexDirection: 'row', gap: 6 },
-  action: {
-    flex: 1,
-    minHeight: 48,
-    flexDirection: 'row',
+  bar: { flexDirection: 'row', alignItems: 'center', minHeight: 56, gap: 8 },
+  side: { flexDirection: 'row', alignItems: 'center', gap: 4, width: 104 },
+  sideEnd: { justifyContent: 'flex-end' },
+  action: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  // The "…" in a ring, as in Photos.
+  more: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    borderRadius: radius.button,
   },
-  actionText: { flexShrink: 1, fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
-  badge: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 10,
-    color: colors.onAccent,
-    backgroundColor: colors.accent,
-    borderRadius: 8,
-    overflow: 'hidden',
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
+  count: { flex: 1, fontFamily: fonts.bodyBold, fontSize: 16, color: colors.text, textAlign: 'center' },
 });

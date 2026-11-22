@@ -75,7 +75,7 @@ export function SaveClipButton({ seconds, label, onPress, cooling = false }: Pro
       accessibilityState={{ disabled: cooling }}
       disabled={cooling}
       onPress={press}
-      style={({ pressed }) => [styles.ring, grey && styles.ringGrey, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.ring, done && styles.ringDone, grey && styles.ringGrey, pressed && styles.pressed]}>
       <Svg pointerEvents="none" width={SIZE} height={SIZE} style={styles.stroke}>
         <AnimatedCircle
           cx={SIZE / 2}
@@ -112,7 +112,9 @@ const styles = StyleSheet.create({
   // Over the border: the SVG sits on the button's outer edge, not inside the border.
   stroke: { position: 'absolute', top: -STROKE, left: -STROKE },
   fill: { width: 58, height: 58, borderRadius: 29, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  fillDone: { backgroundColor: colors.text },
+  // Saved (2026-11-22): the ✓ on the amber disc inside an amber ring, the app's colours (it was a white disc).
+  fillDone: { backgroundColor: colors.accent },
+  ringDone: { borderColor: colors.accent },
   ringGrey: { borderColor: colors.border },
   fillGrey: { backgroundColor: colors.surface },
 });

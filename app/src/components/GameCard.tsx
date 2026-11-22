@@ -140,8 +140,10 @@ export function GameCard({
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colors.surface, borderRadius: 14, padding: 10 },
-  main: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  // The whole card takes the tap, its margin too (2026-11-22: the margin around the round check missed taps, which had
+  // to land right on it or on the recording).
+  card: { backgroundColor: colors.surface, borderRadius: 14 },
+  main: { flexDirection: 'row', gap: 12, alignItems: 'center', padding: 10 },
   check: {
     width: 24,
     height: 24,

@@ -38,11 +38,10 @@ import {
   ClipIcon,
   ClockIcon,
   DiskIcon,
+  CloseIcon,
   DownloadIcon,
   FilmIcon,
-  LockIcon,
   MoreIcon,
-  ShareIcon,
 } from "../../components/icons";
 import { clipNumber, sessionLabel } from "../../components/format";
 import { useReceiveProgress } from "../../cloud/receive";
@@ -75,7 +74,7 @@ export default function SessionSummary() {
   const navigation = useNavigation();
   // Re-read whenever the repo changes (a clip deleted on the clip screen, a late save landing).
   const version = useSyncExternalStore(repo.subscribe, repo.version);
-  const { session, clips, stats } = useMemo(
+  const live = useMemo(
     () => ({
       session: repo.getSession(id),
       clips: repo.listClips(id),
@@ -84,6 +83,10 @@ export default function SessionSummary() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- version is the change signal
     [id, version],
   );
+  // Deleting the recording from its own "…" (2026-11-22): the screen keeps showing it as it was while it goes back to
+  // Minhas gravações (it flashed "Nenhum lance salvo" for a moment, its clips already gone).
+  const [deleted, setDeleted] = useState<typeof live>();
+  const { session, clips, stats } = deleted ?? live;
 
   const plan = useViewPlan(id);
   // A received recording (sharing §2.8–10): Pro as one's own, else Full HD with the mark after a courtesy.
@@ -154,6 +157,9 @@ export default function SessionSummary() {
     },
     [id],
   );
+  // A tap on the name puts the cursor after it, nothing selected, so typing adds to it, as on the clip screen
+  // (2026-11-22: the whole name was selected and the first key replaced it). Released at once, so the cursor moves freely.
+  const [atEnd, setAtEnd] = useState<{ start: number; end: number }>();
   const saveName = () => {
     if (session && name.trim() !== (session.name ?? ""))
       repo.renameSession(id, name);
@@ -260,6 +266,7 @@ export default function SessionSummary() {
           text: t("common.delete"),
           style: "destructive",
           onPress: () => {
+            setDeleted(live);
             repo.deleteSession(id).forEach((path) => removeFile(path));
             if (state.sessionId === id) reset();
             leaveToGames();
@@ -391,7 +398,15 @@ export default function SessionSummary() {
       SHARING_ENABLED && received
         ? { text: t("report.link"), run: () => setReporting(true) }
         : undefined;
+    // Compartilhar sits here now (2026-11-22), not floating over the clips.
+    const share = canShareHere
+      ? {
+          text: shareAllowed ? t("summary.shareButton") : `${t("summary.shareButton")} (${t("summary.proBadge")})`,
+          run: () => void startShare(),
+        }
+      : undefined;
     const options = [
+      ...(share ? [share] : []),
       ...(report ? [report] : []),
       { text: t("games.deleteRecording"), run: confirmDeleteGame },
     ];
@@ -438,6 +453,9 @@ export default function SessionSummary() {
               value={name}
               onChangeText={setName}
               onSubmitEditing={saveName}
+              onFocus={() => setAtEnd({ start: name.length, end: name.length })}
+              onSelectionChange={() => (atEnd !== undefined ? setAtEnd(undefined) : undefined)}
+              selection={atEnd}
               onBlur={saveName}
               placeholder={sessionLabel(
                 { ...session, name: undefined },
@@ -449,7 +467,27 @@ export default function SessionSummary() {
               returnKeyType="done"
               style={styles.nameInput}
             />
-            {selecting ? null : (
+            {/* Selecting (2026-11-22, trying it): "Todos"/"Limpar" where "…" was, and an ✕ to stop where "Selecionar"
+                was; the numbers under the name stay. */}
+            {selecting ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={
+                  pickedClips.length === clips.length
+                    ? t("summary.clearSelection")
+                    : t("summary.selectAll")
+                }
+                onPress={pickAll}
+                style={styles.pill}
+              >
+                {/* In the app's amber, as the link it was. */}
+                <Text style={[styles.pillText, styles.pillTextAccent]}>
+                  {pickedClips.length === clips.length
+                    ? t("summary.clear")
+                    : t("summary.all")}
+                </Text>
+              </Pressable>
+            ) : (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={t("summary.more")}
@@ -459,51 +497,31 @@ export default function SessionSummary() {
                 <MoreIcon />
               </Pressable>
             )}
-            {clips.length > 0 ? (
+            {selecting ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={
-                  selecting ? t("summary.cancelSelection") : t("summary.selectClips")
-                }
-                onPress={() => (selecting ? stopSelecting() : setSelecting(true))}
+                accessibilityLabel={t("summary.cancelSelection")}
+                onPress={stopSelecting}
+                style={[styles.round, styles.roundSmall]}
+              >
+                <CloseIcon size={18} />
+              </Pressable>
+            ) : clips.length > 0 ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t("summary.selectClips")}
+                onPress={() => setSelecting(true)}
                 style={styles.pill}
               >
-                <Text style={styles.pillText}>
-                  {selecting ? t("common.cancel") : t("summary.select")}
-                </Text>
+                <Text style={styles.pillText}>{t("summary.select")}</Text>
               </Pressable>
             ) : null}
           </View>
         ) : null}
 
-        {selecting ? (
-          <View style={styles.pickBar}>
-            <Text style={styles.pickCount}>
-              {pickedClips.length === 0
-                ? t("summary.tapClips")
-                : t("summary.selected", { count: pickedClips.length })}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={
-                pickedClips.length === clips.length
-                  ? t("summary.clearSelection")
-                  : t("summary.selectAll")
-              }
-              hitSlop={8}
-              onPress={pickAll}
-            >
-              <Text style={styles.pickLink}>
-                {pickedClips.length === clips.length
-                  ? t("summary.clear")
-                  : t("summary.all")}
-              </Text>
-            </Pressable>
-          </View>
-        ) : (
           <View style={styles.stats}>
             <Stat
-              icon={<FilmIcon size={15} color={colors.accent} />}
+              icon={<FilmIcon size={18} color={colors.accent} />}
               value={String(stats.clips)}
               label={t("summary.clipsStat", { count: stats.clips })}
             />
@@ -511,20 +529,19 @@ export default function SessionSummary() {
                 made before that have none. */}
             {recordedMs === undefined ? null : (
               <Stat
-                icon={<ClockIcon size={15} color={colors.accent} />}
+                icon={<ClockIcon size={18} color={colors.accent} />}
                 value={String(Math.floor(recordedMs / 60_000))}
                 label={t("summary.minutesShort")}
               />
             )}
             <Stat
-              icon={<DiskIcon size={15} color={colors.accent} />}
+              icon={<DiskIcon size={18} color={colors.accent} />}
               value={new Intl.NumberFormat(locale).format(
                 Math.round(stats.bytes / 1_000_000),
               )}
               label={t("summary.megabytesShort")}
             />
           </View>
-        )}
 
         {/* A received recording: who sent it and how far the download is (the free unlock is offered on Salvar). */}
         {SHARING_ENABLED && session && session.received ? (
@@ -644,30 +661,15 @@ export default function SessionSummary() {
             onDelete={confirmDeleteClips}
           />
         </SafeAreaView>
-      ) : canShareHere || (received && clips.length > 0) ? (
+      ) : received && clips.length > 0 ? (
+        // Compartilhar left the clips for the "…" menu (2026-11-22); a received recording keeps Salvar clipes here.
         <SafeAreaView edges={["bottom"]} style={styles.floating} pointerEvents="box-none">
-          {/* Only an ended recording is shared (decision 16): this screen is the summary of one. */}
-          {canShareHere ? (
-            <Capsule
-              label={t("summary.shareButton")}
-              icon={
-                shareAllowed ? (
-                  <ShareIcon size={19} color={colors.onAccent} />
-                ) : (
-                  <LockIcon size={14} color={colors.onAccent} />
-                )
-              }
-              hint={shareAllowed ? undefined : t("sharing.locked")}
-              onPress={() => void startShare()}
-            />
-          ) : (
-            <Capsule
-              label={t("summary.saveAll")}
-              icon={<DownloadIcon size={19} color={colors.onAccent} />}
-              disabled={working}
-              onPress={() => void exportAfterNotice("save", clips, batch.save)}
-            />
-          )}
+          <Capsule
+            label={t("summary.saveAll")}
+            icon={<DownloadIcon size={19} color={colors.onAccent} />}
+            disabled={working}
+            onPress={() => void exportAfterNotice("save", clips, batch.save)}
+          />
         </SafeAreaView>
       ) : null}
       {freeGate.sheet}
@@ -779,31 +781,40 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   pillText: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
-  stats: { flexDirection: "row", gap: 6 },
+  // Closer to the name above and the card below than the screen's other gaps (2026-11-22): 5 instead of 12.
+  stats: { flexDirection: "row", gap: 6, marginVertical: -7 },
   // Equal cells, each one's icon, number and unit centred in it: the columns line up whatever the numbers (2026-11-20).
   stat: {
     flex: 1,
     minWidth: 0,
-    height: 36,
+    height: 46,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 7,
     paddingHorizontal: 10,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: colors.surface,
   },
-  statValue: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
+  // A little larger (2026-11-22): the recording's numbers at a glance.
+  statValue: { fontFamily: fonts.bodyBold, fontSize: 18, color: colors.text },
   statLabel: {
     flexShrink: 1,
     fontFamily: fonts.body,
-    fontSize: 12,
+    fontSize: 13.5,
     color: colors.muted,
   },
   grid: { gap: 2, paddingBottom: 110 },
   gridRow: { gap: 2 },
   empty: { paddingHorizontal: 20 },
-  footer: { paddingHorizontal: footer.side, paddingTop: 8, paddingBottom: footer.bottom },
+  footer: {
+    paddingHorizontal: footer.side - 4,
+    paddingTop: 6,
+    paddingBottom: footer.bottom,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
   // Where every screen's bottom button sits (Gravações' "Nova gravação", 2026-11-21).
   floating: {
     position: "absolute",
@@ -828,12 +839,14 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   capsuleText: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.onAccent },
+  // As tall as the numbers' row it takes the place of, "Todos" centred in it: the list does not move (2026-11-22).
   pickBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 36,
+    height: 46,
+    marginVertical: -7,
   },
   pickLink: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.accent },
+  pillTextAccent: { color: colors.accent },
   pickCount: { fontFamily: fonts.bodySemi, fontSize: 15, color: colors.text },
 });

@@ -18,7 +18,7 @@ test('never used: asks to connect, shows the steps and the waiting state', () =>
 test('used in a previous launch: never claims "paired" (iOS hides pairing), asks for a press, steps behind "parear de novo"', () => {
   expect(remoteDeviceView({ ...base, testedBefore: true })).toEqual({
     state: 'offline',
-    statusText: 'Aperte um botão para conferir',
+    statusText: 'Em espera · aperte um botão',
     showSteps: false,
     stepsBehindRepair: true,
     showWaiting: true,
@@ -79,7 +79,7 @@ describe('the link iOS shows (a BLE remote the app has learnt)', () => {
   });
 
   test('unknown link: presses alone tell, as before', () => {
-    expect(remoteDeviceView({ ...used, link: undefined }).statusText).toBe('Aperte um botão para conferir');
+    expect(remoteDeviceView({ ...used, link: undefined }).statusText).toBe('Em espera · aperte um botão');
   });
 });
 

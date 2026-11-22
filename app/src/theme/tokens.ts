@@ -13,6 +13,8 @@ export const colors = {
   accent: '#FFB000',
   onAccent: '#0A0A0A',
   rec: '#FF453A',
+  /** A trigger or device that is on and working ("Conectado", "Ativo"): the green of the triggers panel. */
+  ok: '#4CD964',
   warning: '#FF8A3D',
   warningGround: '#3A1D10',
   /** A recording someone shared with this phone (its badge in Gravações). */

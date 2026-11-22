@@ -192,6 +192,9 @@ export type Clip = {
   sharedAt?: number;
 };
 
+/** A Bluetooth remote the app has learnt (see `Prefs.remotes`). */
+export type KnownRemote = { id: string; name?: string };
+
 export type Prefs = {
   onboardingDone: boolean;
   sport: Sport;
@@ -205,9 +208,12 @@ export type Prefs = {
   /** When a press of the Bluetooth remote was first heard; the app cannot see the iOS pairing, only presses. */
   remoteTestedAt?: number;
   /**
-   * The Bluetooth remote as iOS shows it (BLE remotes only): its peripheral id and name, learnt at a press when exactly
-   * one connected device could be it. Then the app sees it connect and go without a press.
+   * The Bluetooth remotes as iOS shows them (BLE remotes only): each one's peripheral id and name, learnt at a press when
+   * exactly one connected device could be it. Then the app sees them connect and go without a press. Since 2026-11-22;
+   * absent: read the one remote kept before (`remoteBleId`).
    */
+  remotes?: KnownRemote[];
+  /** Before 2026-11-22 the app kept one remote: read once into `remotes`, then cleared. */
   remoteBleId?: string;
   remoteBleName?: string;
   /** The Modo Foco introduction (the first framed clip) was shown. */

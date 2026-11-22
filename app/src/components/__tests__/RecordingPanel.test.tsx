@@ -123,6 +123,8 @@ test('the save button saves a clip, then draws its ring and shows a ✓ for a mo
   expect(screen.queryByTestId('save-done')).toBeNull();
   await act(async () => jest.advanceTimersByTime(600));
   expect(screen.getByTestId('save-done')).toBeTruthy();
+  // The ✓ sits on the amber disc, the app's colour (2026-11-22; it was a white disc).
+  expect(screen.getByTestId('save-done')).toHaveStyle({ backgroundColor: '#FFB000' });
   await act(async () => jest.advanceTimersByTime(900));
   expect(screen.queryByTestId('save-done')).toBeNull();
   jest.useRealTimers();
@@ -343,7 +345,7 @@ test('after saving, no payments note shows', async () => {
 });
 
 describe('a recording without any clip', () => {
-  test('ending it removes it and opens Minhas gravações', async () => {
+  test('ending it removes it and stays on the camera, ready for the next one (2026-11-22)', async () => {
     repo.listClips.mockReturnValue([]);
     const s = session({});
     await render(<Recording />);
@@ -354,19 +356,18 @@ describe('a recording without any clip', () => {
     await act(async () => {});
     expect(repo.deleteSession).toHaveBeenCalledWith('s1');
     expect(s.reset).toHaveBeenCalled();
-    expect(router.push).toHaveBeenCalledWith('/games');
-    expect(router.push).not.toHaveBeenCalledWith('/session/s1');
+    expect(router.push).not.toHaveBeenCalled();
     repo.listClips.mockReturnValue([{ id: 'c1' }]);
   });
 
-  test('stopped by an error, it offers Minhas gravações instead of an empty summary', async () => {
+  test('stopped by an error, it offers the camera again instead of an empty summary', async () => {
     repo.listClips.mockReturnValue([]);
     const s = session({ phase: 'ended', error: 'ENCODER_FAILED', clipCount: 0 });
     await render(<Recording />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Minhas gravações' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Voltar para a câmera' }));
     expect(repo.deleteSession).toHaveBeenCalledWith('s1');
     expect(s.reset).toHaveBeenCalled();
-    expect(router.push).toHaveBeenCalledWith('/games');
+    expect(router.push).not.toHaveBeenCalled();
     repo.listClips.mockReturnValue([{ id: 'c1' }]);
   });
 });
@@ -476,6 +477,11 @@ describe('screen economy', () => {
     const notice = screen.getByTestId('economy-notice');
     expect(within(notice).getByText('Economia de bateria ligada')).toBeTruthy();
     expect(within(notice).getByText('A tela escurece depois de 20 segundos sem toque. Toque para acender.')).toBeTruthy();
+    // In the dimmed screen's letters (2026-11-22): centred and larger.
+    expect(within(notice).getByText('Economia de bateria ligada')).toHaveStyle({ fontSize: 17, textAlign: 'center' });
+    expect(
+      within(notice).getByText('A tela escurece depois de 20 segundos sem toque. Toque para acender.'),
+    ).toHaveStyle({ fontSize: 15, textAlign: 'center' });
     expect(screen.getAllByText('Economia de bateria ligada')).toHaveLength(1);
     await act(async () => jest.advanceTimersByTime(5000));
     expect(screen.queryByTestId('economy-notice')).toBeNull();

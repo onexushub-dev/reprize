@@ -226,14 +226,14 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   }
 
   /**
-   * After a game: its summary, or — with no clip to show — straight to Minhas gravações, the empty game removed. The
-   * summary goes over the setup screen, so swiping back returns to it (the summary resets the ended game as it leaves).
+   * After a game: its summary, or — with no clip to show — back on the camera, ready for the next one, the empty game
+   * removed (2026-11-22; it opened Minhas gravações). The summary goes over the setup screen, so swiping back returns to
+   * it (the summary resets the ended game as it leaves).
    */
   function leaveEnded(id: string) {
     if (repo.listClips(id).length > 0) return router.push(`/session/${id}`);
     repo.deleteSession(id).forEach((path) => removeFile(path));
-    reset();
-    router.push('/games'); // the setup screen stays under it
+    reset(); // the setup screen's controls come back and it opens the camera again
   }
 
   async function end() {
@@ -296,7 +296,7 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
       <SafeAreaView style={styles.stopped}>
         <Text style={styles.stoppedText}>{t('recording.stopped', { reason })}</Text>
         <Button
-          label={state.sessionId && repo.listClips(state.sessionId).length > 0 ? t('recording.seeClips') : t('recording.myRecordings')}
+          label={state.sessionId && repo.listClips(state.sessionId).length > 0 ? t('recording.seeClips') : t('recording.backToCamera')}
           onPress={() => {
             if (state.sessionId) leaveEnded(state.sessionId);
           }}
@@ -358,16 +358,6 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
             <Text style={styles.infoBody}>{t('recording.stableBody')}</Text>
           </View>
         ) : null}
-        {economyNotice !== undefined ? (
-          <View pointerEvents="none" accessibilityRole="alert" testID="economy-notice" style={styles.notice}>
-            <Text style={styles.noticeTitle}>
-              {t(economyNotice === 'on' ? 'recording.economyOnTitle' : 'recording.economyOffTitle')}
-            </Text>
-            <Text style={styles.noticeBody}>
-              {t(economyNotice === 'on' ? 'recording.economyOnBody' : 'recording.economyOffBody')}
-            </Text>
-          </View>
-        ) : null}
         {remoteLost && !economy.asleep ? (
           <View pointerEvents="none" accessibilityRole="alert" testID="remote-lost-notice" style={styles.notice}>
             <Text style={styles.noticeTitle}>{t('recording.remoteLostTitle')}</Text>
@@ -386,6 +376,20 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
           </View>
         ) : null}
 
+        {/* Turning battery saving on or off says so where the dimmed screen's note will be, in the same letters
+            (2026-11-22): centred, what happened in bold, then the detail. Never with the screen dark (no notice then). */}
+        {economyNotice !== undefined ? (
+          <View pointerEvents="none" style={styles.economy}>
+            <View accessibilityRole="alert" testID="economy-notice" style={styles.economyNote}>
+              <Text style={styles.economyText}>
+                {t(economyNotice === 'on' ? 'recording.economyOnTitle' : 'recording.economyOffTitle')}
+              </Text>
+              <Text style={styles.economyTap}>
+                {t(economyNotice === 'on' ? 'recording.economyOnBody' : 'recording.economyOffBody')}
+              </Text>
+            </View>
+          </View>
+        ) : null}
         {economy.asleep ? (
           <View pointerEvents="none" style={styles.economy}>
             {/* Bigger, on two lines (2026-11-21): what happened, then what to do. */}
@@ -458,7 +462,10 @@ const glass = 'rgba(12,12,12,0.72)';
 const styles = StyleSheet.create({
   dark: { backgroundColor: 'rgba(0,0,0,0.72)' },
   // A small note over the dimmed picture, not a screen of its own.
-  economy: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+  // Over the whole screen, not in the column (2026-11-22): the column's free middle moved with what is shown under it
+  // (the save button and the triggers are hidden while dark), so the notice and the dark screen's note sat at different
+  // heights. Both are centred on the same box now.
+  economy: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   economyNote: {
     alignItems: 'center',
     gap: 4,

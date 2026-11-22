@@ -3,17 +3,21 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { Button } from '../components/Button';
+import { PickBar } from '../components/SelectionBar';
 import { Chip } from '../components/Chip';
 import { GameCard } from '../components/GameCard';
 import { EmptyState } from '../components/EmptyState';
 import { dayTitle } from '../components/format';
 import { DateFilterSheet } from '../components/DateFilterSheet';
-import { BackIcon, CalendarIcon, CloseIcon, ReplayIcon } from '../components/icons';
+import { BackIcon, CalendarIcon, CloseIcon, LinkShareIcon, ReplayIcon, TrashIcon } from '../components/icons';
 import { lastOpenedSession, subscribeLastOpened } from '../data/lastOpened';
 import { removeFile, repo } from '../data/mmkv';
 import { useT } from '../i18n/useT';
-import { useSession } from '../session/SessionContext';
+import { SHARING_ENABLED } from '../account/flags';
+import { track } from '../analytics';
+import { openPaywall } from '../payments/feedback';
+import { canShare } from '../payments/limits';
+import { useProActive } from '../share/entitlement';
 import { colors, fonts, footer } from '../theme/tokens';
 
 type Filter = 'all' | 'mine' | 'received';
@@ -24,7 +28,6 @@ type Filter = 'all' | 'mine' | 'received';
  */
 export default function Games() {
   const { t, locale } = useT();
-  const { reset, state } = useSession();
   const version = useSyncExternalStore(repo.subscribe, repo.version);
   // The recording seen last: this list repaints the moment one opens (it stays mounted underneath).
   const lastSeenId = useSyncExternalStore(subscribeLastOpened, lastOpenedSession);
@@ -88,6 +91,26 @@ export default function Games() {
     setPicked([]);
   };
   const toggle = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((p) => p !== id) : [...current, id]));
+  // "Todos" picks every recording shown (the filter and the day apply) that has ended; "Limpar" once they all are.
+  const pickable = shown.filter((g) => g.session.endedAt !== undefined).map((g) => g.session.id);
+  const allPicked = pickable.length > 0 && pickable.every((id) => picked.includes(id));
+  const pickAll = () => setPicked(allPicked ? [] : pickable);
+
+  // Compartilhar (2026-11-22): one recording by link, as from its "…" (several at once comes later). Only a recording
+  // made here, ended, with clips; on the free plan the paywall first.
+  const shareAllowed = canShare(useProActive() ? 'paid' : 'free');
+  const toShare = pickedGames.length === 1 ? pickedGames[0] : undefined;
+  const shareable = toShare !== undefined && toShare.session.received === undefined && toShare.clips > 0;
+  async function shareRecording() {
+    if (toShare === undefined) return;
+    if (!shareAllowed) {
+      track('pro_feature_blocked', { feature: 'share' });
+      const outcome = await openPaywall(t, 'locked_feature');
+      if (outcome !== 'purchased' && outcome !== 'restored') return;
+    }
+    stopSelecting();
+    router.push(`/share/${toShare.session.id}`);
+  }
 
   const confirmDelete = () => {
     const count = pickedGames.length;
@@ -105,14 +128,8 @@ export default function Games() {
     ]);
   };
 
-  // The setup screen is already under this one. A game that has just ended still holds the live session, so start clean.
-  const newGame = () => {
-    if (state.phase === 'ended') reset();
-    router.dismissTo('/setup');
-  };
-
   return (
-    <SafeAreaView style={styles.root}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.root}>
       <View style={styles.header}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.back')} onPress={() => router.back()} style={styles.back}>
           <BackIcon />
@@ -120,12 +137,27 @@ export default function Games() {
         <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
           {t('games.title')}
         </Text>
-        {games.length > 0 ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => (selecting ? stopSelecting() : setSelecting(true))}
-            style={styles.pill}>
-            <Text style={styles.pillText}>{selecting ? t('common.cancel') : t('games.select')}</Text>
+        {/* Selecting (2026-11-22), as on a recording's screen: "Todos"/"Limpar" in amber, and an ✕ to stop. */}
+        {selecting ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={allPicked ? t('summary.clearSelection') : t('summary.selectAll')}
+              onPress={pickAll}
+              style={styles.pill}>
+              <Text style={[styles.pillText, styles.pillTextAccent]}>{allPicked ? t('summary.clear') : t('summary.all')}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('summary.cancelSelection')}
+              onPress={stopSelecting}
+              style={styles.close}>
+              <CloseIcon size={18} />
+            </Pressable>
+          </>
+        ) : games.length > 0 ? (
+          <Pressable accessibilityRole="button" onPress={() => setSelecting(true)} style={styles.pill}>
+            <Text style={styles.pillText}>{t('games.select')}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -203,18 +235,43 @@ export default function Games() {
         locale={locale}
         now={now}
       />
-      <View style={styles.footer}>
-        {selecting ? (
-          <Button
-            label={pickedGames.length === 0 ? t('games.tapRecordings') : t('games.deleteMany', { count: pickedGames.length })}
-            variant="danger"
-            disabled={pickedGames.length === 0}
-            onPress={confirmDelete}
+      {/* No "Nova gravação" (2026-11-22): the camera is the screen under this one, one back away. */}
+      {/* Selecting: the same bar as a recording's clips (2026-11-22): Compartilhar on the left, Apagar on the right. */}
+      {selecting ? (
+        <SafeAreaView edges={['bottom']} style={styles.footer}>
+          <PickBar
+            text={
+              pickedGames.length === 0
+                ? t('games.tapRecordings')
+                : t('games.selectedRecordings', { count: pickedGames.length })
+            }
+            left={
+              SHARING_ENABLED
+                ? [
+                    {
+                      label: t('summary.shareButton'),
+                      hint: pickedGames.length > 1 ? t('games.shareOne') : undefined,
+                      disabled: !shareable,
+                      onPress: () => void shareRecording(),
+                      icon: <LinkShareIcon size={26} color={colors.accent} />,
+                    },
+                  ]
+                : []
+            }
+            right={[
+              {
+                label: pickedGames.length === 0 ? t('common.delete') : t('games.deleteMany', { count: pickedGames.length }),
+                disabled: pickedGames.length === 0,
+                onPress: confirmDelete,
+                icon: <TrashIcon size={26} color={colors.accent} />,
+              },
+            ]}
           />
-        ) : (
-          <Button label={t('summary.newRecording')} onPress={newGame} />
-        )}
-      </View>
+        </SafeAreaView>
+      ) : (
+        // Room for the home bar under the list (the screen's own safe area leaves the bottom to the selection bar).
+        <SafeAreaView edges={['bottom']} />
+      )}
     </SafeAreaView>
   );
 }
@@ -244,6 +301,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   pillText: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
+  pillTextAccent: { color: colors.accent },
+  close: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   filters: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   filtersEnd: { flex: 1 },
   calendar: {
@@ -278,5 +346,14 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textTransform: 'uppercase',
   },
-  footer: { paddingBottom: footer.bottom, gap: 10 },
+  // Edge to edge over the screen's side margins, as on a recording's clips.
+  footer: {
+    marginHorizontal: -footer.side,
+    paddingHorizontal: footer.side - 4,
+    paddingTop: 6,
+    paddingBottom: footer.bottom,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
 });

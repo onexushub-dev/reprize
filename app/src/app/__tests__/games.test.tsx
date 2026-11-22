@@ -122,6 +122,25 @@ test('lifting the finger after holding a recording keeps it picked; the next tap
   expect(screen.getByRole('button', { name: /2 clipes.*, não selecionada$/ })).toBeTruthy();
 });
 
+test('selecting: "Todos" picks every ended recording shown, then reads "Limpar"; the ✕ stops (2026-11-22)', async () => {
+  repo.listSessions.mockReturnValue([
+    { session: { id: 's1', sport: 'outro', startedAt: 0, endedAt: 5, name: 'Final' }, clips: 2, firstClip: clip },
+    { session: { id: 's2', sport: 'outro', startedAt: 0, endedAt: 5, name: 'Semi' }, clips: 3, firstClip: clip },
+  ]);
+  repo.sessionStats.mockReturnValue({ clips: 2, bytes: 1, recordedMs: 60_000 });
+  await render(<Games />);
+  await fireEvent.press(screen.getByRole('button', { name: 'Selecionar' }));
+  expect(screen.queryByText('Cancelar')).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'Selecionar todos' }));
+  expect(screen.getByRole('button', { name: 'Apagar 2 gravações' })).toBeTruthy();
+  expect(screen.getByText('2 gravações selecionadas')).toBeTruthy();
+  expect(screen.getByText('Limpar')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Limpar seleção' }));
+  expect(screen.getByText('Todos')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Cancelar seleção' }));
+  expect(screen.getByRole('button', { name: 'Selecionar' })).toBeTruthy();
+});
+
 test('Selecionar picks several recordings and deletes them together', async () => {
   repo.listSessions.mockReturnValue([
     { session: { id: 's1', sport: 'outro', startedAt: 0, endedAt: 5, name: 'Final' }, clips: 2, firstClip: clip },
@@ -147,24 +166,18 @@ test('a game still being recorded cannot be picked for deleting', async () => {
   await render(<Games />);
   await fireEvent.press(screen.getByRole('button', { name: 'Selecionar' }));
   await fireEvent.press(screen.getByRole('button', { name: /1 clipe/ }));
-  expect(screen.queryByRole('button', { name: /^Apagar/ })).toBeNull();
+  // Nothing picked: the bar waits (its trash greyed), as on a recording's clips.
+  expect(screen.getByRole('button', { name: 'Apagar' })).toBeDisabled();
+  expect(screen.getByText('Toque nas gravações')).toBeTruthy();
   expect(router.push).not.toHaveBeenCalled();
 });
 
-test('Nova gravação goes back to the setup screen', async () => {
+test('no Nova gravação button: the camera is one back away (2026-11-22)', async () => {
   repo.listSessions.mockReturnValue([]);
   await render(<Games />);
-  await fireEvent.press(screen.getByRole('button', { name: 'Nova gravação' }));
-  expect(router.dismissTo).toHaveBeenCalledWith('/setup');
-});
-
-test('Nova gravação clears a game that has just ended before starting over', async () => {
-  repo.listSessions.mockReturnValue([]);
-  const reset = jest.fn();
-  useSession.mockReturnValue({ reset, state: { phase: 'ended', sessionId: 's1' } });
-  await render(<Games />);
-  await fireEvent.press(screen.getByRole('button', { name: 'Nova gravação' }));
-  expect(reset).toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Nova gravação' })).toBeNull();
+  await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
+  expect(router.back).toHaveBeenCalled();
 });
 
 test('the gallery has no PRO card, even with recordings on the free plan: each recording offers it on its own screen', async () => {
