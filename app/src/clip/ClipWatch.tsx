@@ -1,12 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { type ComponentRef, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { initialWindowMetrics } from 'react-native-safe-area-context';
 
 import { BackIcon, DownloadIcon, EditIcon, ShareIcon, TrashIcon } from '../components/icons';
 import { MAX_CLIP_NAME } from '../data/schema';
 import { ProgressRing, TickIcon } from '../components/sportIcons';
 import { useT } from '../i18n/useT';
-import { colors, fonts } from '../theme/tokens';
+import { colors, fonts, footer } from '../theme/tokens';
 import { EDGE, IconButton, SCRIM } from './IconButton';
 
 type Props = {
@@ -44,7 +44,12 @@ type Props = {
   chrome?: boolean;
 };
 
-const FADE_MS = 180;
+const FADE_MS = 120;
+/**
+ * The phone's safe area, read once (the app is portrait only): SafeAreaView measured itself again on every clip a swipe
+ * brought in, so the bars jumped by the home bar's height and cut the buttons for a moment (2026-11-21).
+ */
+const INSETS = initialWindowMetrics ? initialWindowMetrics.insets : { top: 0, bottom: 0, left: 0, right: 0 };
 
 /**
  * Watch mode, after the Photos app (2026-11-20): the clip as large as the screen allows; on top, back, the name and
@@ -57,8 +62,14 @@ export function ClipWatch(p: Props) {
   const [bottom, setBottom] = useState(0);
   const shown = p.chrome !== false;
   const [fade] = useState(() => new Animated.Value(shown ? 1 : 0));
+  const nameInput = useRef<ComponentRef<typeof TextInput>>(null);
+  // A tap on the name puts the cursor after it, nothing selected, so typing adds to it (2026-11-21: the whole name was
+  // selected and the first key replaced it). Released at once, so the cursor moves freely after.
+  const [atEnd, setAtEnd] = useState<{ start: number; end: number }>();
   useEffect(() => {
     Animated.timing(fade, { toValue: shown ? 1 : 0, duration: FADE_MS, useNativeDriver: true }).start();
+    // The controls going away take the name's focus (and the keyboard) with them.
+    if (!shown && nameInput.current) nameInput.current.blur();
   }, [fade, shown]);
   const hidden = {
     pointerEvents: shown ? ('box-none' as const) : ('none' as const),
@@ -84,22 +95,25 @@ export function ClipWatch(p: Props) {
       ) : null}
 
       <Animated.View {...hidden} style={[styles.top, { opacity: fade }]}>
-        <SafeAreaView edges={['top']} pointerEvents="box-none" style={styles.topInner}>
+        <View pointerEvents="box-none" style={[styles.topInner, { paddingTop: INSETS.top }]}>
           <View style={styles.topRow}>
             <IconButton label={t('common.back')} onPress={p.onBack}>
               <BackIcon />
             </IconButton>
             <TextInput
+              ref={nameInput}
               accessibilityLabel={t('clip.name')}
               value={p.name}
               onChangeText={p.onChangeName}
               onSubmitEditing={p.onSaveName}
+              onFocus={() => setAtEnd({ start: p.name.length, end: p.name.length })}
+              onSelectionChange={() => (atEnd !== undefined ? setAtEnd(undefined) : undefined)}
+              selection={atEnd}
               onBlur={p.onSaveName}
               placeholder={p.placeholder}
               placeholderTextColor={colors.soft}
               maxLength={MAX_CLIP_NAME}
               returnKeyType="done"
-              selectTextOnFocus
               style={styles.name}
             />
             <IconButton label={t('clip.deleteClip')} onPress={p.onDelete}>
@@ -137,14 +151,14 @@ export function ClipWatch(p: Props) {
               </Pressable>
             </View>
           ) : null}
-        </SafeAreaView>
+        </View>
       </Animated.View>
 
       <Animated.View
         {...hidden}
         style={[styles.bottom, { opacity: fade }]}
         onLayout={(e) => setBottom(e.nativeEvent.layout.height)}>
-        <SafeAreaView edges={['bottom']} pointerEvents="box-none" style={styles.bottomInner}>
+        <View pointerEvents="box-none" style={[styles.bottomInner, { paddingBottom: INSETS.bottom + footer.bottom }]}>
           {p.notice ? <Text style={styles.notice}>{p.notice}</Text> : null}
           <View style={styles.player}>{p.progress}</View>
           {p.strip}
@@ -168,7 +182,7 @@ export function ClipWatch(p: Props) {
               loading={p.sharing}
             />
           </View>
-        </SafeAreaView>
+        </View>
       </Animated.View>
     </View>
   );
@@ -207,9 +221,10 @@ function Action({
 
 const styles = StyleSheet.create({
   foundText: { color: colors.accent },
-  root: { flex: 1, backgroundColor: colors.ground },
+  // Transparent: the clip screen draws its own dark ground, which fades to show the grid when the clip is dragged down.
+  root: { flex: 1 },
   top: { position: 'absolute', left: 0, right: 0, top: 0 },
-  topInner: { paddingHorizontal: 12 },
+  topInner: { paddingHorizontal: footer.side },
   topRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   name: {
     flex: 1,
@@ -237,7 +252,7 @@ const styles = StyleSheet.create({
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
   tagText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
   bottom: { position: 'absolute', left: 0, right: 0, bottom: 0 },
-  bottomInner: { paddingHorizontal: 12, paddingBottom: 8, gap: 10 },
+  bottomInner: { paddingHorizontal: footer.side, gap: 10 },
   notice: {
     alignSelf: 'center',
     fontFamily: fonts.bodySemi,

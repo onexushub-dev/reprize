@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
-import { useRef } from 'react';
+import { type ComponentRef, useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { markOpening, registerTile } from '../clip/tileFrames';
 import type { Clip, TriggerSource } from '../data/schema';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
@@ -64,8 +65,16 @@ export function ClipCard({ clip, number, width, onPress, onLongPress, selecting 
   // A hold that starts the selection ends with the finger lifting, and by then this card already counts as picked:
   // that release must not count as a tap, which would unpick it at once.
   const held = useRef(false);
+  // The clip screen grows out of this tile and goes back into it (tileFrames).
+  const tile = useRef<ComponentRef<typeof View>>(null);
+  const clipId = clip.id;
+  useEffect(() => {
+    const node = tile.current;
+    return node ? registerTile(clipId, node) : undefined;
+  }, [clipId]);
   return (
     <Pressable
+      ref={tile}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={selecting ? { checked: selected } : undefined}
@@ -77,6 +86,7 @@ export function ClipCard({ clip, number, width, onPress, onLongPress, selecting 
           held.current = false;
           return;
         }
+        if (!selecting) markOpening(clip.id);
         onPress();
       }}
       onLongPress={

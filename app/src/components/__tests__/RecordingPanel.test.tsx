@@ -381,7 +381,8 @@ describe('screen economy', () => {
     expect(screen.getByTestId('screen-economy')).toBeTruthy();
     // A veil over the camera, which stays in view: not a black screen (2026-11-21).
     expect(screen.getByTestId('screen-economy')).toHaveStyle({ backgroundColor: 'rgba(0,0,0,0.72)' });
-    expect(screen.getByText('Tela em economia para poupar bateria. Toque para acender.')).toBeTruthy();
+    expect(screen.getByText('Tela em economia para poupar bateria')).toBeTruthy();
+    expect(screen.getByText('Toque para acender')).toBeTruthy();
     expect(screen.queryByText(/Toque na tela para salvar/)).toBeNull();
     expect(setScreenEconomy).toHaveBeenLastCalledWith(true);
     jest.useRealTimers();

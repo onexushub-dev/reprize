@@ -105,7 +105,7 @@ import {
 } from "../modes/registry";
 import { clampZoom, hasZoomChoice, lensFor, nextZoomStep } from "../modes/zoom";
 import { useSession } from "../session/SessionContext";
-import { colors, fonts, radius } from "../theme/tokens";
+import { colors, fonts, footer, radius } from "../theme/tokens";
 import { useBluetoothRemote } from "../triggers/useBluetoothRemote";
 
 const START_ERRORS: Partial<Record<ReplayErrorCode, MessageKey>> = {
@@ -1248,7 +1248,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
   },
-  sheetBody: { paddingHorizontal: 20, paddingTop: 8, gap: 12 },
+  sheetBody: { paddingHorizontal: footer.side, paddingTop: 8, paddingBottom: footer.bottom, gap: 12 },
   guideArea: { position: "absolute", top: 0, left: 0, right: 0 },
   handleArea: {
     alignSelf: "center",

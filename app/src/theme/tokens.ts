@@ -30,4 +30,10 @@ export const fonts = {
 
 export const radius = { chip: 20, card: 14, button: 16, sheet: 24 } as const;
 
+/**
+ * Where a screen's main bottom button sits (2026-11-21): the reference is Gravações' "Nova gravação", 12 pt above the
+ * safe area (the home bar) and 16 pt from the sides. Every bottom button and sheet follows it.
+ */
+export const footer = { bottom: 12, side: 16 } as const;
+
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 } as const;

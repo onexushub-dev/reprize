@@ -5,13 +5,15 @@ import { Asset } from 'expo-media-library';
 import { router, useLocalSearchParams } from 'expo-router';
 import { shareAsync } from 'expo-sharing';
 import { useVideoPlayer } from 'expo-video';
-import { type ComponentRef, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type ComponentRef, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Alert,
   Animated,
+  AppState,
   BackHandler,
   Easing,
   Image,
+  Keyboard,
   PixelRatio,
   Pressable,
   StyleSheet,
@@ -31,6 +33,7 @@ import { NeighbourStage } from '../../clip/NeighbourStage';
 import { BallChip, type BallChipState } from '../../clip/BallChip';
 import { BallIntroSheet } from '../../clip/BallIntroSheet';
 import { ballContent, previewBox } from '../../clip/stage';
+import { type Rect as TileRect, takeOpening, tileRect, willOpenFromTile } from '../../clip/tileFrames';
 import { ToolBar } from '../../clip/ToolBar';
 import { type BallUi, EDIT_TOOLS, type EditTool, type FocusUi, type ToolContext } from '../../clip/tools';
 import { WatchProgress } from '../../clip/WatchProgress';
@@ -64,7 +67,8 @@ import type { MessageKey } from '../../i18n';
 import { useT } from '../../i18n/useT';
 import { effectiveSettings } from '../../modes/registry';
 import { captureOverlay } from '../../share/captureOverlay';
-import { applyEdit, contentFloor, nextRotation, outputMs, raiseToFloor, readEdit, storedEdit, turnedSize } from '../../share/editing';
+import { applyEdit, contentFloor, NO_ZOOM, nextRotation, outputMs, raiseToFloor, readEdit, storedEdit, turnedSize } from '../../share/editing';
+import { useZoomGesture } from '../../share/useZoomGesture';
 import { clipWindow } from '../../share/trim';
 import { unlockRecording } from '../../payments/unlock';
 import { accessPlan } from '../../payments/rules';
@@ -80,6 +84,12 @@ import { ZoomableVideo } from '../../share/ZoomableVideo';
 import { colors, fonts } from '../../theme/tokens';
 
 const SLIDE_MS = 220;
+/** Dragged down a whole screen, the picture is this small (Photos-like), and the ground behind it gone after DOWN_FADE. */
+const DOWN_MIN_SCALE = 0.55;
+const DOWN_FADE = 300;
+/** Growing out of the tile and back into it. */
+const HERO_MS = 240;
+const HERO_SPRING = { useNativeDriver: true, damping: 24, stiffness: 260, mass: 0.9 } as const;
 /** Past the last clip the picture only gives a little, like Photos. */
 const RUBBER = 0.3;
 /** If the first frame is never reported, the still gives way after this long anyway. */
@@ -162,6 +172,35 @@ export default function ClipScreen() {
       })}
     </View>
   );
+}
+
+/** The stage around the preview in watch mode: the same tap, swipe and hold as the picture, never a zoom. */
+function StageGestures(p: {
+  width: number;
+  height: number;
+  onTap: () => void;
+  onSwipe: (step: 1 | -1) => void;
+  onDrag: (dx: number) => void;
+  onDragCancel: () => void;
+  onDown: (dx: number, dy: number) => void;
+  onDownEnd: (close: boolean) => void;
+  onHold: (down: boolean) => void;
+}) {
+  const handlers = useZoomGesture({
+    zoom: NO_ZOOM,
+    pinch: false,
+    box: { left: 0, top: 0, width: p.width, height: p.height },
+    onChange: () => {},
+    onCommit: () => {},
+    onTap: p.onTap,
+    onSwipe: p.onSwipe,
+    onDrag: p.onDrag,
+    onDragCancel: p.onDragCancel,
+    onDown: p.onDown,
+    onDownEnd: p.onDownEnd,
+    onHold: p.onHold,
+  });
+  return <View testID="stage-gestures" style={StyleSheet.absoluteFill} {...handlers} />;
 }
 
 type EditorProps = {
@@ -520,6 +559,81 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const layout = look ? look.layout : frameLayout(shape, frame);
   // What the screen shows: the export's frame, or Seguir a Bola's vertical one (also on a free plan).
   const shown = look ? look.preview : { frame, layout };
+
+  // Like the Photos app (2026-11-21): the clip grows out of its tile in the grid, and a drag down shrinks it back into
+  // it. The grid stays under this screen (a transparent modal); `backdrop` is this screen's own dark ground.
+  const [opensFromTile] = useState(() => willOpenFromTile(id));
+  const [heroX] = useState(() => new Animated.Value(0));
+  const [heroY] = useState(() => new Animated.Value(0));
+  const [heroScale] = useState(() => new Animated.Value(1));
+  const [downX] = useState(() => new Animated.Value(0));
+  const [downY] = useState(() => new Animated.Value(0));
+  const [backdrop] = useState(() => new Animated.Value(opensFromTile ? 0 : 1));
+  const [stageAlpha] = useState(() => new Animated.Value(opensFromTile ? 0 : 1));
+  // Growing, shrinking or dragged down: no neighbours beside the picture and no controls over it.
+  const [flying, setFlying] = useState(opensFromTile);
+  const lastDown = useRef({ dx: 0, dy: 0 });
+  const motion = useMemo(
+    () => ({
+      translateX: Animated.add(Animated.add(slide, heroX), downX),
+      translateY: Animated.add(heroY, downY),
+      scale: Animated.multiply(
+        heroScale,
+        downY.interpolate({ inputRange: [0, window.height], outputRange: [1, DOWN_MIN_SCALE], extrapolate: 'clamp' }),
+      ),
+      backdrop: Animated.multiply(
+        backdrop,
+        // The grid shows at once, dimmed, and lights up as the finger goes down (like Photos).
+        downY.interpolate({ inputRange: [0, 24, DOWN_FADE], outputRange: [1, 0.7, 0], extrapolate: 'clamp' }),
+      ),
+    }),
+    [slide, heroX, heroY, heroScale, downX, downY, backdrop, window.height],
+  );
+  /** How to move and scale the stage so the video lies over `rect` (the tile), or undefined before the first layout. */
+  const heroFor = (rect: TileRect) => {
+    const box = previewBox(shown.frame, shown.layout, window);
+    const v = box.video;
+    if (v.width <= 0 || v.height <= 0) return undefined;
+    const scale = Math.min(rect.width / v.width, rect.height / v.height);
+    const cx = v.left + v.width / 2 - box.width / 2;
+    const cy = v.top + v.height / 2 - box.height / 2;
+    return {
+      x: rect.x + rect.width / 2 - (window.width / 2 + scale * cx),
+      y: rect.y + rect.height / 2 - (window.height / 2 + scale * cy),
+      scale,
+    };
+  };
+  const heroForRef = useRef(heroFor);
+  useLayoutEffect(() => {
+    heroForRef.current = heroFor;
+  });
+  useEffect(() => {
+    if (!opensFromTile) return;
+    takeOpening(id);
+    let alive = true;
+    void tileRect(id).then((rect) => {
+      if (!alive) return;
+      const target = rect ? heroForRef.current(rect) : undefined;
+      heroX.setValue(target ? target.x : 0);
+      heroY.setValue(target ? target.y : 0);
+      heroScale.setValue(target ? target.scale : 0.92);
+      stageAlpha.setValue(1);
+      Animated.parallel([
+        Animated.spring(heroX, { toValue: 0, ...HERO_SPRING }),
+        Animated.spring(heroY, { toValue: 0, ...HERO_SPRING }),
+        Animated.spring(heroScale, { toValue: 1, ...HERO_SPRING }),
+        Animated.timing(backdrop, { toValue: 1, duration: HERO_MS, useNativeDriver: true }),
+      ]).start();
+      // The controls come in as the picture lands, not once the spring has fully settled (2026-11-21: they came late).
+      setTimeout(() => {
+        if (alive) setFlying(false);
+      }, HERO_MS * 0.6);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the clip opens
+  }, []);
   // The real aspect ratio (rotation applied) comes from the clip's thumbnail.
   const clipPath = clip?.path;
   const startMs = clip?.trim.startMs ?? 0;
@@ -561,6 +675,17 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     p.currentTime = trim.startMs / 1000;
     p.play();
   });
+  // Leaving the app stops the clip (iOS pauses the video anyway): it comes back paused, as it shows, so one tap on play
+  // plays it (2026-11-21: it came back showing "playing" and took two taps).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'background' || !wantsPlay.current) return;
+      wantsPlay.current = false;
+      setPlayingState(false);
+      setPlaying(player, false);
+    });
+    return () => sub.remove();
+  }, [player]);
   // Swiped away: stand still (and quiet) on top until the next clip is on screen underneath.
   useEffect(() => {
     if (!leaving) return;
@@ -784,12 +909,64 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     trackEvent('clip_edit_tool_used', { tool });
   }
 
+  /** The picture follows a finger dragging it down (watch mode), smaller and over less of the dark ground. */
+  function dragDown(dx: number, dy: number) {
+    if (!flying) setFlying(true);
+    lastDown.current = { dx, dy };
+    downX.setValue(dx);
+    downY.setValue(Math.max(0, dy));
+  }
+
+  /** Let go: far or fast enough, the clip goes back into its tile and the screen closes; else it settles back. */
+  function endDown(close: boolean) {
+    if (!close) {
+      Animated.parallel([
+        Animated.spring(downX, { toValue: 0, ...HERO_SPRING }),
+        Animated.spring(downY, { toValue: 0, ...HERO_SPRING }),
+      ]).start();
+      setFlying(false);
+      return;
+    }
+    // The drag becomes the starting point of the flight back.
+    const { dx, dy } = lastDown.current;
+    const scale = 1 - (1 - DOWN_MIN_SCALE) * Math.min(Math.max(dy, 0) / window.height, 1);
+    heroX.setValue(dx);
+    heroY.setValue(Math.max(0, dy));
+    heroScale.setValue(scale);
+    backdrop.setValue(1 - Math.min(Math.max(dy, 0) / DOWN_FADE, 1));
+    downX.setValue(0);
+    downY.setValue(0);
+    void tileRect(id).then((rect) => {
+      const target = rect ? heroFor(rect) : undefined;
+      const flights = target
+        ? [
+            Animated.timing(heroX, { toValue: target.x, duration: HERO_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+            Animated.timing(heroY, { toValue: target.y, duration: HERO_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+            Animated.timing(heroScale, { toValue: target.scale, duration: HERO_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          ]
+        : [
+            // No tile to go to (another clip of the recording, scrolled away): it drops and fades.
+            Animated.timing(heroY, { toValue: window.height * 0.6, duration: HERO_MS, useNativeDriver: true }),
+            Animated.timing(stageAlpha, { toValue: 0, duration: HERO_MS, useNativeDriver: true }),
+          ];
+      Animated.parallel([...flights, Animated.timing(backdrop, { toValue: 0, duration: HERO_MS, useNativeDriver: true })]).start(
+        () => leave(),
+      );
+    });
+  }
+
   function toggleMute() {
     watchMuted = !quietPlay;
     setQuietPlay(watchMuted);
   }
 
   function toggleChrome() {
+    // Typing the clip's name: a tap on the video only puts the keyboard away (2026-11-21: the name kept the focus and
+    // the keyboard covered the buttons).
+    if (Keyboard.isVisible()) {
+      Keyboard.dismiss();
+      return;
+    }
     chromeShown = !chrome;
     setChromeState(chromeShown);
   }
@@ -1086,9 +1263,17 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     // The same reckoning as the neighbours' stills, so that a swipe lands on the picture that slid in.
     const { height: previewHeight, scale, video: videoBox } = previewBox(shown.frame, shown.layout, area);
     return (
-      <Animated.View testID="clip-stage" style={[styles.stage, { transform: [{ translateX: slide }] }]}>
+      <Animated.View
+        testID="clip-stage"
+        style={[
+          styles.stage,
+          {
+            opacity: stageAlpha,
+            transform: [{ translateX: motion.translateX }, { translateY: motion.translateY }, { scale: motion.scale }],
+          },
+        ]}>
         {/* What a drag uncovers on each side: the neighbouring clips' stills, or the way back on the first clip. */}
-        {!editing ? (
+        {!editing && !flying ? (
           <>
             <View pointerEvents="none" style={[styles.neighbour, { left: -area.width, width: area.width }]}>
               {previous ? <NeighbourStage clip={previous} tier={tier} area={area} /> : at === 0 ? <Text style={styles.backHint}>{t('clip.backToRecording')}</Text> : null}
@@ -1097,6 +1282,21 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
               {next ? <NeighbourStage clip={next} tier={tier} area={area} /> : null}
             </View>
           </>
+        ) : null}
+        {/* Watching, the empty sides of a landscape clip (the black above and below it) swipe, tap and hold like the
+            picture (2026-11-21: only the picture itself changed clips). */}
+        {!editing ? (
+          <StageGestures
+            width={area.width}
+            height={area.height}
+            onTap={toggleChrome}
+            onSwipe={goBy}
+            onDrag={drag}
+            onDragCancel={settleBack}
+            onDown={dragDown}
+            onDownEnd={endDown}
+            onHold={holdFast}
+          />
         ) : null}
         <View style={[styles.preview, { width: shown.frame.width * scale, height: previewHeight }]}>
           <CaptureGuard active={received} onCapturing={pauseForCapture} quiet={quiet}>
@@ -1112,6 +1312,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
               onSwipe={editing ? undefined : goBy}
               onDrag={editing ? undefined : drag}
               onDragCancel={editing ? undefined : settleBack}
+              onDown={editing ? undefined : dragDown}
+              onDownEnd={editing ? undefined : endDown}
               poster={framed ? undefined : poster}
               onFirstFrame={() => setFramed(true)}
               follow={follow}
@@ -1142,6 +1344,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
 
   return (
     <View style={styles.root}>
+      {/* This screen's dark ground: it fades while the clip is dragged down, showing the grid underneath. */}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.ground, { opacity: motion.backdrop }]} />
       {editing ? (
         <ClipEdit
           renderStage={renderStage}
@@ -1205,7 +1409,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           onFocusTag={() => enterEdit('focus')}
           notice={tracking || busy || !notice ? undefined : t(notice)}
           strip={<ClipStrip clips={siblings} currentId={id} onPick={jumpTo} />}
-          chrome={chrome}
+          chrome={chrome && !flying}
           progress={
             <WatchProgress
               player={player}
@@ -1266,8 +1470,10 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
 }
 
 const styles = StyleSheet.create({
-  layers: { flex: 1, backgroundColor: colors.ground },
-  root: { flex: 1, backgroundColor: colors.ground },
+  // Transparent: the recording's grid shows under a clip dragged down (the screen's ground is its own `ground` layer).
+  layers: { flex: 1 },
+  root: { flex: 1 },
+  ground: { backgroundColor: colors.ground },
   neighbour: { position: 'absolute', top: 0, bottom: 0, backgroundColor: colors.ground, alignItems: 'center', justifyContent: 'center' },
   backHint: { color: colors.muted, fontFamily: fonts.bodySemi, fontSize: 15 },
   missingRoot: { flex: 1, backgroundColor: colors.ground, paddingHorizontal: 16, gap: 12 },

@@ -98,8 +98,18 @@ export default function RootLayout() {
       <RemoteStartListener />
       {/* Back by swiping right from anywhere on the screen, not only the edge (iOS). */}
       <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: true, contentStyle: { backgroundColor: colors.ground } }}>
-        {/* The clip screen does its own swipe (between clips; on the first clip, back) and its trim handles drag sideways. */}
-        <Stack.Screen name="clip/[id]" options={{ gestureEnabled: false }} />
+        {/* The clip screen does its own swipe (between clips; on the first clip, back) and its trim handles drag sideways.
+            A transparent modal with no animation of its own (2026-11-21): the recording's grid stays under it, so the clip
+            grows out of its tile and, dragged down, shrinks back into it, like Photos. */}
+        <Stack.Screen
+          name="clip/[id]"
+          options={{
+            gestureEnabled: false,
+            presentation: 'transparentModal',
+            animation: 'none',
+            contentStyle: { backgroundColor: 'transparent' },
+          }}
+        />
         {/* Dispositivos: a sheet over the setup screen, closed by swiping down. */}
         <Stack.Screen name="devices" options={{ presentation: 'modal' }} />
         {/* Compartilhar gravação: a sheet over the recording, closed by swiping down. */}

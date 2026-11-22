@@ -97,3 +97,13 @@ test('Salvar and Enviar wait while disabled', async () => {
   expect(p.onShare).not.toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Salvar na galeria' }).props.accessibilityState).toMatchObject({ disabled: true });
 });
+
+test('a tap on the name puts the cursor after it, with nothing selected (2026-11-21)', async () => {
+  await render(<ClipWatch {...props({ name: 'Ace no fundo' })} />);
+  const input = screen.getByLabelText('Etiqueta do clipe');
+  expect(input.props.selectTextOnFocus).toBeFalsy();
+  await fireEvent(input, 'focus');
+  expect(screen.getByLabelText('Etiqueta do clipe').props.selection).toEqual({ start: 12, end: 12 });
+  await fireEvent(screen.getByLabelText('Etiqueta do clipe'), 'selectionChange', { nativeEvent: { selection: { start: 12, end: 12 } } });
+  expect(screen.getByLabelText('Etiqueta do clipe').props.selection).toBeUndefined();
+});

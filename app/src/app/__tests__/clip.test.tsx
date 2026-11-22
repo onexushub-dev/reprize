@@ -32,7 +32,14 @@ jest.mock('expo-video', () => {
 });
 const mockListExports = jest.fn(() => []);
 jest.mock('expo-file-system', () => ({
-  File: class { exists = true; delete() {} },
+  // Clips exist; their frames are made by the (mocked) native module, not found on disk.
+  File: class {
+    exists: boolean;
+    constructor(uri: string) {
+      this.exists = !String(uri).endsWith('.thumb.jpg');
+    }
+    delete() {}
+  },
   Directory: class { list() { return mockListExports(); } },
   Paths: { cache: '' },
 }));
@@ -203,6 +210,30 @@ test('the clip keeps the number it was saved with, not its place in the list', a
   expect(router.setParams).toHaveBeenCalledWith({ id: 'c0' });
 });
 
+test('leaving the app pauses the clip, so it comes back paused and one tap plays it (2026-11-21)', async () => {
+  const listeners: ((state: string) => void)[] = [];
+  // Swapped by hand and put back as it was: restoring a spy on react-native's mocked AppState left every later test
+  // with an addEventListener that returns nothing, so no clip screen could unmount.
+  const { AppState } = require('react-native');
+  const original = AppState.addEventListener;
+  AppState.addEventListener = (_: string, fn: (state: string) => void) => {
+    listeners.push(fn);
+    return { remove: jest.fn() };
+  };
+  try {
+    await open();
+    player.pause.mockClear();
+    await act(async () => listeners.forEach((fn) => fn('background')));
+    expect(player.pause).toHaveBeenCalled();
+    player.play.mockClear();
+    await pressAction('Reproduzir');
+    expect(player.play).toHaveBeenCalled();
+    await act(async () => cleanup());
+  } finally {
+    AppState.addEventListener = original;
+  }
+});
+
 test('paused while watching, the disc in the middle plays again (2026-11-20)', async () => {
   await open();
   await pressAction('Pausar');
@@ -235,6 +266,13 @@ test('the volume buttons show the level over the clip, since iOS shows nothing h
   expect(screen.queryByTestId('volume-hud', { includeHiddenElements: true })).toBeNull();
   await act(async () => jest.requireMock('react-native-volume-manager').__volume(0.6));
   expect(screen.getByLabelText('Volume 60%', { includeHiddenElements: true })).toBeTruthy();
+});
+
+test('watching, the stage around the picture (a landscape clip\'s black sides) takes swipes too; editing, it does not (2026-11-21)', async () => {
+  await open();
+  expect(screen.getByTestId('stage-gestures').props.onResponderRelease).toBeDefined();
+  await pressAction('Editar');
+  expect(screen.queryByTestId('stage-gestures')).toBeNull();
 });
 
 test('a tap on the video while watching hides the controls and leaves the clip playing; the next brings them back', async () => {

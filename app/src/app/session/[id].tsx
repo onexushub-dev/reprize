@@ -66,7 +66,7 @@ import { freeLosses } from "../../share/exportOptions";
 import { useBatchActions } from "../../share/useBatchActions";
 import { useT } from "../../i18n/useT";
 import { useSession } from "../../session/SessionContext";
-import { colors, fonts } from "../../theme/tokens";
+import { colors, fonts, footer } from "../../theme/tokens";
 
 export default function SessionSummary() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -803,15 +803,15 @@ const styles = StyleSheet.create({
   grid: { gap: 2, paddingBottom: 110 },
   gridRow: { gap: 2 },
   empty: { paddingHorizontal: 20 },
-  footer: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
-  // As low as the recording screen's "Segure para encerrar": into the top of the home bar's margin on iOS (2026-11-20).
+  footer: { paddingHorizontal: footer.side, paddingTop: 8, paddingBottom: footer.bottom },
+  // Where every screen's bottom button sits (Gravações' "Nova gravação", 2026-11-21).
   floating: {
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: Platform.OS === "ios" ? -14 : 0,
+    bottom: 0,
     alignItems: "center",
-    paddingBottom: Platform.OS === "ios" ? 0 : 4,
+    paddingBottom: footer.bottom,
   },
   capsule: {
     flexDirection: "row",

@@ -15,7 +15,7 @@ import { onRemoteEnd } from '../triggers/remoteCommands';
 import { useSession } from '../session/SessionContext';
 import { useScreenEconomy } from '../session/useScreenEconomy';
 import { diag } from '../diag/diagLog'; // TEMP(diag-remote)
-import { colors, fonts } from '../theme/tokens';
+import { colors, fonts, footer } from '../theme/tokens';
 import { Button } from './Button';
 import { EconomyButton } from './EconomyButton';
 import { HoldButton } from './HoldButton';
@@ -388,7 +388,13 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
 
         {economy.asleep ? (
           <View pointerEvents="none" style={styles.economy}>
-            <Text style={styles.economyText}>{t('recording.economy')}</Text>
+            {/* Bigger, on two lines (2026-11-21): what happened, then what to do. */}
+            <View style={styles.economyNote} accessible accessibilityLabel={`${t('recording.economy')}. ${t('recording.economyTap')}`}>
+              <Text style={styles.economyText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                {t('recording.economy')}
+              </Text>
+              <Text style={styles.economyTap}>{t('recording.economyTap')}</Text>
+            </View>
           </View>
         ) : null}
 
@@ -453,19 +459,23 @@ const styles = StyleSheet.create({
   dark: { backgroundColor: 'rgba(0,0,0,0.72)' },
   // A small note over the dimmed picture, not a screen of its own.
   economy: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
-  economyText: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.soft,
-    textAlign: 'center',
+  economyNote: {
+    alignItems: 'center',
+    gap: 4,
     backgroundColor: 'rgba(12,12,12,0.6)',
-    borderRadius: 14,
-    overflow: 'hidden',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  content: { flex: 1, paddingHorizontal: 16, gap: 10 },
+  economyText: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 17,
+    lineHeight: 22,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  economyTap: { fontFamily: fonts.bodySemi, fontSize: 15, lineHeight: 20, color: colors.soft, textAlign: 'center' },
+  content: { flex: 1, paddingHorizontal: footer.side, gap: 10 },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
   topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   // The quality chip is a small note under the row, not one of its buttons.
@@ -506,8 +516,8 @@ const styles = StyleSheet.create({
   infoTitle: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
   infoBody: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.soft },
   qualityText: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.soft },
-  // Low on the screen, into the top of the home bar's margin on iOS, so the picture keeps the room (2026-11-20).
-  bottom: { marginTop: 'auto', gap: 8, marginBottom: Platform.OS === 'ios' ? -14 : 4 },
+  // Where every screen's bottom button sits (Gravações' "Nova gravação", 2026-11-21).
+  bottom: { marginTop: 'auto', gap: 8, marginBottom: footer.bottom },
   center: { alignItems: 'center' },
   // The setup screen's zoom button, as a note: more room under it than the rest of the column (2026-11-21).
   zoomInfoWrap: { marginBottom: 12 },

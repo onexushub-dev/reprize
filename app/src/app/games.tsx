@@ -14,7 +14,7 @@ import { lastOpenedSession, subscribeLastOpened } from '../data/lastOpened';
 import { removeFile, repo } from '../data/mmkv';
 import { useT } from '../i18n/useT';
 import { useSession } from '../session/SessionContext';
-import { colors, fonts } from '../theme/tokens';
+import { colors, fonts, footer } from '../theme/tokens';
 
 type Filter = 'all' | 'mine' | 'received';
 
@@ -220,7 +220,7 @@ export default function Games() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.ground, paddingHorizontal: 16, gap: 12 },
+  root: { flex: 1, backgroundColor: colors.ground, paddingHorizontal: footer.side, gap: 12 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 },
   back: {
     width: 40,
@@ -278,5 +278,5 @@ const styles = StyleSheet.create({
     color: colors.muted,
     textTransform: 'uppercase',
   },
-  footer: { paddingBottom: 12, gap: 10 },
+  footer: { paddingBottom: footer.bottom, gap: 10 },
 });

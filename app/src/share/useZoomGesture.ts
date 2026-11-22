@@ -20,16 +20,31 @@ type Props = {
   onDrag?: (dx: number) => void;
   /** The drag let go without changing the clip: put the picture back. */
   onDragCancel?: () => void;
+  /**
+   * A one-finger drag that starts downward, as it happens (2026-11-21, like Photos): the picture follows the finger on
+   * both axes; `onDownEnd` says whether it went far or fast enough to close the clip.
+   */
+  onDown?: (dx: number, dy: number) => void;
+  onDownEnd?: (close: boolean) => void;
   /** A still finger held past HOLD_MS: true when it starts, false when the finger lifts (no tap, no commit then). */
   onHold?: (down: boolean) => void;
 };
 
 const TAP_SLOP = 10;
 const TAP_MS = 350;
-const SWIPE_MIN = 60;
-/** A drag this share of the picture's width changes the clip, like Photos; a quick flick needs less. */
-const SWIPE_SHARE = 0.25;
-const FLICK_VX = 0.5;
+/**
+ * Changing clips (2026-11-21: it sometimes took a long or fast swipe). A drag past this share of the picture's width
+ * (or SWIPE_MIN points) changes the clip, like Photos; a flick needs only FLICK_MIN points at FLICK_VX; and the drag
+ * only has to lean sideways (more sideways than up or down by SIDEWAYS), not be almost flat.
+ */
+const SWIPE_MIN = 50;
+const SWIPE_SHARE = 0.18;
+const FLICK_VX = 0.3;
+const FLICK_MIN = 16;
+const SIDEWAYS = 1.2;
+/** A drag down this far, or flicked down this fast, closes the clip (like Photos). */
+const CLOSE_DY = 110;
+const CLOSE_VY = 0.5;
 /** Longer than a tap, so a slow tap never turns into a hold. */
 const HOLD_MS = 400;
 
@@ -56,6 +71,8 @@ export function useZoomGesture(props: Props) {
     let holdTimer: ReturnType<typeof setTimeout> | undefined;
     let holding = false;
     let dragged = false;
+    // Which way a one-finger drag goes, once it has moved past the tap's slop: down (close) or sideways (paging).
+    let axis: 'down' | 'side' | undefined;
     const stopHoldTimer = () => {
       if (holdTimer !== undefined) clearTimeout(holdTimer);
       holdTimer = undefined;
@@ -95,6 +112,7 @@ export function useZoomGesture(props: Props) {
         origin = { x: first.pageX - (first.locationX ?? 0), y: first.pageY - (first.locationY ?? 0) };
         stopHoldTimer();
         holding = false;
+        axis = undefined;
         if (latest.current.onHold) {
           holdTimer = setTimeout(() => {
             holdTimer = undefined;
@@ -120,6 +138,23 @@ export function useZoomGesture(props: Props) {
           travelled += Math.hypot(dx, dy);
           totalX += dx;
           totalY += dy;
+          if (axis === undefined && !multi && travelled >= TAP_SLOP) {
+            const downward = latest.current.onDown !== undefined && totalY > 0 && totalY > Math.abs(totalX);
+            axis = downward && (following || latest.current.pinch === false) ? 'down' : 'side';
+            // The first few points already moved the picture sideways: put it back, the drag is a close.
+            const onDragCancel = latest.current.onDragCancel;
+            if (axis === 'down' && dragged && onDragCancel) {
+              dragged = false;
+              onDragCancel();
+            }
+          }
+          if (axis === 'down') {
+            stopHoldTimer();
+            const onDown = latest.current.onDown;
+            if (onDown) onDown(totalX, totalY);
+            previous = next;
+            return;
+          }
           const onDrag = latest.current.onDrag;
           if (onDrag && !multi && (following || latest.current.pinch === false)) {
             dragged = true;
@@ -144,15 +179,22 @@ export function useZoomGesture(props: Props) {
       },
       onPanResponderRelease: (_, g) => {
         if (endHold()) return;
+        if (axis === 'down') {
+          const onDownEnd = latest.current.onDownEnd;
+          if (onDownEnd) onDownEnd(totalY > CLOSE_DY || g.vy > CLOSE_VY);
+          return;
+        }
         const tap = !multi && travelled < TAP_SLOP && Date.now() - startedAt < TAP_MS;
         const width = latest.current.box.width;
         const far = Math.abs(totalX) > Math.max(SWIPE_MIN, width * SWIPE_SHARE);
-        const flick = Math.abs(g.vx) > FLICK_VX && Math.abs(totalX) > SWIPE_MIN / 3;
+        // A flick in the drag's own direction (a finger pulled back at the end means "stay").
+        const flick = Math.abs(g.vx) > FLICK_VX && Math.abs(totalX) > FLICK_MIN && Math.sign(g.vx) === Math.sign(totalX);
+        const backwards = Math.abs(g.vx) > FLICK_VX && Math.sign(g.vx) !== Math.sign(totalX);
         const swipe =
           !multi &&
           (following || latest.current.pinch === false || latest.current.zoom.scale <= 1.01) &&
-          (far || flick) &&
-          Math.abs(totalX) > 2 * Math.abs(totalY);
+          ((far && !backwards) || flick) &&
+          Math.abs(totalX) > SIDEWAYS * Math.abs(totalY);
         if (swipe && latest.current.onSwipe) return latest.current.onSwipe(totalX < 0 ? 1 : -1);
         const onDragCancel = latest.current.onDragCancel;
         if (dragged && onDragCancel) onDragCancel();
@@ -161,6 +203,11 @@ export function useZoomGesture(props: Props) {
       },
       onPanResponderTerminate: () => {
         if (endHold()) return;
+        if (axis === 'down') {
+          const onDownEnd = latest.current.onDownEnd;
+          if (onDownEnd) onDownEnd(false);
+          return;
+        }
         const onDragCancel = latest.current.onDragCancel;
         if (dragged && onDragCancel) onDragCancel();
         if (latest.current.pinch !== false) latest.current.onCommit(current);
