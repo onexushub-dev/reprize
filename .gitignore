@@ -5,3 +5,20 @@
 supabase/.reset-key
 # Supabase CLI state (which project this machine is linked to)
 supabase/.temp/
+
+# Local only, anywhere in the repo (2026-11-21)
+# Python caches and virtual environments of the lab and editing scripts
+__pycache__/
+*.pyc
+.venv*/
+# Logs and archives (clip packs sent over WhatsApp/AirDrop, exported builds)
+*.log
+*.zip
+# Scratch folders Claude makes while working (frames, contact sheets, copies of the lab)
+_claude/
+# Claude Code's per-machine settings (the shared .claude/settings.json stays in git)
+.claude/settings.local.json
+# Secrets and env files, wherever they are (app/.env*.local is covered in app/.gitignore too)
+.env
+.env.*
+!.env.example
