@@ -106,6 +106,11 @@ jest.mock("../../payments", () => ({
     version: jest.fn(() => 0),
   },
 }));
+jest.mock("../../update/updateNotice", () => ({
+  useUpdateNotice: jest.fn(() => false),
+  dismissUpdateNotice: jest.fn(),
+  openUpdateInStore: jest.fn(),
+}));
 
 const { repo } = jest.requireMock("../../data/mmkv");
 const { useSession } = jest.requireMock("../../session/SessionContext");
@@ -159,6 +164,37 @@ beforeEach(() => {
   payments.peekStart.mockReturnValue({ kind: "pro" });
   payments.credits.mockReturnValue(0);
   openPaywall.mockResolvedValue("cancelled");
+  jest.requireMock("../../update/updateNotice").useUpdateNotice.mockReturnValue(false);
+});
+
+describe("new version notice", () => {
+  const notice = () => jest.requireMock("../../update/updateNotice");
+
+  test("shows on the setup screen, and its buttons open the store or close it", async () => {
+    notice().useUpdateNotice.mockReturnValue(true);
+    session({});
+    await render(<Setup />);
+    expect(screen.getByText("Nova versão disponível")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Atualizar" }));
+    expect(notice().openUpdateInStore).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByRole("button", { name: "Fechar aviso" }));
+    expect(notice().dismissUpdateNotice).toHaveBeenCalledTimes(1);
+  });
+
+  test("never covers a recording", async () => {
+    notice().useUpdateNotice.mockReturnValue(true);
+    session({ phase: "recording" });
+    await render(<Setup />);
+    expect(screen.queryByText("Nova versão disponível")).toBeNull();
+  });
+
+  test("makes room while the settings are open", async () => {
+    notice().useUpdateNotice.mockReturnValue(true);
+    session({});
+    await render(<Setup />);
+    await openSettings();
+    expect(screen.queryByText("Nova versão disponível")).toBeNull();
+  });
 });
 
 test("keeps the screen awake while the phone is being positioned", async () => {

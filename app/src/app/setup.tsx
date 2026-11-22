@@ -69,6 +69,7 @@ import {
   WaveIcon,
 } from "../components/icons";
 import { TriggerTile } from "../components/TriggerTile";
+import { UpdateCard } from "../components/UpdateCard";
 import { ZoomBubble } from "../components/ZoomBubble";
 import { ZoomButton } from "../components/ZoomButton";
 import { repo } from "../data/mmkv";
@@ -78,6 +79,11 @@ import {
   useSetupDiag,
 } from "../diag/useSetupDiag"; // TEMP(diag)
 import { useIdlePause } from "../session/useIdlePause";
+import {
+  dismissUpdateNotice,
+  openUpdateInStore,
+  useUpdateNotice,
+} from "../update/updateNotice";
 import { openPaywall } from "../payments/feedback";
 import {
   FREE_MAX_SECONDS,
@@ -560,6 +566,19 @@ export default function Setup() {
     phase === "stopping" ||
     (phase === "ended" && error !== undefined);
 
+  // The new-version card waits for a calm setup screen: never over a recording, the open settings or another message.
+  const updateAvailable = useUpdateNotice();
+  const showUpdate =
+    updateAvailable &&
+    phase === "idle" &&
+    !opening &&
+    !expanded &&
+    !compact &&
+    !paused &&
+    idle.warning === undefined &&
+    !bubble &&
+    economyToast === 0;
+
   // One camera view for the whole game: setup and recording only swap the controls drawn over it.
   return (
     <View
@@ -608,6 +627,13 @@ export default function Setup() {
             </Text>
           ) : null}
         </Pressable>
+      ) : null}
+      {showUpdate ? (
+        <UpdateCard
+          bottom={sheetHeight + 12}
+          onUpdate={openUpdateInStore}
+          onClose={dismissUpdateNotice}
+        />
       ) : null}
       <PrepareSheet
         visible={preparing}

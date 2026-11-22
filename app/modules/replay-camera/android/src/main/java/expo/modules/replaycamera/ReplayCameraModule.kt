@@ -191,6 +191,10 @@ class ReplayCameraModule : Module() {
       )
     }
 
+    AsyncFunction("isPlayUpdateAvailable") { promise: Promise ->
+      PlayUpdate.check(context) { available -> promise.resolve(available) }
+    }
+
     Function("remoteDeviceName") { DeviceIdentity.name(context) }
 
     Function("remoteSetDeviceName") { name: String -> DeviceIdentity.setCustomName(context, name) }

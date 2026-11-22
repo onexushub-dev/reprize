@@ -17,6 +17,7 @@ import { RemoteStartListener } from '../session/RemoteStartListener';
 import { SessionProvider } from '../session/SessionContext';
 import { clearExportsFolder } from '../share/exportCache';
 import { colors } from '../theme/tokens';
+import { startUpdateNotice } from '../update/updateNotice';
 
 SplashScreen.preventAutoHideAsync();
 // Exports from the last run (a crash or a kill leaves them) go once per start; within a run they are reused.
@@ -67,6 +68,9 @@ export default function RootLayout() {
 
   // Modo Foco in the background: clips are analysed while the app is open and no recording runs.
   useEffect(() => startFocusQueue(), []);
+
+  // A new version in the store: checked when the app opens, shown by the setup screen.
+  useEffect(() => startUpdateNotice(), []);
 
   // The camera phone answers its paired remotes for as long as the app is open, whatever screen is in front: tying it to
   // one screen dropped the link every time the player moved between the setup, the recording and the summary.

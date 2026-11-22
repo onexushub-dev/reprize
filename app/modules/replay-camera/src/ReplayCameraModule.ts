@@ -121,6 +121,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   uploadStart?(items: UploadItem[]): void;
   uploadState?(): UploadEntry[];
   uploadReset?(): void;
+  /** Whether Google Play has a newer version for this phone (Android only: missing on iOS and in older builds). */
+  isPlayUpdateAvailable?(): Promise<boolean>;
 }
 
 export default requireNativeModule<ReplayCameraModule>('ReplayCamera');

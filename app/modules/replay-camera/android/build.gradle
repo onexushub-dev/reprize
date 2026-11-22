@@ -31,6 +31,8 @@ dependencies {
   implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
   // The pairing QR (camera phone side).
   implementation 'com.google.zxing:core:3.5.3'
+  // The notice of a new version: asks Google Play whether this phone has an update.
+  implementation 'com.google.android.play:app-update:2.1.0'
   // Seguir a Bola: the ball models (assets/ball_tiny_*.tflite) on the GPU, the CPU when the GPU cannot run them.
   implementation 'com.google.ai.edge.litert:litert:1.4.2'
   implementation 'com.google.ai.edge.litert:litert-gpu:1.4.2'
