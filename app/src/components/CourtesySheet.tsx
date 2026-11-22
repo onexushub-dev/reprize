@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAccount } from '../account/account';
 import { SignInButtons } from '../account/SignInButtons';
 import { track } from '../analytics';
-import { courtesiesLeft, spendCourtesy } from '../cloud/courtesy';
+import { courtesiesLeft, knownCourtesies, spendCourtesy } from '../cloud/courtesy';
 import { deviceId } from '../cloud/receive';
 import { useT } from '../i18n/useT';
 import { colors, fonts, radius } from '../theme/tokens';
@@ -52,7 +52,12 @@ export function CourtesySheet({ visible, shareId, clips, onChoose, onDismissed }
   const { t } = useT();
   const { ready, account } = useAccount();
   const accountId = account === null ? null : account.id;
-  const [step, setStep] = useState<Step>({ kind: 'loading' });
+  // The last answer kept on the phone opens the sheet on its offer (or on "already used") at once; the server is asked
+  // again behind it and the spend itself is decided there (2026-11-21).
+  const [step, setStep] = useState<Step>(() => {
+    const known = accountId === null ? undefined : knownCourtesies(accountId);
+    return known === undefined ? { kind: 'loading' } : known > 0 ? { kind: 'offer' } : { kind: 'exhausted' };
+  });
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -61,7 +66,8 @@ export function CourtesySheet({ visible, shareId, clips, onChoose, onDismissed }
     let alive = true;
     void courtesiesLeft(accountId).then((left) => {
       if (!alive) return;
-      if (left === null) setStep({ kind: 'error', message: 'failed' });
+      // A failed read leaves an offer already shown as it is: the spend asks the server anyway.
+      if (left === null) setStep((now) => (now.kind === 'offer' ? now : { kind: 'error', message: 'failed' }));
       else if (left === 0) {
         track('courtesy_exhausted');
         setStep({ kind: 'exhausted' });
@@ -75,7 +81,7 @@ export function CourtesySheet({ visible, shareId, clips, onChoose, onDismissed }
   async function spend() {
     if (shareId === null) return;
     setStep({ kind: 'spending' });
-    const result = await spendCourtesy(shareId, deviceId());
+    const result = await spendCourtesy(shareId, deviceId(), accountId === null ? undefined : accountId);
     if (result.ok) {
       track('courtesy_used', { remaining: result.remaining });
       onChoose('go');

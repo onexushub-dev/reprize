@@ -24,6 +24,7 @@ export type BatchCard = {
   text: string;
   /** What went wrong, for a person to read out when asked (the native error code and message). */
   detail?: string;
+  /** How long the batch took, kept for the tests and diagnostics; no longer shown on the card (2026-11-21). */
   timing?: BatchResult['timing'];
 };
 

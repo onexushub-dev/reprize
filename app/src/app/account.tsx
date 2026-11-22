@@ -6,7 +6,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { deleteAccount, signOut, useAccount, type Account, type DeleteResult } from '../account/account';
 import { SignInButtons } from '../account/SignInButtons';
 import { SHARING_ENABLED } from '../account/flags';
-import { courtesiesLeft } from '../cloud/courtesy';
 import { useShareStatus } from '../cloud/shareStatus';
 import { appVersion } from '../components/AboutLinks';
 import { Button } from '../components/Button';
@@ -46,8 +45,9 @@ const MANAGE_URL =
 
 /**
  * Ajustes, opened from the gear on the setup screen (2026-11-20): the account (sign in with Apple or Google, who is
- * signed in, sign out), the plan, the recordings being shared now, the free unlock of a shared recording, the legal
- * pages and the version. Without sharing, only the plan and the legal pages.
+ * signed in, sign out), the plan, the recordings being shared now, the legal pages and the version. Without sharing,
+ * only the plan and the legal pages. The free unlock of a received recording is shown only where it is used, in the
+ * sharing screens (2026-11-21).
  */
 export default function SettingsScreen() {
   const { t } = useT();
@@ -136,7 +136,6 @@ export default function SettingsScreen() {
         </Section>
 
         {SHARING_ENABLED && pro ? <SharingNow /> : null}
-        {SHARING_ENABLED && !pro && account !== null ? <FreeUnlock accountId={account.id} /> : null}
 
         <Section label={t('account.sectionAbout')}>
           <Row icon={<FilmIcon size={19} />} label={t('about.terms')} onPress={() => void Linking.openURL(t('about.termsUrl'))} />
@@ -317,31 +316,6 @@ function SharingRow({ session, now }: { session: Session & { shared: SessionShar
       </View>
       <ChevronIcon size={17} color={colors.muted} />
     </Pressable>
-  );
-}
-
-/** Without Pro: whether the free unlock of a shared recording is still there. */
-function FreeUnlock({ accountId }: { accountId: string }) {
-  const { t } = useT();
-  const [left, setLeft] = useState<number | null>(null);
-  useEffect(() => {
-    let alive = true;
-    void courtesiesLeft(accountId).then((n) => {
-      if (alive) setLeft(n);
-    });
-    return () => {
-      alive = false;
-    };
-  }, [accountId]);
-  if (left === null) return null;
-  return (
-    <Section label={t('account.sectionReceived')}>
-      <Row
-        icon={<GiftIcon size={19} />}
-        label={t('account.freeRelease')}
-        value={left > 0 ? t('account.freeReleaseLeft') : t('account.freeReleaseUsed')}
-      />
-    </Section>
   );
 }
 

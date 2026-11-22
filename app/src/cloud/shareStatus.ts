@@ -23,9 +23,13 @@ export async function fetchShareStatus(shareId: string): Promise<ShareStatus | n
   return { opened: Number(value.opened), report };
 }
 
+/** The last answer per link in this run of the app: a screen opened again shows it at once while it asks again. */
+const lastKnown = new Map<string, ShareStatus>();
+
 /**
  * The status of a link, asked again every `everyMs` while the app is in front (a phone opening it, a report coming
- * in). Undefined until the first answer; the last answer stays when one fails.
+ * in). The last answer already known in this run until the first one arrives (2026-11-21), otherwise undefined; the
+ * last answer stays when one fails.
  */
 export function useShareStatus(shareId: string | undefined, everyMs: number): ShareStatus | undefined {
   const [status, setStatus] = useState<{ shareId: string; value: ShareStatus } | undefined>(undefined);
@@ -35,6 +39,7 @@ export function useShareStatus(shareId: string | undefined, everyMs: number): Sh
     const ask = () => {
       if (AppState.currentState !== 'active') return;
       void fetchShareStatus(shareId).then((value) => {
+        if (value !== null) lastKnown.set(shareId, value);
         if (alive && value !== null) setStatus({ shareId, value });
       });
     };
@@ -49,5 +54,6 @@ export function useShareStatus(shareId: string | undefined, everyMs: number): Sh
       sub.remove();
     };
   }, [shareId, everyMs]);
-  return status !== undefined && status.shareId === shareId ? status.value : undefined;
+  if (status !== undefined && status.shareId === shareId) return status.value;
+  return shareId === undefined ? undefined : lastKnown.get(shareId);
 }
