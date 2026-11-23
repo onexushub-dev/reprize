@@ -94,6 +94,7 @@ jest.mock("../../session/SessionContext", () => ({ useSession: jest.fn() }));
 jest.mock("../../share/entitlement", () => ({
   usePlan: jest.fn(() => "paid"),
 }));
+jest.mock("../../components/PartnerPrompt", () => ({ PartnerPrompt: () => null }));
 jest.mock("../../payments/feedback", () => ({
   openPaywall: jest.fn(async () => "cancelled"),
 }));

@@ -686,6 +686,8 @@ export const en = {
     apply: 'Apply code',
     appliedTitle: 'Code applied',
     appliedText: 'You have %{percent}% off the first period of PRO, referred by %{name}.',
+    promptText: 'Received a referral code?',
+    promptDismiss: 'Dismiss',
     planAnnual: 'Annual with %{percent}% off',
     planMonthly: 'Monthly with %{percent}% off',
     activate: 'Get the discount',

@@ -51,6 +51,7 @@ import { Chip } from "../components/Chip";
 import { CompactDock } from "../components/CompactDock";
 import { PrepareSheet } from "../components/PrepareSheet";
 import { EconomyButton } from "../components/EconomyButton";
+import { PartnerPrompt } from "../components/PartnerPrompt";
 import { EconomyToast } from "../components/EconomyToast";
 import { GestureSheet, VoiceSheet } from "../components/PracticeSheet";
 import { modeTip } from "../components/format";
@@ -723,6 +724,7 @@ export default function Setup() {
                 disabled={starting}
                 onPress={askThenStart}
               />
+              <PartnerPrompt />
               <AboutLinks />
             </SafeAreaView>
           </View>

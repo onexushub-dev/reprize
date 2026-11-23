@@ -684,6 +684,8 @@ export const ptBR: Messages = {
     apply: 'Aplicar código',
     appliedTitle: 'Código aplicado',
     appliedText: 'Você tem %{percent}% de desconto no primeiro período do PRO, por indicação de %{name}.',
+    promptText: 'Recebeu um código de indicação?',
+    promptDismiss: 'Dispensar',
     planAnnual: 'Anual com %{percent}% de desconto',
     planMonthly: 'Mensal com %{percent}% de desconto',
     activate: 'Ativar desconto',
