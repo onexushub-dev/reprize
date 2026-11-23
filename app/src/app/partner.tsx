@@ -63,6 +63,7 @@ export default function PartnerTyped() {
             <PartnerResult
               result={result}
               name={partner.current()?.name}
+              discountPercent={partner.current()?.discountPercent}
               onActivate={() => void activatePartnerDiscount(t)}
               onClose={close}
             />

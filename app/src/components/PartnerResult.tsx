@@ -10,12 +10,14 @@ type Props = {
   result: ApplyResult;
   /** The partner's display name; only shown when the code was applied. */
   name?: string;
+  /** The discount of the partner's price tier; only shown when the code was applied. */
+  discountPercent?: number;
   onActivate: () => void;
   onClose: () => void;
 };
 
 /** What a referral code did: applied (with the way to the discount), waiting for a connection, not found, or not valid for this player. */
-export function PartnerResult({ result, name, onActivate, onClose }: Props) {
+export function PartnerResult({ result, name, discountPercent, onActivate, onClose }: Props) {
   const { t } = useT();
   if (result === 'applied') {
     return (
@@ -24,7 +26,7 @@ export function PartnerResult({ result, name, onActivate, onClose }: Props) {
           <CheckIcon size={64} />
         </View>
         <Text style={styles.title}>{t('partner.appliedTitle')}</Text>
-        <Text style={styles.text}>{t('partner.appliedText', { name: name ?? '' })}</Text>
+        <Text style={styles.text}>{t('partner.appliedText', { name: name ?? '', percent: discountPercent ?? 0 })}</Text>
         <Button label={t('partner.activate')} onPress={onActivate} />
         <Button label={t('partner.later')} variant="secondary" onPress={onClose} />
       </View>

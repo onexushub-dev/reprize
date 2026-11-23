@@ -1,7 +1,7 @@
 import type { Quality, RemotePairFailure, ThermalLevel } from '../../modules/replay-camera/src/ReplayCamera.types';
 import type { ModeId, TriggerSource } from '../data/schema';
 import type { PartnerSource } from '../partner/store';
-import type { Offering } from '../payments/types';
+import type { Offering, PartnerOffering } from '../payments/types';
 
 /** Where the paywall was opened from (`partner`: the referral code screens); `locked_feature` is a tap on something Pro-only (see pro_feature_blocked). */
 export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature' | 'partner';
@@ -92,7 +92,7 @@ export type AnalyticsEvents = {
   /** Never carries what was typed. */
   partner_code_rejected: { source: PartnerSource; reason: 'invalid' | 'locked' };
   /** The player went for the discount: through the partner paywall (Android) or Apple's offer code redemption (iPhone). */
-  partner_offer_opened: { code: string; via: 'paywall' | 'offer_code' };
+  partner_offer_opened: { code: string; via: 'paywall' | 'offer_code'; offering?: PartnerOffering; plan?: 'annual' | 'monthly' };
   free_export_choice: { choice: 'pro' | 'pass' | 'go' | 'cancel'; kind: 'save' | 'share' | 'unlock' };
 };
 

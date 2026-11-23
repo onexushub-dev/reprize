@@ -5,7 +5,7 @@ import { track } from '../analytics';
 import { kv } from '../data/mmkv';
 import type { TFunction } from '../i18n';
 import { payments, paymentsClient } from '../payments';
-import { codeFromReferrer } from './code';
+import { appleOfferCode, codeFromReferrer } from './code';
 import { type ApplyResult, createPartnerStore, type PartnerSource } from './store';
 
 export type { ApplyResult, Attribution, PartnerSource } from './store';
@@ -163,12 +163,12 @@ export async function startPartner(): Promise<void> {
   }
 }
 
-/** iPhone: opens Apple's offer code redemption with the active partner code filled in. */
-export async function redeemPartnerOffer(t: TFunction): Promise<void> {
+/** iPhone: opens Apple's offer code redemption with the active partner's code for `plan` filled in. */
+export async function redeemPartnerOffer(t: TFunction, plan: 'annual' | 'monthly'): Promise<void> {
   const a = partner.active();
   if (!a || payments.getSnapshot().proActive) return;
-  track('partner_offer_opened', { code: a.code, via: 'offer_code' });
-  const opened = await paymentsClient.redeemOfferCode(a.code);
+  track('partner_offer_opened', { code: a.code, via: 'offer_code', offering: a.offering, plan });
+  const opened = await paymentsClient.redeemOfferCode(appleOfferCode(a.code, plan));
   if (!opened) {
     Alert.alert(t('partner.redeemError'));
     return;

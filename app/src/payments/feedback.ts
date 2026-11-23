@@ -3,7 +3,8 @@ import { Alert, Platform } from 'react-native';
 import { track } from '../analytics';
 import type { PaywallSource } from '../analytics/events';
 import type { TFunction } from '../i18n';
-import { type Attribution, disarmRedemption, partner, redeemPartnerOffer, refreshPartner } from '../partner';
+import { disarmRedemption, partner, redeemPartnerOffer, refreshPartner } from '../partner';
+import { choosePartnerPlan } from '../partner/choosePlan';
 import type { PaywallOutcome } from './client';
 import type { Offering } from './types';
 import { payments } from '.';
@@ -27,25 +28,12 @@ async function show(t: TFunction, source: PaywallSource, offering: Offering, cod
   return outcome;
 }
 
-let choosing = false;
-
-/** iPhone: the discount is an Apple offer code, so the player chooses between it and the plans at the normal price. */
-function chooseOffer(t: TFunction, a: Attribution): Promise<'discount' | 'all' | 'later'> {
-  return new Promise((resolve) =>
-    Alert.alert(t('partner.offerTitle', { name: a.name }), undefined, [
-      { text: t('partner.activate'), onPress: () => resolve('discount') },
-      { text: t('partner.offerAll'), onPress: () => resolve('all') },
-      { text: t('partner.later'), style: 'cancel', onPress: () => resolve('later') },
-    ]),
-  );
-}
-
 /**
  * Opens the paywall: Pro (`default`) or the Single Pass (`pass`). A cancel is silent; a failure (no key, load error,
  * unreadable purchases) gets a short notice. Returns the outcome. `source` says which screen asked, for the metrics.
  *
- * With a partner discount active, the Pro paywall becomes the partner one on Android and a choice on iPhone (the
- * discount there is an Apple offer code). The Single Pass is never touched.
+ * With a partner discount active, the Pro paywall becomes the partner's price tier on Android and a choice of plan on
+ * iPhone (the discount there is an Apple offer code). The Single Pass is never touched.
  */
 export async function openPaywall(t: TFunction, source: PaywallSource, offering: Offering = 'default'): Promise<PaywallOutcome> {
   if (offering === 'default') await refreshPartner(); // a code applied offline may be valid by now
@@ -54,20 +42,14 @@ export async function openPaywall(t: TFunction, source: PaywallSource, offering:
   const offer = attribution !== null && !payments.getSnapshot().proActive ? attribution : null;
   if (offer === null) return show(t, source, offering);
   if (Platform.OS === 'android') {
-    track('partner_offer_opened', { code: offer.code, via: 'paywall' });
-    return show(t, source, 'partner', offer.code);
+    const tier = offer.offering ?? 'default';
+    track('partner_offer_opened', { code: offer.code, via: 'paywall', offering: offer.offering });
+    return show(t, source, tier, offer.code);
   }
   if (Platform.OS === 'ios') {
-    if (choosing) return 'cancelled'; // a second tap while the choice is open
-    choosing = true;
-    let choice: Awaited<ReturnType<typeof chooseOffer>>;
-    try {
-      choice = await chooseOffer(t, offer);
-    } finally {
-      choosing = false;
-    }
+    const choice = await choosePartnerPlan(t, offer, { showAll: true });
     if (choice === 'all') return show(t, source, 'default', offer.code);
-    if (choice === 'discount') await redeemPartnerOffer(t);
+    if (choice === 'annual' || choice === 'monthly') await redeemPartnerOffer(t, choice);
     return 'cancelled';
   }
   return show(t, source, offering);

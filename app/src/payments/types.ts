@@ -18,7 +18,7 @@ export type StartDecision = { kind: 'pro' } | { kind: 'free' };
 export type PartnerOffering = `partner_${string}`;
 
 /** The paywall offerings: `default` sells Pro (annual and monthly), `pass` sells the Single Pass, the rest are partner tiers. */
-export type Offering = 'default' | 'pass' | 'partner' | PartnerOffering;
+export type Offering = 'default' | 'pass' | PartnerOffering;
 
 /** What could unlock a recording already made: Pro (free of charge), the oldest unused Pass, or nothing yet. */
 export type UnlockOption = { kind: 'pro' } | { kind: 'credit'; passTransactionId: string } | { kind: 'none' };

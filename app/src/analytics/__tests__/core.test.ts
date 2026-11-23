@@ -90,8 +90,8 @@ describe('analytics core', () => {
     analytics.track('partner_code_applied', { code: 'PROFJOAO', source: 'link' });
     analytics.track('partner_code_rejected', { source: 'typed', reason: 'invalid' });
     analytics.track('partner_offer_opened', { code: 'PROFJOAO', via: 'offer_code' });
-    analytics.track('paywall_viewed', { source: 'upgrade_card', offering: 'partner', partner: 'PROFJOAO' });
-    analytics.track('purchase_completed', { offering: 'partner', partner: 'PROFJOAO' });
+    analytics.track('paywall_viewed', { source: 'upgrade_card', offering: 'partner_p20', partner: 'PROFJOAO' });
+    analytics.track('purchase_completed', { offering: 'partner_p20', partner: 'PROFJOAO' });
     expect(adapter.calls.map((c) => c.name)).toEqual([
       'partner_code_applied',
       'partner_code_rejected',
@@ -99,7 +99,7 @@ describe('analytics core', () => {
       'paywall_viewed',
       'purchase_completed',
     ]);
-    expect(adapter.calls[3].props).toEqual({ source: 'upgrade_card', offering: 'partner', partner: 'PROFJOAO' });
+    expect(adapter.calls[3].props).toEqual({ source: 'upgrade_card', offering: 'partner_p20', partner: 'PROFJOAO' });
   });
 
   test('clip_saved and trigger_failed allow 50 sends per session', () => {

@@ -152,7 +152,7 @@ describe('redeemPartnerOffer (iPhone)', () => {
     await mod.startPartner(); // registers the listeners
     await mod.applyPartnerCode('PROFJOAO', 'link');
     mockTrack.mockClear();
-    await mod.redeemPartnerOffer(t);
+    await mod.redeemPartnerOffer(t, 'annual');
     mockTrack.mockClear();
     return mod;
   }
@@ -161,16 +161,41 @@ describe('redeemPartnerOffer (iPhone)', () => {
     const { applyPartnerCode, redeemPartnerOffer } = load();
     await applyPartnerCode('PROFJOAO', 'link');
     mockTrack.mockClear();
-    await redeemPartnerOffer(t);
+    await redeemPartnerOffer(t, 'annual');
     expect(mockClient.redeemOfferCode).toHaveBeenCalledWith('PROFJOAO');
-    expect(sent()).toEqual([['partner_offer_opened', { code: 'PROFJOAO', via: 'offer_code' }]]);
+    expect(sent()).toEqual([['partner_offer_opened', { code: 'PROFJOAO', via: 'offer_code', offering: 'partner_p20', plan: 'annual' }]]);
+  });
+
+  it('monthly opens the monthly Apple code and the purchase stays with the partner code', async () => {
+    const mod = load();
+    await mod.startPartner();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    await mod.redeemPartnerOffer(t, 'monthly');
+    expect(mockClient.redeemOfferCode).toHaveBeenCalledWith('PROFJOAOMENSAL');
+    mockTrack.mockClear();
+    mockPayments.getSnapshot.mockReturnValue(PRO);
+    mockSubscriber?.();
+    await settle();
+    expect(sent()).toEqual([['purchase_completed', { offering: 'default', partner: 'PROFJOAO' }]]);
+    expect(mod.partner.current()?.lockedAt).toBeDefined();
+  });
+
+  it('a monthly redemption that fails records nothing and keeps the attribution active', async () => {
+    mockClient.redeemOfferCode.mockResolvedValue(false);
+    const mod = load();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    mockTrack.mockClear();
+    await mod.redeemPartnerOffer(t, 'monthly');
+    expect(Alert.alert).toHaveBeenCalledWith(t('partner.redeemError'));
+    expect(sent().filter(([e]) => e === 'purchase_completed')).toEqual([]);
+    expect(mod.partner.active()?.code).toBe('PROFJOAO');
   });
 
   it('tells the player when the redemption cannot be opened, and arms nothing', async () => {
     mockClient.redeemOfferCode.mockResolvedValue(false);
     const mod = load();
     await mod.applyPartnerCode('PROFJOAO', 'link');
-    await mod.redeemPartnerOffer(t);
+    await mod.redeemPartnerOffer(t, 'annual');
     expect(Alert.alert).toHaveBeenCalledWith(t('partner.redeemError'));
     mockPayments.getSnapshot.mockReturnValue(PRO);
     mockTrack.mockClear();
@@ -183,7 +208,7 @@ describe('redeemPartnerOffer (iPhone)', () => {
     const mod = load();
     await mod.applyPartnerCode('PROFJOAO', 'link');
     mockPayments.getSnapshot.mockReturnValue(PRO);
-    await mod.redeemPartnerOffer(t);
+    await mod.redeemPartnerOffer(t, 'annual');
     expect(mockClient.redeemOfferCode).not.toHaveBeenCalled();
   });
 

@@ -112,7 +112,7 @@ describe('openPaywall with a partner attribution', () => {
   const active = partner.active as jest.Mock;
   const lock = partner.lock as jest.Mock;
   const redeem = redeemPartnerOffer as jest.Mock;
-  const attribution = { code: 'PROFJOAO', name: 'Prof. João', source: 'link', appliedAt: 1, status: 'valid' };
+  const attribution = { code: 'PROFJOAO', name: 'Prof. João', source: 'link', appliedAt: 1, status: 'valid', offering: 'partner_p20', discountPercent: 20 };
 
   beforeEach(() => {
     active.mockReturnValue(attribution);
@@ -127,10 +127,10 @@ describe('openPaywall with a partner attribution', () => {
     Platform.OS = 'android';
     showPaywall.mockResolvedValue('cancelled');
     await openPaywall(t, 'upgrade_card');
-    expect(showPaywall).toHaveBeenCalledWith('partner');
+    expect(showPaywall).toHaveBeenCalledWith('partner_p20');
     expect(sent()).toEqual([
-      ['partner_offer_opened', { code: 'PROFJOAO', via: 'paywall' }],
-      ['paywall_viewed', { source: 'upgrade_card', offering: 'partner', partner: 'PROFJOAO' }],
+      ['partner_offer_opened', { code: 'PROFJOAO', via: 'paywall', offering: 'partner_p20' }],
+      ['paywall_viewed', { source: 'upgrade_card', offering: 'partner_p20', partner: 'PROFJOAO' }],
     ]);
     expect(lock).not.toHaveBeenCalled();
   });
@@ -139,7 +139,7 @@ describe('openPaywall with a partner attribution', () => {
     Platform.OS = 'android';
     showPaywall.mockResolvedValue('purchased');
     await openPaywall(t, 'upgrade_card');
-    expect(sent().at(-1)).toEqual(['purchase_completed', { offering: 'partner', partner: 'PROFJOAO' }]);
+    expect(sent().at(-1)).toEqual(['purchase_completed', { offering: 'partner_p20', partner: 'PROFJOAO' }]);
     expect(lock).toHaveBeenCalledTimes(1);
     lock.mockClear();
     showPaywall.mockResolvedValue('restored');
@@ -163,14 +163,17 @@ describe('openPaywall with a partner attribution', () => {
     expect(showPaywall).toHaveBeenCalledWith('default');
   });
 
-  it('iOS: "Get the discount" opens the redemption and reports cancelled, with no paywall', async () => {
+  it.each([
+    ['annual', 'partner.planAnnual'],
+    ['monthly', 'partner.planMonthly'],
+  ] as const)('iOS: choosing %s opens its redemption and reports cancelled, with no paywall', async (plan, key) => {
     Platform.OS = 'ios';
     jest.spyOn(Alert, 'alert').mockImplementation(((_title: string, _msg: unknown, buttons: { text: string; onPress?: () => void }[]) => {
-      buttons.find((b) => b.text === t('partner.activate'))?.onPress?.();
+      buttons.find((b) => b.text === t(key, { percent: 20 }))?.onPress?.();
     }) as never);
     await expect(openPaywall(t, 'upgrade_card')).resolves.toBe('cancelled');
     expect(Alert.alert).toHaveBeenCalledWith(t('partner.offerTitle', { name: 'Prof. João' }), undefined, expect.any(Array));
-    expect(redeem).toHaveBeenCalledWith(t);
+    expect(redeem).toHaveBeenCalledWith(t, plan);
     expect(showPaywall).not.toHaveBeenCalled();
   });
 
@@ -218,7 +221,7 @@ describe('openPaywall with a partner attribution', () => {
 describe('openPaywall guards around the partner discount', () => {
   const active = partner.active as jest.Mock;
   const getSnapshot = payments.getSnapshot as jest.Mock;
-  const attribution = { code: 'PROFJOAO', name: 'Prof. João', source: 'link', appliedAt: 1, status: 'valid' };
+  const attribution = { code: 'PROFJOAO', name: 'Prof. João', source: 'link', appliedAt: 1, status: 'valid', offering: 'partner_p20', discountPercent: 20 };
 
   beforeEach(() => {
     active.mockReturnValue(attribution);

@@ -269,15 +269,15 @@ describe('partner attribution and offer codes', () => {
     setKeys({ test: 'test_x' });
     const c = createRevenueCatClient();
     c.configure();
-    const partner = { identifier: 'partner' };
-    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({ current: null, all: { partner } });
+    const partner = { identifier: 'partner_p20' };
+    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({ current: null, all: { partner_p20: partner } });
     (RevenueCatUI.presentPaywall as jest.Mock).mockResolvedValueOnce('PURCHASED');
-    expect(await c.showPaywall('partner')).toBe('purchased');
+    expect(await c.showPaywall('partner_p20')).toBe('purchased');
     expect(RevenueCatUI.presentPaywall).toHaveBeenCalledWith({ displayCloseButton: true, offering: partner });
 
     (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({ current: null, all: {} });
     (RevenueCatUI.presentPaywall as jest.Mock).mockResolvedValueOnce('CANCELLED');
-    expect(await c.showPaywall('partner')).toBe('cancelled');
+    expect(await c.showPaywall('partner_p20')).toBe('cancelled');
     expect(RevenueCatUI.presentPaywall).toHaveBeenLastCalledWith({ displayCloseButton: true });
   });
 });

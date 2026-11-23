@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 import { setLocale } from '../../i18n';
 import { applyPartnerCode, partner, redeemPartnerOffer } from '../../partner';
@@ -22,7 +22,10 @@ jest.mock('expo-router', () => ({
 jest.mock('../../partner', () => ({
   applyPartnerCode: jest.fn(),
   redeemPartnerOffer: jest.fn(async () => {}),
-  partner: { current: jest.fn(() => ({ code: 'PROFJOAO', name: 'Prof. João' })) },
+  partner: {
+    current: jest.fn(() => ({ code: 'PROFJOAO', name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 })),
+    active: jest.fn(() => ({ code: 'PROFJOAO', name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 })),
+  },
 }));
 jest.mock('../../payments/feedback', () => ({ openPaywall: jest.fn(async () => 'cancelled') }));
 
@@ -33,7 +36,11 @@ beforeEach(() => {
   setLocale('en');
   Platform.OS = 'ios';
   mockParams = {};
-  (partner.current as jest.Mock).mockReturnValue({ code: 'PROFJOAO', name: 'Prof. João' });
+  (partner.current as jest.Mock).mockReturnValue({ code: 'PROFJOAO', name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 });
+  (partner.active as jest.Mock).mockReturnValue({ code: 'PROFJOAO', name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 });
+  jest.spyOn(Alert, 'alert').mockImplementation(((_t: string, _m: unknown, buttons: { text: string; onPress?: () => void }[]) => {
+    buttons.find((b) => b.text === 'Monthly with 20% off')?.onPress?.();
+  }) as never);
 });
 
 describe('/p/[code]', () => {
@@ -43,7 +50,7 @@ describe('/p/[code]', () => {
     await render(<PartnerCode />);
     expect(apply).toHaveBeenCalledWith('profjoao', 'link');
     expect(apply).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText('You have a discount on annual PRO, referred by Prof. João.')).toBeTruthy();
+    expect(await screen.findByText('You have 20% off the first period of PRO, referred by Prof. João.')).toBeTruthy();
   });
 
   it('"Get the discount" opens Apple\'s redemption on iOS', async () => {
@@ -51,7 +58,7 @@ describe('/p/[code]', () => {
     apply.mockResolvedValue('applied');
     await render(<PartnerCode />);
     await fireEvent.press(await screen.findByText('Get the discount'));
-    expect(redeemPartnerOffer).toHaveBeenCalledTimes(1);
+    expect(redeemPartnerOffer).toHaveBeenCalledWith(expect.any(Function), 'monthly');
     expect(openPaywall).not.toHaveBeenCalled();
   });
 
