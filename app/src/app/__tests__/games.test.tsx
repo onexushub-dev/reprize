@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 
 import { setLocale } from '../../i18n';
 import Games from '../games';
@@ -203,7 +203,7 @@ test('the recording opened last says so', async () => {
   repo.getPrefs.mockReturnValue({});
 });
 
-test('on a received recording "Visto por último" comes after "Compartilhada por", and a second line of badges gets its own room over the clips and time', async () => {
+test('on a received recording "Visto por último" sits on its own line under "Compartilhada por", with room for both lines over the clips and time', async () => {
   repo.getPrefs.mockReturnValue({ lastOpenedSessionId: 's1' });
   const received = { shareId: 'sh1', code: 'c', from: 'Ana Beatriz', receivedAt: 0, expiresAt: 1, total: 4, recordedMs: 12 * 60_000 };
   repo.listSessions.mockReturnValue([
@@ -211,17 +211,40 @@ test('on a received recording "Visto por último" comes after "Compartilhada por
   ]);
   repo.sessionStats.mockReturnValue({ clips: 4, bytes: 1, recordedMs: 60_000 });
   await render(<Games />);
-  const badges = screen.getByTestId('badges');
-  const last = badges.children[badges.children.length - 1];
-  expect(last).toBe(screen.getByTestId('badge-last-seen'));
+  const seenLine = screen.getByTestId('badge-line-seen');
+  expect(within(seenLine).getByText('Visto por último')).toBeTruthy();
+  expect(within(seenLine).queryByText('Compartilhada por Ana Beatriz')).toBeNull();
   expect(screen.getByRole('button', { name: /Jogo da Ana, 4 clipes.*Visto por último$/ })).toBeTruthy();
-  // One line of badges: room for one line.
-  expect(screen.getByTestId('badge-space')).toHaveStyle({ height: 26 });
-  // They wrapped onto two lines: the room grows with them, so they never sit over "4 clipes · 12min".
-  await act(async () => {
-    fireEvent(badges, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 200, height: 50 } } });
-  });
+  // Two lines of badges from the first frame: room for both.
   expect(screen.getByTestId('badge-space')).toHaveStyle({ height: 54 });
+  // A long name wraps the first line too: the room grows with the badges, so they never sit over "4 clipes · 12min".
+  await act(async () => {
+    fireEvent(screen.getByTestId('badges'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 200, height: 78 } } });
+  });
+  expect(screen.getByTestId('badge-space')).toHaveStyle({ height: 82 });
+  repo.getPrefs.mockReturnValue({});
+});
+
+test('on a recording being shared, "Visto por último" goes under "Compartilhando", never beside it (2026-11-23)', async () => {
+  repo.getPrefs.mockReturnValue({ lastOpenedSessionId: 's1' });
+  const shared = { shareId: 'sh', url: 'u', createdAt: 0, expiresAt: Date.now() + 3_600_000, clips: 4, state: 'active' };
+  repo.listSessions.mockReturnValue([{ session: { id: 's1', sport: 'outro', startedAt: 0, endedAt: 1, name: 'Final', shared }, clips: 4, firstClip: clip }]);
+  repo.sessionStats.mockReturnValue({ clips: 4, bytes: 1, recordedMs: 60_000 });
+  await render(<Games />);
+  const seenLine = screen.getByTestId('badge-line-seen');
+  expect(within(seenLine).getByText('Visto por último')).toBeTruthy();
+  expect(within(seenLine).queryByText('Compartilhando')).toBeNull();
+  expect(screen.getByText('Compartilhando')).toBeTruthy();
+  expect(screen.getByTestId('badge-space')).toHaveStyle({ height: 54 });
+  repo.getPrefs.mockReturnValue({});
+});
+
+test('"Visto por último" alone takes one line', async () => {
+  repo.getPrefs.mockReturnValue({ lastOpenedSessionId: 's1' });
+  repo.listSessions.mockReturnValue([{ session: { id: 's1', sport: 'outro', startedAt: 0, endedAt: 1, name: 'Treino' }, clips: 2, firstClip: clip }]);
+  repo.sessionStats.mockReturnValue({ clips: 2, bytes: 1, recordedMs: 60_000 });
+  await render(<Games />);
+  expect(screen.getByTestId('badge-space')).toHaveStyle({ height: 26 });
   repo.getPrefs.mockReturnValue({});
 });
 

@@ -35,6 +35,7 @@ test('with onCancel there is a Cancelar button that calls it; without, the card 
 test('the ring shows how far the video is, in percent (2026-11-23)', async () => {
   await render(<ExportProgress job={{ kind: 'save', stage: 'preparing', progress: 0.42 }} onCancel={jest.fn()} />);
   expect(screen.getByText('42%')).toBeTruthy();
+  expect(screen.getByTestId('export-ring')).toBeTruthy();
   expect(screen.getByLabelText('Preparando o vídeo…').props.accessibilityValue).toEqual({ min: 0, max: 100, now: 42 });
 });
 
@@ -44,9 +45,11 @@ test('with no progress yet the ring spins and no percent is shown', async () => 
   expect(screen.getByTestId('export-spinner')).toBeTruthy();
 });
 
-test('handing over (gallery, share sheet): the ring is full, no percent and no Cancelar', async () => {
+test('handing over (gallery, share sheet): only the title is left, with no ring, percent or Cancelar (2026-11-23)', async () => {
   await render(<ExportProgress job={{ kind: 'save', stage: 'delivering', progress: 0.42 }} onCancel={jest.fn()} />);
   expect(screen.getByText('Salvando na galeria…')).toBeTruthy();
+  expect(screen.queryByTestId('export-ring')).toBeNull();
+  expect(screen.queryByTestId('export-spinner')).toBeNull();
   expect(screen.queryByText('42%')).toBeNull();
   expect(screen.queryByRole('button', { name: /Cancel/ })).toBeNull();
   expect(screen.getByLabelText('Salvando na galeria…').props.accessibilityValue).toEqual({ min: 0, max: 100, now: 100 });

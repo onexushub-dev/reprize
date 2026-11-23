@@ -79,7 +79,11 @@ export function GameCard({
   // The badges sit over the card (the Compartilhando one is its own button), so the text column keeps room for them.
   // When they wrap onto a second line (a long "Compartilhada por" name with Visto por último), that room grows with
   // them instead of the badges climbing over the clips and time (2026-11-22).
-  const [badgeHeight, setBadgeHeight] = useState(BADGE_ROW);
+  // "Visto por último" has a line of its own under the others (2026-11-23), so two lines from the first frame.
+  const others = sharing || receivedBadge !== undefined;
+  const lines = others && lastSeen ? 2 : 1;
+  const [measured, setMeasured] = useState<number | undefined>(undefined);
+  const badgeHeight = measured !== undefined ? measured : lines * BADGE_ROW + (lines - 1) * BADGE_LINE_GAP;
   return (
     <View style={styles.card}>
       <Pressable
@@ -136,32 +140,38 @@ export function GameCard({
           testID="badges"
           onLayout={(e) => {
             const height = Math.ceil(e.nativeEvent.layout.height);
-            if (height > 0 && height !== badgeHeight) setBadgeHeight(height);
+            if (height > 0 && height !== measured) setMeasured(height);
           }}>
-          {sharing ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t('games.sharingA11y', { name: label })}
-              disabled={selecting}
-              hitSlop={6}
-              onPress={() => router.push(`/share/${session.id}`)}
-              style={[styles.badge, styles.badgeSharing]}>
-              <View style={styles.liveDot} />
-              <Text style={[styles.badgeText, { color: colors.accent }]}>{t('games.sharing')}</Text>
-              {selecting ? null : <ChevronIcon size={12} color={colors.accent} />}
-            </Pressable>
-          ) : null}
-          {receivedBadge !== undefined ? (
-            <View style={[styles.badge, styles.badgeReceived]}>
-              <Text style={[styles.badgeText, { color: colors.received }]} numberOfLines={1}>
-                {receivedBadge}
-              </Text>
+          {others ? (
+            <View style={styles.badgeLine} pointerEvents="box-none">
+              {sharing ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={t('games.sharingA11y', { name: label })}
+                  disabled={selecting}
+                  hitSlop={6}
+                  onPress={() => router.push(`/share/${session.id}`)}
+                  style={[styles.badge, styles.badgeSharing]}>
+                  <View style={styles.liveDot} />
+                  <Text style={[styles.badgeText, { color: colors.accent }]}>{t('games.sharing')}</Text>
+                  {selecting ? null : <ChevronIcon size={12} color={colors.accent} />}
+                </Pressable>
+              ) : null}
+              {receivedBadge !== undefined ? (
+                <View style={[styles.badge, styles.badgeReceived]}>
+                  <Text style={[styles.badgeText, { color: colors.received }]} numberOfLines={1}>
+                    {receivedBadge}
+                  </Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
-          {/* Always the last badge (2026-11-22): it only says which recording was opened last. */}
+          {/* Always last, on its own line at the bottom (2026-11-23): it only says which recording was opened last. */}
           {lastSeen ? (
-            <View style={[styles.badge, styles.badgeSeen]} testID="badge-last-seen">
-              <Text style={[styles.badgeText, { color: colors.soft }]}>{t('games.lastSeen')}</Text>
+            <View style={styles.badgeLine} testID="badge-line-seen">
+              <View style={[styles.badge, styles.badgeSeen]} testID="badge-last-seen">
+                <Text style={[styles.badgeText, { color: colors.soft }]}>{t('games.lastSeen')}</Text>
+              </View>
             </View>
           ) : null}
         </View>
@@ -173,6 +183,8 @@ export function GameCard({
 /** One line of badges, and the space above it. */
 const BADGE_ROW = 22;
 const BADGE_GAP = 4;
+/** Between two lines of badges. */
+const BADGE_LINE_GAP = 6;
 
 const styles = StyleSheet.create({
   // The whole card takes the tap, its margin too (2026-11-22: the margin around the round check missed taps, which had
@@ -214,7 +226,8 @@ const styles = StyleSheet.create({
   text: { flex: 1, minWidth: 0, gap: 3 },
   label: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.text },
   detail: { fontFamily: fonts.body, fontSize: 13, color: colors.muted },
-  badges: { position: 'absolute', right: 10, bottom: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  badges: { position: 'absolute', right: 10, bottom: 10, gap: BADGE_LINE_GAP },
+  badgeLine: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 5, height: 22, paddingHorizontal: 8, borderRadius: 6 },
   badgeSeen: { backgroundColor: colors.border },
   badgeSharing: { backgroundColor: 'rgba(255,176,0,0.14)' },

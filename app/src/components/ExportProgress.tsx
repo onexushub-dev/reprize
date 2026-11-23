@@ -65,18 +65,23 @@ export function ExportProgress({ job, onCancel }: Props) {
         accessibilityRole="progressbar"
         accessibilityLabel={title}
         accessibilityValue={percent === undefined ? undefined : { min: 0, max: 100, now: percent }}
-        style={styles.card}>
-        <Text style={styles.title}>{title}</Text>
-        <View style={styles.middle}>
-          {percent === undefined ? (
-            <View style={styles.spinner} testID="export-spinner">
-              <ActivityIndicator size="large" color={colors.accent} />
-            </View>
-          ) : (
-            <Pie progress={percent / 100} />
-          )}
-          {percent !== undefined && making ? <Text style={styles.percent}>{`${percent}%`}</Text> : null}
-        </View>
+        style={[styles.card, !making && styles.cardTitleOnly]}>
+        <Text style={[styles.title, !making && styles.titleOnly]}>{title}</Text>
+        {/* Once the video is made (gallery write, share sheet) only the title is left: the ring has nothing to say. */}
+        {making ? (
+          <View style={styles.middle}>
+            {percent === undefined ? (
+              <View style={styles.spinner} testID="export-spinner">
+                <ActivityIndicator size="large" color={colors.accent} />
+              </View>
+            ) : (
+              <View testID="export-ring">
+                <Pie progress={percent / 100} />
+              </View>
+            )}
+            {percent !== undefined ? <Text style={styles.percent}>{`${percent}%`}</Text> : null}
+          </View>
+        ) : null}
         {cancel ? (
           job.cancelling === true ? (
             <Pressable
@@ -117,6 +122,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
   },
   title: { fontFamily: fonts.bodyBold, fontSize: 17, color: colors.text, paddingHorizontal: 6 },
+  // Only the title (handing over): centred, with the same room above and below.
+  cardTitleOnly: { paddingBottom: 22 },
+  titleOnly: { textAlign: 'center' },
   middle: { alignItems: 'center', gap: 8 },
   spinner: { width: PIE, height: PIE, alignItems: 'center', justifyContent: 'center' },
   percent: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
