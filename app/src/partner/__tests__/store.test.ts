@@ -2,7 +2,11 @@ import type { KV } from '../../data/repo';
 import type { PartnerDirectory } from '../directory';
 import { createPartnerStore } from '../store';
 
-const DIR: PartnerDirectory = { PROFJOAO: { name: 'Prof. João' }, MARIA10: { name: 'Maria' } };
+const DIR: PartnerDirectory = {
+  PROFJOAO: { name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 },
+  MARIA10: { name: 'Maria', offering: 'partner_p10', discountPercent: 10 },
+};
+const MOVED: PartnerDirectory = { PROFJOAO: { name: 'Prof. João', offering: 'partner_p30', discountPercent: 30 } };
 
 function memKv(): KV & { data: Map<string, string> } {
   const data = new Map<string, string>();
@@ -33,6 +37,8 @@ describe('partner store', () => {
       source: 'typed',
       appliedAt: 1000,
       status: 'valid',
+      offering: 'partner_p20',
+      discountPercent: 20,
     });
     expect(make().current()?.code).toBe('PROFJOAO'); // a new store on the same storage
   });
@@ -197,5 +203,67 @@ describe('a code applied offline beside a valid attribution', () => {
     expect(store.current()?.code).toBe('PROFJOAO');
     expect(store.pending()).toBe(false);
   });
-});
 
+  describe('price tier', () => {
+    it('applied code stores its tier', async () => {
+      const { store } = setup();
+      await store.apply('PROFJOAO', 'link');
+      expect(store.current()).toMatchObject({ offering: 'partner_p20', discountPercent: 20 });
+    });
+
+    it('a pending code gets its tier when confirmed', async () => {
+      const a = setup({ dir: null });
+      await a.store.apply('PROFJOAO', 'typed');
+      a.state.dir = DIR;
+      await a.store.start();
+      expect(a.store.active()).toMatchObject({ offering: 'partner_p20', discountPercent: 20 });
+    });
+
+    it('start moves an unlocked attribution to the new tier', async () => {
+      const a = setup();
+      await a.store.apply('PROFJOAO', 'link');
+      a.onValid.mockClear();
+      a.state.dir = MOVED;
+      await a.store.start();
+      expect(a.store.current()).toMatchObject({ offering: 'partner_p30', discountPercent: 30 });
+      expect(a.make().current()?.offering).toBe('partner_p30');
+      expect(a.onValid).toHaveBeenCalledTimes(1);
+      expect(a.onValid).toHaveBeenCalledWith(expect.objectContaining({ offering: 'partner_p30' }));
+    });
+
+    it('start never changes a locked attribution', async () => {
+      const a = setup();
+      await a.store.apply('PROFJOAO', 'link');
+      a.store.lock();
+      a.state.dir = MOVED;
+      await a.store.start();
+      expect(a.store.current()).toMatchObject({ offering: 'partner_p20', discountPercent: 20 });
+    });
+
+    it('start offline keeps the saved tier', async () => {
+      const a = setup();
+      await a.store.apply('PROFJOAO', 'link');
+      a.state.dir = null;
+      await a.store.start();
+      expect(a.store.current()).toMatchObject({ offering: 'partner_p20', discountPercent: 20 });
+    });
+
+    it('start keeps an unlocked attribution whose code left the directory', async () => {
+      const a = setup();
+      await a.store.apply('PROFJOAO', 'link');
+      a.state.dir = {};
+      await a.store.start();
+      expect(a.store.current()).toMatchObject({ code: 'PROFJOAO', offering: 'partner_p20' });
+    });
+
+    it('a tier refresh keeps a candidate code waiting beside the attribution', async () => {
+      const a = setup();
+      await a.store.apply('PROFJOAO', 'link');
+      a.state.dir = null;
+      await a.store.apply('MARIA10', 'typed');
+      a.state.dir = { ...DIR, PROFJOAO: MOVED.PROFJOAO };
+      await a.store.start();
+      expect(a.store.current()?.code).toBe('MARIA10');
+    });
+  });
+});

@@ -1,5 +1,6 @@
 import type { KV } from '../data/repo';
 import { codeFromUrl, normalizeCode } from './code';
+import type { PartnerOffering } from '../payments/types';
 import type { PartnerDirectory } from './directory';
 
 export type PartnerSource = 'link' | 'install_referrer' | 'typed';
@@ -11,6 +12,9 @@ export type Attribution = {
   source: PartnerSource;
   appliedAt: number;
   status: 'valid' | 'pending';
+  /** The price tier and its discount, from the directory: present when `status` is `valid`. */
+  offering?: PartnerOffering;
+  discountPercent?: number;
   /** Set by the first purchase observed with this attribution: after it, no other code replaces it. */
   lockedAt?: number;
 };
@@ -63,6 +67,14 @@ export function createPartnerStore(o: {
     listeners.forEach((fn) => fn());
   }
 
+  /** The directory's name and tier for the same code. Unlike `save`, it keeps a candidate waiting beside the attribution. */
+  function refreshTier(current: Attribution, hit: PartnerDirectory[string]) {
+    if (current.name === hit.name && current.offering === hit.offering && current.discountPercent === hit.discountPercent) return;
+    state = { ...current, ...hit };
+    write(KEY, state);
+    listeners.forEach((fn) => fn());
+  }
+
   function saveCandidate(next: Attribution | null) {
     candidate = next;
     write(CANDIDATE_KEY, next);
@@ -87,10 +99,20 @@ export function createPartnerStore(o: {
   return {
     /** Re-announces a valid code, and confirms a pending one (or a held candidate) against the directory. */
     async start(): Promise<void> {
-      if (state !== null && state.status === 'valid') valid(state);
+      let dir: PartnerDirectory | null | undefined;
+      if (state !== null && state.status === 'valid') {
+        if (state.lockedAt === undefined) {
+          const code = state.code;
+          dir = await read();
+          const hit = dir?.[code];
+          // Before the first purchase a price change reaches this attribution; the code may have changed during the read.
+          if (hit && state?.code === code && state.status === 'valid' && state.lockedAt === undefined) refreshTier(state, hit);
+        }
+        if (state !== null && state.status === 'valid') valid(state);
+      }
       const waiting = state !== null && state.status === 'pending' ? state : candidate;
       if (waiting === null) return;
-      const dir = await read();
+      if (dir === undefined) dir = await read();
       if (dir === null) return; // still offline: stays pending
       if (state?.lockedAt !== undefined) {
         saveCandidate(null); // a purchase locked the attribution meanwhile
@@ -102,7 +124,7 @@ export function createPartnerStore(o: {
         else save(null);
         return;
       }
-      const confirmed: Attribution = { ...waiting, name: hit.name, status: 'valid' };
+      const confirmed: Attribution = { ...waiting, ...hit, status: 'valid' };
       save(confirmed);
       valid(confirmed);
     },
@@ -128,7 +150,7 @@ export function createPartnerStore(o: {
       }
       const hit = dir[code];
       if (!hit) return 'invalid';
-      const next: Attribution = { code, name: hit.name, source, appliedAt: now(), status: 'valid' };
+      const next: Attribution = { code, ...hit, source, appliedAt: now(), status: 'valid' };
       save(next);
       valid(next);
       return 'applied';

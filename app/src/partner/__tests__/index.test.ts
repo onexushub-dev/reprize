@@ -28,7 +28,7 @@ jest.mock('../../payments', () => ({ payments: mockPayments, paymentsClient: moc
 jest.mock('expo-application', () => ({ getInstallReferrerAsync: () => mockReferrer() }));
 
 const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate('en', key, params);
-const DIR = { PROFJOAO: { name: 'Prof. João' }, MARIA10: { name: 'Maria' } };
+const DIR = { PROFJOAO: { name: 'Prof. João', offering: 'partner_p20' as const, discountPercent: 20 }, MARIA10: { name: 'Maria' } };
 
 function load(): typeof import('../index') {
   let mod!: typeof import('../index');
@@ -68,7 +68,7 @@ describe('applyPartnerCode', () => {
     const { applyPartnerCode, partner } = load();
     expect(await applyPartnerCode('profjoao', 'typed')).toBe('applied');
     expect(partner.active()?.code).toBe('PROFJOAO');
-    expect(mockClient.setPartner).toHaveBeenCalledWith('PROFJOAO', 'typed');
+    expect(mockClient.setPartner).toHaveBeenCalledWith('PROFJOAO', 'typed', 'partner_p20');
     expect(sent()).toEqual([['partner_code_applied', { code: 'PROFJOAO', source: 'typed' }]]);
   });
 

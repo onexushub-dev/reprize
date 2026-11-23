@@ -15,7 +15,9 @@ export const partner = createPartnerStore({
   kv,
   directory: () => paymentsClient.partners(),
   now: () => Date.now(),
-  onValid: (a) => void paymentsClient.setPartner(a.code, a.source),
+  onValid: (a) => {
+    if (a.offering) void paymentsClient.setPartner(a.code, a.source, a.offering);
+  },
 });
 
 /** A code is reported once per launch: a start and a link can both confirm the same one. */
