@@ -50,6 +50,11 @@ export function createFakeClient() {
     async partners(): Promise<PartnerDirectory | null> {
       return fake.directory;
     },
+    /** The last identify call: undefined = never called. */
+    identified: undefined as string | null | undefined,
+    async identify(appUserId: string | null): Promise<void> {
+      fake.identified = appUserId;
+    },
     emit(s: Snapshot) {
       fake.snapshot = s;
       listeners.forEach((fn) => fn(s));

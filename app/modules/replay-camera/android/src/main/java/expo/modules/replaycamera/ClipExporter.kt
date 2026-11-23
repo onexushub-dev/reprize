@@ -68,6 +68,20 @@ object ClipExporter {
 
   data class Crop01(val x: Double, val y: Double, val width: Double, val height: Double)
 
+  /** The part of the frame a track's rect keeps once zoomed on, as Media3 crop half-sizes (the shape never changes). */
+  internal fun trackKeep(first: FocusRect): Pair<Float, Float> =
+    Pair(minOf(1.0, first.width / first.height).toFloat(), minOf(1.0, first.height / first.width).toFloat())
+
+  /**
+   * The width / height of the picture a track leaves in a `videoW` × `videoH` video. It is then fitted to the output, so
+   * a 9:16 track (Seguir a Bola) fills a 9:16 frame: what the iPhone's `fill` does; a track in the video's own shape
+   * (Jogadores) keeps the spot the whole video would take, as the iPhone without `fill`.
+   */
+  internal fun trackShape(first: FocusRect, videoW: Int, videoH: Int): Double {
+    val (kw, kh) = trackKeep(first)
+    return kw.toDouble() * videoW / (kh.toDouble() * videoH)
+  }
+
   fun export(context: Context, o: Options, onDone: (String, Long) -> Unit, onError: (Throwable) -> Unit) {
     val dir = File(context.cacheDir, "exports").apply { mkdirs() }
     val out = File(dir, "${UUID.randomUUID()}.mp4")
@@ -93,9 +107,7 @@ object ClipExporter {
           postScale(k, k)
         }
       }
-      val first = track.rects[0]
-      val keepW = minOf(1.0, first.width / first.height).toFloat()
-      val keepH = minOf(1.0, first.height / first.width).toFloat()
+      val (keepW, keepH) = trackKeep(track.rects[0])
       videoEffects += Crop(-keepW, keepW, -keepH, keepH)
     }
     if (slow) videoEffects += SpeedChangeEffect(o.speed)

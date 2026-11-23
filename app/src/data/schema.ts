@@ -98,6 +98,11 @@ export type ClipFocus = {
   endMs?: number;
   /** TEMP(lab-4k): analysed one frame every `every` ms (absent = 100, today); another setting analyses again. */
   every?: number;
+  /**
+   * Framed leaving out the people on the next court (Android, beach tennis), with this version of the rule
+   * (`NEXT_COURT_RULE`; `true` = the first, per picture); absent = not.
+   */
+  nextCourt?: true | number;
 };
 
 /**

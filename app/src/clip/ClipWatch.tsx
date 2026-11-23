@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BackIcon, DownloadIcon, EditIcon, ShareIcon, TrashIcon } from '../components/icons';
 import { MAX_CLIP_NAME } from '../data/schema';
-import { TickIcon } from '../components/sportIcons';
+import { ProgressRing, TickIcon } from '../components/sportIcons';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import { EDGE, IconButton, SCRIM } from './IconButton';
@@ -20,6 +20,8 @@ type Props = {
   onDelete: () => void;
   /** Jogadores on the clip: on, being tracked, or just found (spec 2026-11-11, P1). */
   focusTag: 'on' | 'preparing' | 'found' | undefined;
+  /** While preparing: 0–100 when the phone sends it (Android); undefined = the spinner. */
+  focusPercent?: number;
   onFocusTag: () => void;
   /** Bola's tag (Modo Foco: Bola), in the Jogadores tag's place at the top left. */
   ballTag?: ReactNode;
@@ -90,14 +92,24 @@ export function ClipWatch(p: Props) {
           <View pointerEvents="box-none" style={styles.tagRow}>
             <Pressable accessibilityRole="button" accessibilityLabel={t('clip.focusMode')} onPress={p.onFocusTag} style={styles.tag}>
               {p.focusTag === 'preparing' ? (
-                <ActivityIndicator size="small" color={colors.accent} />
+                p.focusPercent !== undefined ? (
+                  <ProgressRing progress={p.focusPercent / 100} size={20} />
+                ) : (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                )
               ) : p.focusTag === 'found' ? (
                 <TickIcon size={16} />
               ) : (
                 <View style={styles.dot} />
               )}
               <Text style={[styles.tagText, p.focusTag === 'found' ? styles.foundText : null]}>
-                {p.focusTag === 'preparing' ? t('clip.focusPreparingTag') : p.focusTag === 'found' ? t('clip.focusFound') : t('clip.focusPlayersTag')}
+                {p.focusTag === 'preparing'
+                  ? p.focusPercent !== undefined
+                    ? t('clip.focusPreparingPercent', { percent: p.focusPercent })
+                    : t('clip.focusPreparingTag')
+                  : p.focusTag === 'found'
+                  ? t('clip.focusFound')
+                  : t('clip.focusPlayersTag')}
               </Text>
             </Pressable>
           </View>

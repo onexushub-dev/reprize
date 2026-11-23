@@ -136,5 +136,17 @@ export function createRevenueCatClient(): PaymentsClient {
         return null;
       }
     },
+
+    async identify(appUserId) {
+      if (!configured) return;
+      try {
+        // logIn moves this install's anonymous purchases to the account (RevenueCat's default), so PRO bought before
+        // signing in is kept. logOut fails on an anonymous user, hence the check.
+        if (appUserId !== null) await Purchases.logIn(appUserId);
+        else if (!(await Purchases.isAnonymous())) await Purchases.logOut();
+      } catch (e) {
+        if (__DEV__) console.warn('[payments] identify failed', e);
+      }
+    },
   };
 }

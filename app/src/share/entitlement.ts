@@ -36,9 +36,9 @@ function nextPlanNow(): Plan {
  * sessions).
  */
 export function usePlan(sessionId?: string): Plan {
-  const next = useSyncExternalStore(payments.subscribe, nextPlanNow);
-  const recorded = useSyncExternalStore(repo.subscribe, () => (sessionId === undefined ? next : recordedPlan(sessionId)));
-  return sessionId === undefined ? next : recorded;
+  // The next plan depends on both stores (a Pass spent lives in the repo), so the repo snapshot reads it again too.
+  useSyncExternalStore(payments.subscribe, nextPlanNow);
+  return useSyncExternalStore(repo.subscribe, () => (sessionId === undefined ? nextPlanNow() : recordedPlan(sessionId)));
 }
 
 /** True while Pro is active. Re-renders when it changes. */

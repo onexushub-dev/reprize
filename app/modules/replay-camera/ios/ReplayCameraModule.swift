@@ -173,7 +173,7 @@ public class ReplayCameraModule: Module {
            "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteStop",
            "onRemoteStart", "onRemoteFrame", "onRemoteCheck", "onRemoteVoice", "onCaptureButton", "onAudioChange",
            "onDiag", // onDiag: TEMP(diag-remote)
-           "onBallProgress")
+           "onBallProgress", "onUploadProgress", "onUploadDone", "onUploadRetry")
 
     OnCreate {
       self.engine.emit = { [weak self] name, body in self?.sendEvent(name, body) }
@@ -188,6 +188,8 @@ public class ReplayCameraModule: Module {
       self.engine.remotePreview.onFrame = { RemoteHost.shared.sendFrame($0) }
       RemoteHost.shared.onPreview = { [weak self] on in self?.engine.remotePreview.ask(on) }
       WatchBridge.shared.activate()
+      BackgroundUploader.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
+      BackgroundUploader.shared.restore()
     }
 
     AsyncFunction("startSession") { (opts: SessionOptions) in
@@ -488,5 +490,16 @@ public class ReplayCameraModule: Module {
     }
 
     View(ReplayCameraView.self) {}
+
+    // Background upload of shared clips (sharing design §5.4, spike 1).
+    Function("uploadStart") { (items: [UploadItem]) in BackgroundUploader.shared.start(items) }
+    Function("uploadState") { () -> [[String: Any]] in BackgroundUploader.shared.state() }
+    Function("uploadReset") { BackgroundUploader.shared.reset() }
+
+    // Spike 3 of the sharing design: children kept out of screenshots and screen recordings (CaptureShield.swift).
+    View(CaptureShieldView.self) {
+      Events("onShieldState")
+      Prop("enabled") { (view: CaptureShieldView, on: Bool) in view.enabled = on }
+    }
   }
 }

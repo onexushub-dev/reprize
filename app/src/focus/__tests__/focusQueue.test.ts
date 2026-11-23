@@ -4,7 +4,7 @@ import { createFocusQueue, focusHold } from '../focusQueue';
 
 type Analysis = { status: 'ready' | 'none'; frames: number; framesWithPeople: number; meanPeople: number; elapsedMs: number };
 
-function setup(opts: { supported?: boolean; closed?: boolean } = {}) {
+function setup(opts: { supported?: boolean; closed?: boolean; nextCourt?: (clip: Clip) => boolean } = {}) {
   const map = new Map<string, string>();
   const kv: KV = { getString: (k) => map.get(k), set: (k, v) => void map.set(k, v), delete: (k) => void map.delete(k) };
   let n = 0;
@@ -19,6 +19,7 @@ function setup(opts: { supported?: boolean; closed?: boolean } = {}) {
     supported: () => (opts.supported === undefined ? true : opts.supported),
     repo,
     deleteFile: jest.fn(),
+    ...(opts.nextCourt ? { nextCourt: opts.nextCourt } : {}),
   };
   const queue = createFocusQueue(deps);
   // The clips below belong to recording 's', whose screen is open unless a test says otherwise.
@@ -88,6 +89,67 @@ test('a new cut inside the analysed part needs nothing; one that leaves it is an
   queue.ensure(repo.updateClip(clip.id, { trim: { startMs: 45000, endMs: 58000 } }) as Clip);
   expect(runs).toHaveLength(3);
   expect(runs[2].opts).toMatchObject({ startMs: 43000, endMs: 60000 });
+});
+
+describe('the people on the next court (Android, beach tennis: Marcus 2026-11-17)', () => {
+  test('asked for when the deps say so, and stored with the result', async () => {
+    const { repo, queue, runs, addClip, done, flush } = setup({ nextCourt: () => true });
+    const clip = addClip('/c/1.mp4');
+    queue.enqueue(clip.id);
+    expect(runs[0].opts).toMatchObject({ nextCourt: true });
+    runs[0].resolve(done());
+    await flush();
+    expect(repo.getClip(clip.id)!.focus).toMatchObject({ status: 'ready', nextCourt: 2 });
+  });
+
+  test('a clip framed with the first version of the rule (per picture) is framed again with this one', () => {
+    const { repo, queue, runs, addClip } = setup({ nextCourt: () => true });
+    const clip = repo.updateClip(addClip('/c/1.mp4').id, {
+      focus: { v: 1, status: 'ready', file: '/c/1.focus.json', startMs: 28000, endMs: 60000, nextCourt: true },
+    }) as Clip;
+    queue.ensure(clip);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].opts).toMatchObject({ nextCourt: true });
+  });
+
+  test('not asked for otherwise, and nothing stored', async () => {
+    const { repo, queue, runs, addClip, done, flush } = setup({ nextCourt: () => false });
+    const clip = addClip('/c/1.mp4');
+    queue.enqueue(clip.id);
+    expect(runs[0].opts).not.toHaveProperty('nextCourt');
+    runs[0].resolve(done());
+    await flush();
+    expect(repo.getClip(clip.id)!.focus).not.toHaveProperty('nextCourt');
+  });
+
+  test('a clip framed before its sport was known is framed again once it is beach tennis, and only then', async () => {
+    let beach = false;
+    const { repo, queue, runs, addClip, done, flush } = setup({ nextCourt: () => beach });
+    const clip = addClip('/c/1.mp4');
+    queue.enqueue(clip.id);
+    runs[0].resolve(done());
+    await flush();
+    queue.ensure(repo.getClip(clip.id)!);
+    expect(runs).toHaveLength(1);
+    beach = true;
+    queue.ensure(repo.getClip(clip.id)!);
+    expect(runs).toHaveLength(2);
+    // the kept people make it a framing only (native side)
+    expect(runs[1].opts).toMatchObject({ nextCourt: true, peoplePath: '/c/1.people.json' });
+    runs[1].resolve(done('none'));
+    await flush();
+    queue.ensure(repo.getClip(clip.id)!);
+    expect(runs).toHaveLength(2);
+  });
+
+  test('without the rule (iOS) a stored result is never redone for it', async () => {
+    const { repo, queue, runs, addClip } = setup();
+    const clip = repo.updateClip(addClip('/c/1.mp4').id, {
+      focus: { v: 1, status: 'ready', file: '/c/1.focus.json', startMs: 28000, endMs: 60000, nextCourt: true },
+    }) as Clip;
+    queue.ensure(clip);
+    expect(runs).toHaveLength(0);
+  });
 });
 
 test('a result from before the range was kept covers the clip, as it was analysed over all of it', () => {

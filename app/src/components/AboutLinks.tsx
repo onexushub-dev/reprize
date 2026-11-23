@@ -1,9 +1,10 @@
-import * as Application from "expo-application";
-import { router } from "expo-router";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import * as Application from 'expo-application';
+import { router } from 'expo-router';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useT } from "../i18n/useT";
-import { colors, fonts } from "../theme/tokens";
+import { SHARING_ENABLED } from '../account/flags';
+import { useT } from '../i18n/useT';
+import { colors, fonts } from '../theme/tokens';
 
 /** "1.0 (6)": the store version and build of this install; empty when unknown (tests, web). */
 export function appVersion(): string {
@@ -42,6 +43,18 @@ export function AboutLinks() {
         >
           <Text style={styles.link}>{t("about.privacy")}</Text>
         </Pressable>
+        {SHARING_ENABLED ? (
+          <>
+            <Text style={styles.dot}>·</Text>
+            <Pressable
+              accessibilityRole="link"
+              hitSlop={8}
+              onPress={() => router.push("/account")}
+            >
+              <Text style={styles.link}>{t("account.link")}</Text>
+            </Pressable>
+          </>
+        ) : null}
         {version ? (
           <>
             <Text style={styles.dot}>·</Text>

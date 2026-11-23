@@ -16,4 +16,6 @@ export interface PaymentsClient {
   setPartner(code: string, source: string): Promise<void>;
   /** iOS: opens Apple's offer code redemption with `code` filled in. False when it could not be opened (and always off iOS). */
   redeemOfferCode(code: string): Promise<boolean>;
+  /** Ties purchases to the signed-in account (its id); null goes back to the anonymous user of this install. */
+  identify(appUserId: string | null): Promise<void>;
 }

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 
 export type Lens = 'ultraWide' | 'wide';
@@ -63,7 +64,28 @@ export type RemotePairing = { url: string; code: string; expiresAt: number; qrPa
 /** `expired` is only about time. `used`: another remote is pairing with this code. `closed`: the camera phone is not offering a pairing. */
 export type RemotePairFailure = 'expired' | 'locked' | 'notFound' | 'wrong' | 'denied' | 'full' | 'used' | 'closed';
 
+/** One file to upload with a presigned PUT URL (sharing design §5.4). */
+export type UploadItem = { id: string; path: string; url: string; contentType?: string };
+
+/** What the uploader knows about one file. Times are ms since 1970. */
+export type UploadEntry = {
+  id: string;
+  path: string;
+  status: 'running' | 'done' | 'failed';
+  bytes: number;
+  sent: number;
+  attempts: number;
+  queuedAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  httpStatus?: number;
+  error?: string;
+};
+
 export type ReplayCameraModuleEvents = {
+  onUploadProgress: (e: { id: string; sent: number; total: number }) => void;
+  onUploadDone: (e: UploadEntry & { ok: boolean }) => void;
+  onUploadRetry: (e: { id: string; attempt: number; error: string }) => void;
   onTrigger: (e: { source: TriggerSource; at: number }) => void;
   onWatchStatus: (e: { status: WatchStatus }) => void;
   /**
@@ -120,10 +142,12 @@ export type ReplayCameraModuleEvents = {
   onDiag: (e: { message: string }) => void;
   onError: (e: { code: ReplayErrorCode; message: string }) => void;
   /**
-   * Seguir a Bola analysis progress (iOS only): `done` of `total` analysed frames of the cut. `state`: 'cooling' (waiting
+   * Seguir a Bola analysis progress: `done` of `total` analysed frames of the cut. `state`: 'cooling' (waiting
    * for the phone to cool before starting), 'running', 'framing' (computing the 9:16 camera, almost done).
    */
   onBallProgress: (e: { clipPath: string; done: number; total: number; state: 'cooling' | 'running' | 'framing' }) => void;
+  /** Jogadores analysis progress: `done` of `total` analysed pictures of the range (kept ones count as done). Android only. */
+  onFocusProgress: (e: { clipPath: string; done: number; total: number }) => void;
   /** What the gesture detector saw lately (people, arms up, wave): the practice screen reads `raised`. */
   onGestureDebug: (e: GestureDebug) => void;
   /** Gesture test (spike screen): one event per gesture sample while setGestureTrace(true). iOS only. */
@@ -231,7 +255,7 @@ export type ExportClipOptions = {
   /** The visible part of the video (0..1 of its size) after a zoom; omit for the whole video. */
   crop?: { x: number; y: number; width: number; height: number };
   /**
-   * Modo Foco: follow this framing file's track (ignored when `crop` is set). iOS only. `fill`: the crop fills the whole
+   * Modo Foco: follow this framing file's track (ignored when `crop` is set). `fill`: the crop fills the whole
    * frame instead of the video's fitted spot (Seguir a Bola's 9:16 crop in a 9:16 frame).
    */
   focus?: { path: string; aspect: 'landscape' | 'portrait'; fill?: boolean };
@@ -259,6 +283,8 @@ export type AnalyzeFocusOptions = {
   debug?: boolean;
   /** TEMP(lab-4k): one frame every `everyMs` (100 = today, 200 = the 5 fps test); the file keeps 100 ms rows. */
   everyMs?: number;
+  /** Leave the people on the next court out of the framing (beach tennis). Android only; iOS ignores it. */
+  nextCourt?: boolean;
 };
 
 /**
@@ -347,6 +373,21 @@ export type FocusAnalysis = {
 
 export type ReplayCameraViewProps = {
   style?: StyleProp<ViewStyle>;
+};
+
+/**
+ * What the capture shield reports (iOS). `protected`: the children sit in the system's secure canvas and the shield is
+ * on. `capturing`: the screen is being recorded or mirrored. `canvas`: the canvas's class name, empty when none was
+ * found. `screenshots`: how many were taken since the view was created.
+ */
+export type CaptureShieldState = { protected: boolean; capturing: boolean; canvas: string; screenshots: number };
+
+export type CaptureShieldViewProps = {
+  style?: StyleProp<ViewStyle>;
+  /** False: the same view without the protection, to compare a capture with and without it. Default true. */
+  enabled?: boolean;
+  onShieldState?: (e: { nativeEvent: CaptureShieldState }) => void;
+  children?: ReactNode;
 };
 
 /** How the Bluetooth stands for the app: "notDetermined" = never asked (nothing was looked at). */

@@ -19,6 +19,8 @@ import type {
   WatchStatus,
   ZoomRange,
   Quality,
+  UploadEntry,
+  UploadItem,
 } from './ReplayCamera.types';
 
 // Native rejections carry `code` (a ReplayErrorCode), so callers can branch on it.
@@ -229,9 +231,8 @@ export function exportClip(opts: ExportClipOptions): Promise<ExportedClip> {
   return ReplayCameraModule.exportClip(opts);
 }
 
-// ---- Modo Foco (iOS only). Without the native functions there is no analysis.
+// ---- Modo Foco (iOS and Android). Without the native functions there is no analysis.
 
-/** Whether this phone can analyse clips for Modo Foco. False on Android and web. */
 /** Whether this phone records `quality` (4K needs a camera that has it); Full HD always. */
 export function supportsQuality(quality: Quality): boolean {
   if (quality !== '2160p30') return true;
@@ -256,7 +257,7 @@ export function cancelFocus(clipPath: string): void {
   if (typeof cancel === 'function') cancel.call(ReplayCameraModule, clipPath);
 }
 
-// ---- Seguir a Bola (iOS only). Without the native functions the option is not shown.
+// ---- Seguir a Bola (iOS and Android). Without the native functions the option is not shown.
 
 export function isBallSupported(): boolean {
   return typeof ReplayCameraModule.analyzeBall === 'function';
@@ -282,9 +283,17 @@ export function probeBall(): Promise<number> {
   return probe.call(ReplayCameraModule);
 }
 
+/** TEMP(lab-android): Modo Foco's evaluation on an Android phone (plan 2026-11-16 task 12). Rejects where it is missing. */
+export function labEvalAndroid(which: 'run' | 'reference' | 'backends'): Promise<string> {
+  const run = ReplayCameraModule.labEvalAndroid;
+  if (typeof run !== 'function') return Promise.reject(new Error('no Android evaluation here'));
+  return run.call(ReplayCameraModule, which);
+}
+
 /**
  * Test 43: Apple's scene classifier on 3 frames of the clip between `startMs` and `endMs`: each label's highest
- * confidence (>= 0.01). Empty where it cannot run.
+ * confidence (>= 0.01), plus the floor ("_floorSand", "_floorTex"). Android has no scene classifier: the floor keys only.
+ * Empty where it cannot run.
  */
 export function classifySport(clipPath: string, startMs: number, endMs: number): Promise<Record<string, number>> {
   const run = ReplayCameraModule.classifySport;
@@ -448,4 +457,22 @@ export function addReplayListener<E extends keyof ReplayCameraModuleEvents>(
   listener: ReplayCameraModuleEvents[E]
 ) {
   return ReplayCameraModule.addListener(event, listener);
+}
+
+/** Starts uploading these files in the system's background session (iOS). False where the build has no uploader. */
+export function startUploads(items: UploadItem[]): boolean {
+  if (!ReplayCameraModule.uploadStart) return false;
+  ReplayCameraModule.uploadStart(items);
+  return true;
+}
+
+/** Every file the uploader knows about; empty where the build has no uploader. */
+export function uploadState(): UploadEntry[] {
+  if (!ReplayCameraModule.uploadState) return [];
+  return ReplayCameraModule.uploadState();
+}
+
+/** Cancels every upload and forgets them. */
+export function resetUploads(): void {
+  if (ReplayCameraModule.uploadReset) ReplayCameraModule.uploadReset();
 }

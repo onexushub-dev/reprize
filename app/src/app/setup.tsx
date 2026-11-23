@@ -108,7 +108,7 @@ import {
   offeredMode,
   withModeOverride,
 } from "../modes/registry";
-import { clampZoom, lensFor, nextZoomStep } from "../modes/zoom";
+import { clampZoom, hasZoomChoice, lensFor, nextZoomStep } from "../modes/zoom";
 import { useSession } from "../session/SessionContext";
 import { colors, fonts, radius } from "../theme/tokens";
 import { useBluetoothRemote } from "../triggers/useBluetoothRemote";
@@ -671,7 +671,7 @@ export default function Setup() {
             </Pressable>
             <View style={styles.cameraButtons}>
               <EconomyButton on={prefs.screenEconomy} onPress={toggleEconomy} />
-              <ZoomButton value={zoom} onPress={cycleZoom} />
+              {hasZoomChoice(zoomRange) ? <ZoomButton value={zoom} onPress={cycleZoom} /> : null}
             </View>
           </View>
           {mode.tip && !compact ? (

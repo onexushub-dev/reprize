@@ -19,6 +19,8 @@ import type {
   WatchStatus,
   ZoomRange,
   Quality,
+  UploadEntry,
+  UploadItem,
 } from './ReplayCamera.types';
 
 declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> {
@@ -76,6 +78,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   analyzeBall?(opts: AnalyzeBallOptions): Promise<BallAnalysis>;
   cancelBall?(clipPath: string): void;
   probeBall?(): Promise<number>;
+  /** TEMP(lab-android): Modo Foco's evaluation on an Android phone ('run' | 'reference'); the summary line. */
+  labEvalAndroid?(which: string): Promise<string>;
   classifySport?(clipPath: string, startMs: number, endMs: number): Promise<Record<string, number>>;
   getWatchStatus(): WatchStatus;
   watchSync(recording: boolean, clipCount: number, startedAt: number | null): void;
@@ -113,6 +117,10 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   shareFiles(paths: string[]): Promise<'shared' | 'dismissed'>;
   /** Joins exports of the same size and codec into one video without re-encoding. */
   concatVideos(paths: string[], outPath: string): Promise<{ path: string; durationMs: number }>;
+  // Background upload (iOS only: missing on Android and in older builds).
+  uploadStart?(items: UploadItem[]): void;
+  uploadState?(): UploadEntry[];
+  uploadReset?(): void;
 }
 
 export default requireNativeModule<ReplayCameraModule>('ReplayCamera');
