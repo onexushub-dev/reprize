@@ -30,12 +30,12 @@ export const en = {
     record: {
       word: 'RECORD.',
       title: 'Record the game with your phone in a fixed spot.',
-      body: 'Only the clips you *save* stay; the rest is deleted.',
+      body: 'Save the plays after they happen. Only what you *save* stays; the rest is deleted.',
     },
     saveFree: {
       word: 'SAVE.',
       title: 'Save the play without stopping the game.',
-      body: 'The seconds before the play are saved as a clip.',
+      body: 'No more ending the game with hours of footage. The play happens and you decide whether to save it.',
     },
     savePro: {
       word: 'SAVE.',
@@ -44,19 +44,19 @@ export const en = {
     edit: {
       word: 'EDIT.',
       title: 'Edit the clip, if you want.',
-      body: 'The clip is trimmed automatically at the moment of the play.',
+      body: 'Trim the clip however you like, change the playback Speed and use Focus Mode to get the clip ready to post.',
     },
     share: {
       word: 'SHARE.',
       title: 'Share in one tap.',
-      body: 'Save it to your photos or send it to anyone.',
+      body: 'Save it to your photos, send it to anyone or share the whole recording by link.',
     },
     ways: 'Ways to save the play',
     free: 'Free',
     pro: 'PRO',
     tap: {
-      name: 'Tap the screen',
-      how: 'Tap anywhere on the screen of the phone that is recording.',
+      name: 'Save button',
+      how: 'Quick and easy. Tap the Save button to keep your clip.',
     },
     wave: {
       name: 'Wave both arms',
@@ -78,7 +78,10 @@ export const en = {
       name: 'Bluetooth remote',
       how: 'Press a button on the remote.',
     },
-    cameraNote: 'Free, no sign-up and unlimited recordings. Next, Reprize asks for camera access.',
+    cameraNote: 'Next, Reprize asks for camera access.',
+    linkTitle: 'Recording link',
+    linkBody: 'Every clip, for anyone you like.',
+    watchStop: 'Stop',
     clipName: 'Clip #1',
     allow: 'Continue',
   },

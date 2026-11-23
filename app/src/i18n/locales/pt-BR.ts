@@ -28,12 +28,12 @@ export const ptBR: Messages = {
     record: {
       word: 'GRAVE.',
       title: 'Grave o jogo com o celular parado.',
-      body: 'Só os clipes que você *salvar* ficam; o resto é apagado.',
+      body: 'Salve os lances depois que eles acontecem. Só o que você *salvar* fica, o resto é apagado.',
     },
     saveFree: {
       word: 'SALVE.',
       title: 'Salve o lance sem parar o jogo.',
-      body: 'Os segundos anteriores ao lance são salvos como clipe.',
+      body: 'Nada de terminar o jogo com horas de gravação. O lance acontece e você decide se salva ou não.',
     },
     savePro: {
       word: 'SALVE.',
@@ -42,19 +42,19 @@ export const ptBR: Messages = {
     edit: {
       word: 'EDITE.',
       title: 'Edite o clipe, se quiser.',
-      body: 'O clipe é cortado automaticamente no momento do lance.',
+      body: 'Recorte o clipe como quiser, mude a Velocidade de reprodução e use o Modo Foco para deixar o clipe pronto para postar.',
     },
     share: {
       word: 'ENVIE.',
       title: 'Compartilhe em um toque.',
-      body: 'Salve na galeria ou envie para quem quiser.',
+      body: 'Salve na galeria, envie para quem quiser ou mande a gravação inteira por link.',
     },
     ways: 'Formas de salvar o lance',
     free: 'Grátis',
     pro: 'PRO',
     tap: {
-      name: 'Toque na tela',
-      how: 'Toque em qualquer ponto da tela do celular que está gravando.',
+      name: 'Botão Salvar',
+      how: 'É rápido e prático. Toque no botão Salvar para garantir o seu clipe.',
     },
     wave: {
       name: 'Acenar com os braços',
@@ -76,7 +76,10 @@ export const ptBR: Messages = {
       name: 'Controle Bluetooth',
       how: 'Aperte um botão do controle.',
     },
-    cameraNote: 'Grátis, sem cadastro e com gravações ilimitadas. A seguir, o Reprize pede acesso à câmera.',
+    cameraNote: 'A seguir, o Reprize pede acesso à câmera.',
+    linkTitle: 'Link da gravação',
+    linkBody: 'Todos os clipes, para quem quiser.',
+    watchStop: 'Parar',
     clipName: 'Clipe #1',
     allow: 'Continuar',
   },
