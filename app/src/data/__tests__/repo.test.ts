@@ -536,3 +536,63 @@ test('setShared keeps the link on the recording and undefined forgets it', () =>
   repo.setShared(session.id, undefined);
   expect(repo.getSession(session.id)).not.toHaveProperty('shared');
 });
+
+describe('continuing a recording (2026-11-23)', () => {
+  test('resumeSession reopens an ended recording and counts the pause out of its duration', () => {
+    const repo = setup();
+    const s = repo.startSession('beachTennis', 1_000, { paid: false });
+    repo.endSession(s.id, 10_000);
+    const resumed = repo.resumeSession(s.id, 25_000)!;
+    expect(resumed.endedAt).toBeUndefined();
+    expect(resumed).toMatchObject({ pausedMs: 15_000, resumedAt: 25_000 });
+    repo.endSession(s.id, 40_000);
+    expect(repo.sessionStats(s.id).recordedMs).toBe(40_000 - 1_000 - 15_000);
+  });
+
+  test('two pauses add up', () => {
+    const repo = setup();
+    const s = repo.startSession('beachTennis', 0, { paid: false });
+    repo.endSession(s.id, 10_000);
+    repo.resumeSession(s.id, 25_000);
+    repo.endSession(s.id, 40_000);
+    repo.resumeSession(s.id, 50_000);
+    repo.endSession(s.id, 60_000);
+    expect(repo.getSession(s.id)!.pausedMs).toBe(25_000);
+    expect(repo.sessionStats(s.id).recordedMs).toBe(35_000);
+  });
+
+  test('only an ended own recording can be reopened', () => {
+    const repo = setup();
+    const open = repo.startSession('beachTennis', 0, { paid: false });
+    expect(repo.resumeSession(open.id, 5_000)).toBeUndefined();
+    expect(repo.resumeSession('nope', 5_000)).toBeUndefined();
+    const received = repo.startReceivedSession({ sport: 'beachTennis', now: 0, received: { shareId: 'sh', code: 'c', receivedAt: 0, expiresAt: 1, total: 1 } });
+    expect(repo.resumeSession(received.id, 5_000)).toBeUndefined();
+    expect(repo.getSession(received.id)!.endedAt).toBe(0);
+  });
+
+  test('app closed during a continuation with no new clip: it ends when it was resumed, never before the pause', () => {
+    const repo = setup({ '/a.mp4': 1 });
+    const s = repo.startSession('beachTennis', 0, { paid: false });
+    repo.addClip({ sessionId: s.id, createdAt: 5_000, source: 'screen', path: '/a.mp4', durationMs: 1 });
+    repo.endSession(s.id, 10_000);
+    repo.resumeSession(s.id, 30_000);
+    repo.closeOpenSessions();
+    expect(repo.getSession(s.id)!.endedAt).toBe(30_000);
+    expect(repo.sessionStats(s.id).recordedMs).toBe(10_000);
+  });
+
+  test('a recording never continued keeps its duration', () => {
+    const repo = setup();
+    const s = repo.startSession('beachTennis', 0, { paid: false });
+    repo.endSession(s.id, 60_000);
+    expect(repo.sessionStats(s.id).recordedMs).toBe(60_000);
+  });
+
+  test('allSessions lists every recording, with or without clips, own and received', () => {
+    const repo = setup();
+    const a = repo.startSession('beachTennis', 0, { paid: false });
+    const b = repo.startReceivedSession({ sport: 'beachTennis', now: 0, received: { shareId: 'sh', code: 'c', receivedAt: 0, expiresAt: 1, total: 1 } });
+    expect(repo.allSessions().map((s) => s.id)).toEqual([a.id, b.id]);
+  });
+});

@@ -44,6 +44,8 @@ export type AnalyticsEvents = {
 
   // Recording
   /** A game began: what it records with. `plan` is fixed at the start (a Single Pass is spent later, on export). */
+  /** An ended recording continued within its hour (2026-11-23): how long it waited, and its plan. */
+  recording_continued: { pause: '<10min' | '10-30min' | '30-60min'; plan: 'pro' | 'free' };
   recording_started: {
     mode: ModeId;
     quality: Quality;

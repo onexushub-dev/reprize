@@ -29,6 +29,10 @@ export type SessionState = {
   paid?: boolean;
   /** The seconds each save reaches back in the running game (15 on the free plan). */
   bufferSeconds?: number;
+  /** The running game continues an ended recording (2026-11-23): the camera says so. */
+  continuing: boolean;
+  /** Added to the count to number the next clip (a continued recording with deleted clips); 0 otherwise. */
+  numberOffset: number;
 };
 
 export type SessionAction =
@@ -37,7 +41,18 @@ export type SessionAction =
   | { type: 'cameraFailed'; code: ReplayErrorCode }
   | { type: 'cameraOff' }
   | { type: 'startRequested' }
-  | { type: 'started'; sessionId: string; startedAt: number; paid: boolean; bufferSeconds: number }
+  | {
+      type: 'started';
+      sessionId: string;
+      startedAt: number;
+      paid: boolean;
+      bufferSeconds: number;
+      /** A continued recording (2026-11-23) starts at its own clip count. */
+      clipCount?: number;
+      continuing?: boolean;
+      /** Highest clip number minus the clip count: clips deleted during the pause leave gaps the next numbers skip. */
+      numberOffset?: number;
+    }
   | { type: 'startFailed'; code: ReplayErrorCode }
   | { type: 'saveStarted'; source: TriggerSource; at: number; cutMs: number }
   | { type: 'saved'; sessionId: string; clipId: string; source: TriggerSource; at: number; cutMs: number }
@@ -58,6 +73,8 @@ export const initialState: SessionState = {
   saving: false,
   paused: false,
   thermal: { level: 'nominal', degraded: false },
+  continuing: false,
+  numberOffset: 0,
 };
 
 export function reducer(state: SessionState, action: SessionAction): SessionState {
@@ -85,7 +102,9 @@ export function reducer(state: SessionState, action: SessionAction): SessionStat
         phase: 'recording',
         sessionId: action.sessionId,
         startedAt: action.startedAt,
-        clipCount: 0,
+        clipCount: action.clipCount !== undefined ? action.clipCount : 0,
+        continuing: action.continuing === true,
+        numberOffset: action.numberOffset !== undefined ? action.numberOffset : 0,
         paid: action.paid,
         bufferSeconds: action.bufferSeconds,
       };
@@ -95,17 +114,18 @@ export function reducer(state: SessionState, action: SessionAction): SessionStat
       return {
         ...state,
         saving: true,
-        pendingSave: { number: state.clipCount + 1, source: action.source, at: action.at, cutMs: action.cutMs },
+        pendingSave: { number: state.clipCount + 1 + state.numberOffset, source: action.source, at: action.at, cutMs: action.cutMs },
       };
     case 'saved': {
       // A save that finished after its game ended (stop → Nova gravação) must not touch the new game.
       if (action.sessionId !== state.sessionId) return state;
-      const number = state.clipCount + 1;
+      const count = state.clipCount + 1;
+      const number = count + state.numberOffset;
       return {
         ...state,
         saving: false,
         pendingSave: undefined,
-        clipCount: number,
+        clipCount: count,
         lastSaved: { clipId: action.clipId, number, source: action.source, at: action.at, cutMs: action.cutMs },
       };
     }
@@ -135,7 +155,7 @@ export function reducer(state: SessionState, action: SessionAction): SessionStat
     case 'stopRequested':
       return { ...state, phase: 'stopping' };
     case 'stopped':
-      return { ...state, phase: 'ended', saving: false, paid: undefined, bufferSeconds: undefined };
+      return { ...state, phase: 'ended', saving: false, paid: undefined, bufferSeconds: undefined, continuing: false };
     case 'reset':
       return initialState;
   }

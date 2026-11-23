@@ -75,6 +75,11 @@ import {
 } from "../components/icons";
 import { ZoomButton } from "../components/ZoomButton";
 import { repo } from "../data/mmkv";
+import { ContinueBadge } from "../components/ContinueBadge";
+import { showDialog } from "../components/dialog";
+import { sessionLabel } from "../components/format";
+import { canContinue } from "../session/continueRule";
+import { continueIntent, setContinueIntent, subscribeContinueIntent } from "../session/continueIntent";
 import { useSetupDiag } from "../diag/useSetupDiag"; // TEMP(diag)
 import { openPaywall } from "../payments/feedback";
 import {
@@ -164,7 +169,10 @@ export default function Setup() {
   const update = (patch: Partial<Prefs>) => setPrefsState(repo.setPrefs(patch));
   // What this mode runs with (defaults + the player's changes for this mode).
   // A sport saved before the two modes opens as its group (Quadra or Academia).
-  const modeId = offeredMode(prefs.sport);
+  // Continuing a recording (2026-11-23): the camera opens with its sport, which a continuation cannot change.
+  const intentId = useSyncExternalStore(subscribeContinueIntent, continueIntent, continueIntent);
+  const intentSession = intentId !== undefined ? repo.getSession(intentId) : undefined;
+  const modeId = offeredMode(intentSession !== undefined ? intentSession.sport : prefs.sport);
   const settings = effectiveSettings(modeId, prefs);
   const updateMode = (patch: Partial<ModeSettings>) =>
     update(withModeOverride(prefs, modeId, patch));
@@ -447,10 +455,35 @@ export default function Setup() {
     if (busy.current) return;
     busy.current = true;
     try {
-      await session.start(modeId); // the plan never stops a start
+      await beginGame(); // the plan never stops a start
     } finally {
       busy.current = false;
     }
+  }
+
+  /**
+   * Gravar: a new recording, or the recording chosen to continue while its hour lasts (2026-11-23). Once the hour is
+   * over it asks, and only a new recording can start.
+   */
+  async function beginGame(): Promise<string | void> {
+    const id = continueIntent();
+    if (id === undefined) return session.start(modeId);
+    if (canContinue(id, repo.allSessions(), Date.now())) {
+      const result = await session.continueRecording(id);
+      if (result === "started") setContinueIntent(undefined);
+      return result;
+    }
+    showDialog({
+      title: t("continue.expiredTitle"),
+      body: t("continue.expiredBody"),
+      cancel: t("common.cancel"),
+      confirm: t("continue.newRecording"),
+      onConfirm: () => {
+        setContinueIntent(undefined);
+        void session.start(offeredMode(repo.getPrefs().sport));
+      },
+    });
+    return undefined;
   }
 
   function askThenStart() {
@@ -472,7 +505,7 @@ export default function Setup() {
     if (busy.current) return;
     busy.current = true;
     try {
-      const result = await session.start(modeId);
+      const result = await beginGame();
       const prefs = repo.getPrefs();
       if (result === "started")
         signalAction("started", {
@@ -687,6 +720,12 @@ export default function Setup() {
                 {messageText}
               </View>
             )}
+            {/* The recording about to go on (2026-11-23), with an ✕ to start a new one instead. */}
+            {intentSession !== undefined && messageText === null && panel === undefined ? (
+              <View pointerEvents="box-none" style={[styles.messageDock, { bottom: barHeight + 14 }]}>
+                <ContinueBadge name={sessionLabel(intentSession, undefined, locale)} onDrop={() => setContinueIntent(undefined)} />
+              </View>
+            ) : null}
             {backdrop}
             {renderPanel()}
           </>

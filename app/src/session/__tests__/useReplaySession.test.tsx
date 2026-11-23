@@ -1118,3 +1118,89 @@ describe('the setup screen camera is a preview until the recording starts (2026-
     expect(f.sessionIds()).toEqual([]);
   });
 });
+
+describe('continuing a recording (2026-11-23)', () => {
+  test('a recording ended 20 minutes ago goes on: same recording, its clip count, the pause out of its duration', async () => {
+    const f = fakeDeps();
+    const view = await renderHook(() => useReplaySession(f.deps));
+    await act(() => view.result.current.start('futevolei'));
+    const id = view.result.current.state.sessionId!;
+    for (let i = 0; i < 2; i += 1) {
+      await act(async () => view.result.current.trigger('screen'));
+      await act(async () => f.finishSave());
+      f.advance(20_000);
+    }
+    await act(() => view.result.current.stop());
+    const endedAt = f.deps.repo.getSession(id)!.endedAt!;
+    f.advance(20 * 60_000);
+    let result: string | undefined;
+    await act(async () => {
+      result = await view.result.current.continueRecording(id);
+    });
+    expect(result).toBe('started');
+    expect(view.result.current.state).toMatchObject({ phase: 'recording', sessionId: id, clipCount: 2, continuing: true });
+    const session = f.deps.repo.getSession(id)!;
+    expect(session.endedAt).toBeUndefined();
+    expect(session.pausedMs).toBe(20 * 60_000);
+    expect(session.resumedAt).toBe(endedAt + 20 * 60_000);
+    expect(f.sessionIds()).toEqual([id]);
+    f.advance(20_000);
+    await act(async () => view.result.current.trigger('screen'));
+    await act(async () => f.finishSave());
+    expect(f.deps.repo.listClips(id)).toHaveLength(3);
+  });
+
+  test('an unknown recording does not start anything', async () => {
+    const f = fakeDeps();
+    const view = await renderHook(() => useReplaySession(f.deps));
+    let result: string | undefined;
+    await act(async () => {
+      result = await view.result.current.continueRecording('nope');
+    });
+    expect(result).toBe('failed');
+    expect(view.result.current.state.phase).not.toBe('recording');
+  });
+});
+
+describe('continuing a recording: review fixes (2026-11-23)', () => {
+  async function endedWithThreeClips() {
+    const f = fakeDeps();
+    const view = await renderHook(() => useReplaySession(f.deps));
+    await act(() => view.result.current.start('futevolei'));
+    const id = view.result.current.state.sessionId!;
+    for (let i = 0; i < 3; i += 1) {
+      await act(async () => view.result.current.trigger('screen'));
+      await act(async () => f.finishSave());
+      f.advance(20_000);
+    }
+    await act(() => view.result.current.stop());
+    f.advance(5 * 60_000);
+    return { f, view, id };
+  }
+
+  test('with a clip deleted during the pause, the next clip is numbered after the highest one, as the repo numbers it', async () => {
+    const { f, view, id } = await endedWithThreeClips();
+    const second = f.deps.repo.listClips(id)[1];
+    f.deps.repo.deleteClip(second.id);
+    await act(async () => {
+      await view.result.current.continueRecording(id);
+    });
+    await act(async () => view.result.current.trigger('screen'));
+    expect(view.result.current.state.pendingSave!.number).toBe(4);
+    await act(async () => f.finishSave());
+    expect(view.result.current.state.lastSaved!.number).toBe(4);
+    expect(f.deps.repo.getClip(view.result.current.state.lastSaved!.clipId)!.number).toBe(4);
+    expect(view.result.current.state.clipCount).toBe(3);
+  });
+
+  test('a recording unlocked with a Single Pass is never continued, whoever asks', async () => {
+    const { f, view, id } = await endedWithThreeClips();
+    f.deps.repo.upgradeSession(id, { passTransactionId: 'tx' });
+    let result: string | undefined;
+    await act(async () => {
+      result = await view.result.current.continueRecording(id);
+    });
+    expect(result).toBe('failed');
+    expect(f.deps.repo.getSession(id)!.endedAt).toBeDefined();
+  });
+});

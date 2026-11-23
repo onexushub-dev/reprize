@@ -11,10 +11,10 @@ import type {
   ZoomRange,
 } from '../../modules/replay-camera/src/ReplayCamera.types';
 import type { Repo } from '../data/repo';
-import type { ModeId, ModeSettings, Sport, TriggerSource } from '../data/schema';
+import type { Clip, ModeId, ModeSettings, Sport, TriggerSource } from '../data/schema';
 import { type AppLocale, voiceLocale } from '../i18n/locale';
 import { type CaptureConfig, captureConfig, triggerAllowed } from '../payments/limits';
-import { planOf } from '../payments/rules';
+import { planOf, sessionPlan } from '../payments/rules';
 import type { Plan, StartDecision } from '../payments/types';
 import { effectiveSettings } from '../modes/registry';
 import { clampZoom, lensFor } from '../modes/zoom';
@@ -81,6 +81,19 @@ const errorCode = (e: unknown): ReplayErrorCode =>
   ((e as { code?: ReplayErrorCode })?.code ?? 'CAMERA_UNAVAILABLE') as ReplayErrorCode;
 
 /** Metrics: one `recording_ended` per game, with how long it ran and how many clips it kept (both as ranges). */
+/** A continued recording's count, and how far its next number runs ahead of it (clips deleted during the pause). */
+function continuedCount(clips: Clip[]): { clipCount: number; continuing: true; numberOffset: number } {
+  const highest = clips.reduce((top, c, i) => Math.max(top, c.number !== undefined ? c.number : i + 1), 0);
+  return { clipCount: clips.length, continuing: true, numberOffset: highest - clips.length };
+}
+
+/** How long the recording waited before it was continued, for the `recording_continued` event. */
+function pauseBucket(ms: number): '<10min' | '10-30min' | '30-60min' {
+  if (ms < 10 * 60_000) return '<10min';
+  if (ms < 30 * 60_000) return '10-30min';
+  return '30-60min';
+}
+
 function reportEnded(repo: Repo, id: string, endedAt: number, reason: 'user' | 'thermal' | 'error'): void {
   try {
     const game = repo.getSession(id);
@@ -306,15 +319,32 @@ export function useReplaySession(deps: SessionDeps) {
   }, [deps]);
 
   const startingRef = useRef(false);
-  const start = useCallback(
-    async (sport: Sport): Promise<StartResult> => {
+  /**
+   * A new game (`sport`), or the continuation of an ended recording (`continueId`, 2026-11-23): same camera steps, but
+   * a continuation keeps the recording's sport and plan and reopens it instead of making a new one.
+   */
+  const begin = useCallback(
+    async (target: { sport: Sport } | { continueId: string }): Promise<StartResult> => {
       const phase = stateRef.current.phase;
       if (startingRef.current || phase === 'starting' || phase === 'recording' || phase === 'stopping') return 'busy';
       startingRef.current = true;
       try {
+        const continueId = 'continueId' in target ? target.continueId : undefined;
+        const existing = continueId !== undefined ? deps.repo.getSession(continueId) : undefined;
+        // Never a received recording nor one unlocked with a Single Pass, whoever asks (continue-recording design).
+        if (
+          continueId !== undefined &&
+          (existing === undefined || existing.received !== undefined || existing.endedAt === undefined || existing.passTransactionId !== undefined)
+        ) {
+          return 'failed';
+        }
+        const sport: Sport = existing !== undefined ? existing.sport : (target as { sport: Sport }).sport;
+        // A continuation runs with the plan the recording was made with: nothing is decided again.
+        const fixed: StartDecision | undefined =
+          existing !== undefined ? (sessionPlan(existing) === 'paid' ? { kind: 'pro' } : { kind: 'free' }) : undefined;
         // decide → open the camera for that plan → decide again → reopen if the plan changed → create the session.
         // The plan never stops a start, and nothing paid is ever asked once recording.
-        let decision = await safeDecision();
+        let decision = fixed !== undefined ? fixed : await safeDecision();
         dispatch({ type: 'startRequested' });
         // Visible to a prepare() before React commits: from here only start() touches the camera.
         stateRef.current = { ...stateRef.current, phase: 'starting' };
@@ -330,7 +360,7 @@ export function useReplaySession(deps: SessionDeps) {
           }
           // The plan can change while the camera opens (Pro bought or lapsing): this check decides, and the camera is
           // reopened to match it.
-          const again = await safeDecision();
+          const again = fixed !== undefined ? fixed : await safeDecision();
           if (planOf(again) !== planOf(decision)) {
             opened = await openCamera(sport, planOf(again));
             if (!opened) {
@@ -351,21 +381,31 @@ export function useReplaySession(deps: SessionDeps) {
           deps.camera.setGestureEnabled(settings.gestureEnabled);
           deps.camera.setVoiceEnabled(voiceOn, locale);
           // Last fallible step: a start that failed leaves no session behind.
-          const session = deps.repo.startSession(sport, deps.now(), { paid: plan === 'paid' });
+          const session =
+            continueId !== undefined ? deps.repo.resumeSession(continueId, deps.now()) : deps.repo.startSession(sport, deps.now(), { paid: plan === 'paid' });
+          if (session === undefined) throw Object.assign(new Error('recording cannot be continued'), { code: 'CAMERA_UNAVAILABLE' });
+          // A continuation runs from now: its cuts never reach back into the pause.
+          const runsFrom = continueId !== undefined && session.resumedAt !== undefined ? session.resumedAt : session.startedAt;
           cutSeconds.current = config.cutSeconds;
-          cutFloors.current = [session.startedAt];
+          cutFloors.current = [runsFrom];
           bus.quiet(SETTLE_MS);
           const paid = plan === 'paid';
           dispatch({
             type: 'started',
             sessionId: session.id,
-            startedAt: session.startedAt,
+            startedAt: runsFrom,
             paid,
             bufferSeconds: config.bufferSeconds,
+            ...(continueId !== undefined ? continuedCount(deps.repo.listClips(session.id)) : {}),
           });
           // Visible to a second start() before React commits.
           stateRef.current = { ...stateRef.current, phase: 'recording', paid };
           qualityLowered.current = false;
+          if (continueId !== undefined) {
+            const pauseMs = existing !== undefined && existing.endedAt !== undefined ? runsFrom - existing.endedAt : 0;
+            track('recording_continued', { pause: pauseBucket(pauseMs), plan: paid ? 'pro' : 'free' });
+            return 'started';
+          }
           track('recording_started', {
             mode: sport,
             quality: settings.quality,
@@ -400,6 +440,8 @@ export function useReplaySession(deps: SessionDeps) {
     },
     [bus, deps, openCamera, safeDecision]
   );
+  const start = useCallback((sport: Sport) => begin({ sport }), [begin]);
+  const continueRecording = useCallback((sessionId: string) => begin({ continueId: sessionId }), [begin]);
 
   const stop = useCallback(async (): Promise<string | undefined> => {
     const id = stateRef.current.sessionId;
@@ -456,7 +498,7 @@ export function useReplaySession(deps: SessionDeps) {
     [deps],
   );
 
-  return { state, prepare, release, start, stop, trigger, undoLast, reset, setZoom };
+  return { state, prepare, release, start, continueRecording, stop, trigger, undoLast, reset, setZoom };
 }
 
 export type ReplaySession = ReturnType<typeof useReplaySession>;

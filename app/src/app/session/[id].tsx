@@ -43,10 +43,13 @@ import {
   FilmIcon,
   MoreIcon,
 } from "../../components/icons";
-import { clipNumber, sessionLabel } from "../../components/format";
+import { clipNumber, sessionLabel, timeOfDay } from "../../components/format";
 import { receiveQueue, useReceiveProgress } from "../../cloud/receive";
 import { removeReceivedFiles } from "../../cloud/receivedPaths";
-import { confirmClipsShare, confirmShare } from "../../cloud/shareConfirm";
+import { confirmClipsShare, confirmShare, liveLinkExpiry } from "../../cloud/shareConfirm";
+import { showDialog } from "../../components/dialog";
+import { canContinue, continueUntil } from "../../session/continueRule";
+import { setContinueIntent } from "../../session/continueIntent";
 import { markOpened } from "../../data/lastOpened";
 import { removeFile, repo } from "../../data/mmkv";
 import { MAX_GAME_NAME, type Clip } from "../../data/schema";
@@ -438,6 +441,22 @@ export default function SessionSummary() {
     else leaveToGames();
   }
 
+  /** Asks before the camera opens to continue this recording; a live link is said to keep its clips. */
+  function confirmContinue() {
+    if (!session) return;
+    const last = clips.length === 0 ? 0 : clipNumber(clips[clips.length - 1], clips.length - 1);
+    showDialog({
+      title: t("continue.confirmTitle"),
+      body: liveLinkExpiry(session) !== undefined ? t("continue.confirmLinkBody") : t("continue.confirmBody", { last }),
+      cancel: t("common.cancel"),
+      confirm: t("continue.go"),
+      onConfirm: () => {
+        setContinueIntent(id);
+        router.dismissTo("/setup");
+      },
+    });
+  }
+
   // ⋯: Denunciar (a received recording) and Apagar gravação.
   function openMenu() {
     const report =
@@ -451,7 +470,13 @@ export default function SessionSummary() {
           run: () => void startShare(),
         }
       : undefined;
+    // Continuar gravação (2026-11-23): first, while this is the latest recording and its hour lasts.
+    const goOn =
+      session && canContinue(id, repo.allSessions(), shareNow)
+        ? { text: t("continue.menu", { time: timeOfDay(continueUntil(session), locale) }), run: confirmContinue }
+        : undefined;
     const options = [
+      ...(goOn ? [goOn] : []),
       ...(share ? [share] : []),
       ...(report ? [report] : []),
       { text: t("games.deleteRecording"), run: confirmDeleteGame },

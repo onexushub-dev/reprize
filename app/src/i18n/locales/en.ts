@@ -394,6 +394,18 @@ export const en = {
     cancelConfirm: 'Cancel download',
     nothingHere: 'No clip of this recording was downloaded, and without a new link there is nothing left to download.',
   },
+  continue: {
+    badge: 'Continuing · %{name}',
+    drop: "Don't continue",
+    expiredTitle: 'The time to continue is over',
+    expiredBody: "It's been over an hour since the recording ended. Start a new recording?",
+    newRecording: 'New recording',
+    menu: 'Continue recording (until %{time})',
+    confirmTitle: 'Continue the recording?',
+    confirmBody: 'The camera opens ready so you can place the phone. New clips go into this recording, after #%{last}.',
+    confirmLinkBody: "It has an active link. New clips won't be in it: to send them, turn the link off and make a new one.",
+    go: 'Continue',
+  },
   sharing: {
     button: 'Share recording',
     locked: 'Sharing is PRO',

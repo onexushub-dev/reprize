@@ -56,6 +56,7 @@ jest.mock('../../data/mmkv', () => {
   return {
     repo: {
       getSession: jest.fn(),
+      allSessions: jest.fn(() => []),
       listClips: jest.fn(),
       sessionStats: jest.fn(),
       renameSession: jest.fn(),

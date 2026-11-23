@@ -170,6 +170,13 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       return session;
     },
 
+    /** Every recording, own and received, with or without clips, in the order they were made. */
+    allSessions(): Session[] {
+      return sessionIds()
+        .map((id) => getSession(id))
+        .filter((s): s is Session => s !== undefined);
+    },
+
     /** Every recording received through a link, with or without clips yet. */
     receivedSessions(): Session[] {
       return sessionIds()
@@ -243,12 +250,28 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
         const session = getSession(id);
         if (!session || session.endedAt !== undefined) continue;
         const clips = this.listClips(id);
-        const last = clips.reduce((at, c) => Math.max(at, c.createdAt), session.startedAt);
+        // A continuation with no new clip ends when it was continued, never before its pause (2026-11-23).
+        const from = session.resumedAt !== undefined ? session.resumedAt : session.startedAt;
+        const last = clips.reduce((at, c) => Math.max(at, c.createdAt), from);
         write(key.session(id), { ...session, endedAt: last });
         closed += 1;
       }
       if (closed > 0) changed();
       return closed;
+    },
+
+    /**
+     * Continues an ended own recording (2026-11-23): it is open again, and the pause since its end is kept out of its
+     * duration. Undefined for an unknown, open or received recording.
+     */
+    resumeSession(id: string, now: number): Session | undefined {
+      const session = getSession(id);
+      if (!session || session.received || session.endedAt === undefined) return undefined;
+      const { endedAt, ...rest } = session;
+      const next: Session = { ...rest, pausedMs: (session.pausedMs !== undefined ? session.pausedMs : 0) + Math.max(0, now - endedAt), resumedAt: now };
+      write(key.session(id), next);
+      changed();
+      return next;
     },
 
     endSession(id: string, now: number): Session {
@@ -438,7 +461,8 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       return {
         clips: clips.length,
         bytes: clips.reduce((sum, c) => sum + files.sizeBytes(c.path), 0),
-        recordedMs: session?.endedAt ? session.endedAt - session.startedAt : 0,
+        // Pauses between an end and a continuation are not recorded time (2026-11-23).
+        recordedMs: session !== undefined && session.endedAt !== undefined ? Math.max(0, session.endedAt - session.startedAt - (session.pausedMs !== undefined ? session.pausedMs : 0)) : 0,
       };
     },
   };

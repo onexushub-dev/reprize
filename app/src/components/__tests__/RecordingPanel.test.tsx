@@ -7,6 +7,7 @@ jest.mock('expo-router', () => ({ router: { replace: jest.fn(), push: jest.fn() 
 jest.mock('../../data/mmkv', () => ({
   repo: {
     listClips: jest.fn(() => [{ id: 'c1' }]),
+    getSession: jest.fn(() => ({ id: 's1', sport: 'quadra', startedAt: 0, name: 'Final' })),
     deleteSession: jest.fn(() => []),
     getPrefs: jest.fn(() => ({ screenEconomy: true, soundOnSave: true, flashOnSave: false })),
     setPrefs: jest.fn((patch: object) => ({ screenEconomy: true, ...patch })),
@@ -602,4 +603,27 @@ describe('heat tip (only from serious on)', () => {
     await render(<Recording />);
     expect(screen.queryByText(tip)).toBeNull();
   });
+});
+
+test('continuing a recording: the camera says so, with its name, for 5 seconds only (2026-11-23)', async () => {
+  jest.useFakeTimers();
+  try {
+    session({ clipCount: 12, continuing: true });
+    await render(<Recording />);
+    expect(screen.getByText('Continuando · Final')).toBeTruthy();
+    expect(screen.getByText('12 clipes')).toBeTruthy();
+    await act(async () => jest.advanceTimersByTime(4_900));
+    expect(screen.getByText('Continuando · Final')).toBeTruthy();
+    await act(async () => jest.advanceTimersByTime(200));
+    expect(screen.queryByText('Continuando · Final')).toBeNull();
+    expect(screen.getByText('12 clipes')).toBeTruthy();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a new recording has no such badge', async () => {
+  session({ clipCount: 0, continuing: false });
+  await render(<Recording />);
+  expect(screen.queryByText(/Continuando/)).toBeNull();
 });

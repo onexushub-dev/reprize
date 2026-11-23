@@ -392,6 +392,18 @@ export const ptBR: Messages = {
     cancelConfirm: 'Cancelar download',
     nothingHere: 'Nenhum clipe desta gravação foi baixado, e sem um link novo não há mais o que baixar.',
   },
+  continue: {
+    badge: 'Continuando · %{name}',
+    drop: 'Não continuar',
+    expiredTitle: 'O tempo para continuar acabou',
+    expiredBody: 'Já passou 1 hora desde que a gravação terminou. Começar uma nova gravação?',
+    newRecording: 'Nova gravação',
+    menu: 'Continuar gravação (até %{time})',
+    confirmTitle: 'Continuar a gravação?',
+    confirmBody: 'A câmera abre pronta para você posicionar o celular. Os clipes novos entram nesta gravação, depois do #%{last}.',
+    confirmLinkBody: 'Ela tem um link ativo. Os clipes novos não entram nele: para enviá-los, desligue o link e crie um novo.',
+    go: 'Continuar',
+  },
   sharing: {
     button: 'Compartilhar gravação',
     locked: 'Compartilhar é do PRO',

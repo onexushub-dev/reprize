@@ -17,6 +17,8 @@ import { useScreenEconomy } from '../session/useScreenEconomy';
 import { diag } from '../diag/diagLog'; // TEMP(diag-remote)
 import { colors, fonts, footer } from '../theme/tokens';
 import { Button } from './Button';
+import { ContinueBadge } from './ContinueBadge';
+import { sessionLabel } from './format';
 import { EconomyButton } from './EconomyButton';
 import { HoldButton } from './HoldButton';
 import { MicIcon, RemoteIcon, WatchIcon, WaveIcon } from './icons';
@@ -76,6 +78,14 @@ type Props = {
 
 export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false, zoom }: Props) {
   const { state, trigger, undoLast, stop, reset } = useSession();
+  // "Continuando · …" says which recording goes on, then leaves the camera clear after 5 s (2026-11-23).
+  const [badgeGoneFor, setBadgeGoneFor] = useState<number | undefined>(undefined);
+  const continuingSince = state.continuing ? state.startedAt : undefined;
+  useEffect(() => {
+    if (continuingSince === undefined) return;
+    const timer = setTimeout(() => setBadgeGoneFor(continuingSince), CONTINUE_BADGE_MS);
+    return () => clearTimeout(timer);
+  }, [continuingSince]);
   // The Bluetooth remote is paid: it saves only in a game whose plan may use it.
   const remoteOn = triggerAllowed('remote', state.paid ? 'paid' : 'free');
   // The remote gone for a while in this game (out of range and iOS gave up, or asleep): its presses are lost until it
@@ -319,6 +329,9 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   // Always one line (2026-11-21): with every way on, the chips get a little slimmer, and shrink further if still short.
   const crowded = ways.length >= 5;
   const clips = t('summary.clips', { count: state.clipCount });
+  const continuingSession =
+    state.continuing && state.sessionId !== undefined && badgeGoneFor !== state.startedAt ? repo.getSession(state.sessionId) : undefined;
+  const continuingName = continuingSession !== undefined ? sessionLabel(continuingSession, undefined, locale) : undefined;
 
   return (
     <View testID="recording-root" style={StyleSheet.absoluteFill} onTouchStart={onAnyTouch}>
@@ -346,6 +359,12 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
             {economy.asleep ? null : <EconomyButton on={economyPref} onPress={toggleEconomy} size={48} />}
           </View>
         </View>
+        {/* Continuing an ended recording (2026-11-23): which one, under the clock and the count. */}
+        {continuingName !== undefined ? (
+          <View pointerEvents="none" style={styles.continueRow}>
+            <ContinueBadge name={continuingName} />
+          </View>
+        ) : null}
         {stepped ? (
           <View pointerEvents="none" testID="quality-chip" style={[styles.pill, styles.qualityRow]}>
             <Text style={styles.qualityText}>{qualityLabel(state.thermal.quality)}</Text>
@@ -459,7 +478,11 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
 
 const glass = 'rgba(12,12,12,0.72)';
 
+/** How long the camera shows which recording goes on. */
+const CONTINUE_BADGE_MS = 5_000;
+
 const styles = StyleSheet.create({
+  continueRow: { marginTop: 8, alignItems: 'center' },
   dark: { backgroundColor: 'rgba(0,0,0,0.72)' },
   // A small note over the dimmed picture, not a screen of its own.
   // Over the whole screen, not in the column (2026-11-22): the column's free middle moved with what is shown under it

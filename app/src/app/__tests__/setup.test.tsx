@@ -85,6 +85,8 @@ jest.mock("../../data/mmkv", () => {
       setPrefs: jest.fn((p: object) => (prefs = { ...prefs, ...p })),
       subscribe: jest.fn(() => () => {}),
       version: jest.fn(() => 0),
+      getSession: jest.fn(() => undefined),
+      allSessions: jest.fn(() => []),
     },
   };
 });
@@ -127,6 +129,7 @@ function session(state: object) {
       ...state,
     },
     start: jest.fn(async (): Promise<string | void> => {}),
+    continueRecording: jest.fn(async (): Promise<string | void> => 'started'),
     prepare: jest.fn(async () => true),
     release: jest.fn(async () => {}),
     trigger: jest.fn(),
@@ -1762,4 +1765,59 @@ test('the clip length reads with a small "s" for seconds, the other settings in 
   await render(<Setup />);
   const seconds = screen.getAllByText(/^\d+s$/)[0];
   expect(StyleSheet.flatten(seconds.props.style).textTransform).toBe('none');
+});
+
+describe('continuing a recording from its menu (2026-11-23)', () => {
+  const { setContinueIntent, continueIntent } = jest.requireActual('../../session/continueIntent');
+  const final = (endedAgoMin: number) => ({ id: 's1', sport: 'quadra', startedAt: 0, endedAt: Date.now() - endedAgoMin * 60_000, name: 'Final' });
+  afterEach(() => {
+    setContinueIntent(undefined);
+    repo.getSession.mockReturnValue(undefined);
+    repo.allSessions.mockReturnValue([]);
+  });
+
+  test('the camera says which recording goes on, and Gravar continues it instead of starting a new one', async () => {
+    repo.getSession.mockReturnValue(final(20));
+    repo.allSessions.mockReturnValue([final(20)]);
+    setContinueIntent('s1');
+    const s = session({});
+    await render(<Setup />);
+    expect(screen.getByText('Continuando · Final')).toBeTruthy();
+    await fireEvent.press(recordButton());
+    expect(s.continueRecording).toHaveBeenCalledWith('s1');
+    expect(s.start).not.toHaveBeenCalled();
+    expect(continueIntent()).toBeUndefined();
+  });
+
+  test('the ✕ on the badge drops it: Gravar starts a new recording', async () => {
+    repo.getSession.mockReturnValue(final(20));
+    repo.allSessions.mockReturnValue([final(20)]);
+    setContinueIntent('s1');
+    const s = session({});
+    await render(<Setup />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Não continuar' }));
+    expect(screen.queryByText('Continuando · Final')).toBeNull();
+    await fireEvent.press(recordButton());
+    expect(s.start).toHaveBeenCalledWith('quadra');
+    expect(s.continueRecording).not.toHaveBeenCalled();
+  });
+
+  test('the hour ran out while the camera waited: Gravar asks, and only a new recording can start', async () => {
+    const { currentDialog, closeDialog } = jest.requireActual('../../components/dialog');
+    repo.getSession.mockReturnValue(final(61));
+    repo.allSessions.mockReturnValue([final(61)]);
+    setContinueIntent('s1');
+    const s = session({});
+    await render(<Setup />);
+    await fireEvent.press(recordButton());
+    expect(s.continueRecording).not.toHaveBeenCalled();
+    const dialog = currentDialog();
+    expect(dialog).toMatchObject({ title: 'O tempo para continuar acabou', confirm: 'Nova gravação' });
+    await act(async () => {
+      closeDialog();
+      dialog.onConfirm();
+    });
+    expect(s.start).toHaveBeenCalledWith('quadra');
+    expect(continueIntent()).toBeUndefined();
+  });
 });
