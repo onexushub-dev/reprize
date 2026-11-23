@@ -1,50 +1,37 @@
-// Creates a share (a recording or a single clip) and hands out the upload URLs
-// (docs/superpowers/specs/2026-11-16-recording-sharing-design.md, §2 decisions 2, 3 and 12, §5.2, §5.4).
+// Creates a share and hands out the upload URLs: a recording or a single clip
+// (docs/superpowers/specs/2026-11-16-recording-sharing-design.md, §2 decisions 2, 3 and 12, §5.2, §5.4), or a group of
+// 2 to 10 recordings behind one link (docs/superpowers/specs/2026-11-22-multi-recording-share-design.md §4.2).
 //
 // One light request: the link exists at once and the phone uploads the files afterwards, in the background, with the
 // presigned PUT URLs returned here. The URLs last until the share expires (24 hours).
 //
 // Refused when: not signed in (401), not PRO on RevenueCat (403 not_pro), the liability notice of the current version
-// not accepted (403 notice), too many shares in 24 hours (429), a malformed body (400). The PRO check needs
+// not accepted (403 notice), too many links in 24 hours (429), a malformed body (400). The PRO check needs
 // REVENUECAT_SECRET_KEY; without it the function answers 503 pro_check.
 //
 // Files in R2, under shares/<share id>/:
 //   cover.mp4, cover.jpg                    the web preview (HD, no sound, watermark) and its still
 //   clips/<n>/video.mp4                     the original clip file
 //   clips/<n>/thumb.jpg, focus.json, ball.json
+// A group has only its cover under shares/<group id>/; each of its recordings has its clips under its own id.
+//
+// Answers
+//   recording or clip: { shareId, code, url, expiresAt, uploads }
+//   group:             { shareId: <group id>, code, url, expiresAt, cover: uploads, recordings: [{ shareId, uploads }] }
 import { caller, db } from '../_shared/auth.ts';
 import { json, presign } from '../_shared/r2.ts';
 import { proStatus } from '../_shared/revenuecat.ts';
+import { coverUploads, type GroupIn, groupRows, parseGroup, parseShare, type PlannedUpload, plannedUploads, type ShareIn } from '../_shared/shareBody.ts';
+import { sha256Hex } from '../_shared/shares.ts';
 
 const NOTICE_VERSION = 1;
 const LINK_BASE = 'https://reprizeapp.com/v/';
 const LIFETIME_SECONDS = 24 * 60 * 60;
-const MAX_CLIPS = 200;
-const MAX_CLIP_BYTES = 1536 * 1024 * 1024;
-const MAX_EDIT_CHARS = 4096;
+/** Links per account in 24 hours: a group counts once, its recordings do not count. */
 const MAX_SHARES_PER_DAY = 30;
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
-type ClipIn = {
-  position: number;
-  bytes: number;
-  durationMs: number;
-  checksum: string | null;
-  edit: Record<string, unknown>;
-  hasThumb: boolean;
-  hasFocus: boolean;
-  hasBall: boolean;
-};
-type ShareIn = {
-  kind: 'recording' | 'clip';
-  title: string | null;
-  sport: string | null;
-  /** How long the recording ran (ms); null when not sent. */
-  recordedMs: number | null;
-  cover: boolean;
-  clips: ClipIn[];
-};
-type Upload = { key: string; kind: string; position: number | null; url: string; contentType: string };
+type Upload = PlannedUpload & { url: string };
 
 /** 22 base62 characters (about 131 bits), without modulo bias. */
 function newCode(): string {
@@ -58,58 +45,9 @@ function newCode(): string {
   return code;
 }
 
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-function isInt(value: unknown, min: number, max: number): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
-}
-
-function optionalText(value: unknown, max: number): string | null | undefined {
-  if (value === undefined || value === null || value === '') return null;
-  if (typeof value !== 'string') return undefined;
-  const text = value.trim();
-  return text.length <= max ? text : undefined;
-}
-
-/** The body, checked; null when something is off. */
-function parse(body: Record<string, unknown>): ShareIn | null {
-  const kind = body.kind;
-  if (kind !== 'recording' && kind !== 'clip') return null;
-  const title = optionalText(body.title, 80);
-  const sport = optionalText(body.sport, 30);
-  if (title === undefined || sport === undefined) return null;
-  const recordedMs = body.recordedMs === undefined || body.recordedMs === null ? null : body.recordedMs;
-  if (recordedMs !== null && !isInt(recordedMs, 0, 24 * 60 * 60 * 1000)) return null;
-  if (!Array.isArray(body.clips) || body.clips.length < 1 || body.clips.length > MAX_CLIPS) return null;
-  if (kind === 'clip' && body.clips.length !== 1) return null;
-  const clips: ClipIn[] = [];
-  const seen = new Set<number>();
-  for (const raw of body.clips) {
-    if (typeof raw !== 'object' || raw === null) return null;
-    const c = raw as Record<string, unknown>;
-    if (!isInt(c.position, 1, 999) || seen.has(c.position)) return null;
-    seen.add(c.position);
-    if (!isInt(c.bytes, 1, MAX_CLIP_BYTES) || !isInt(c.durationMs, 1, 10 * 60 * 1000)) return null;
-    const checksum = optionalText(c.checksum, 128);
-    if (checksum === undefined) return null;
-    const edit = c.edit === undefined || c.edit === null ? {} : c.edit;
-    if (typeof edit !== 'object' || Array.isArray(edit) || JSON.stringify(edit).length > MAX_EDIT_CHARS) return null;
-    clips.push({
-      position: c.position,
-      bytes: c.bytes,
-      durationMs: c.durationMs,
-      checksum,
-      edit: edit as Record<string, unknown>,
-      hasThumb: c.hasThumb === true,
-      hasFocus: c.hasFocus === true,
-      hasBall: c.hasBall === true,
-    });
-  }
-  clips.sort((a, b) => a.position - b.position);
-  return { kind, title, sport, recordedMs: recordedMs as number | null, cover: body.cover !== false, clips };
+/** Presigning is local work (an HMAC): all of them together. */
+function sign(plan: PlannedUpload[]): Promise<Upload[]> {
+  return Promise.all(plan.map(async (item) => ({ ...item, url: await presign(item.key, 'PUT', LIFETIME_SECONDS) })));
 }
 
 Deno.serve(async (req) => {
@@ -117,13 +55,16 @@ Deno.serve(async (req) => {
   const user = await caller(req);
   if (user === null) return json({ error: 'sign_in' }, 401);
 
-  let input: ShareIn | null = null;
+  let single: ShareIn | null = null;
+  let group: GroupIn | null = null;
   try {
-    input = parse(await req.json());
+    const body = await req.json();
+    if (typeof body === 'object' && body !== null && body.kind === 'group') group = parseGroup(body);
+    else if (typeof body === 'object' && body !== null) single = parseShare(body);
   } catch {
-    input = null;
+    // a body that is not JSON: refused below
   }
-  if (input === null) return json({ error: 'body' }, 400);
+  if (single === null && group === null) return json({ error: 'body' }, 400);
 
   const notice = await db
     .from('notice_acceptances')
@@ -139,6 +80,7 @@ Deno.serve(async (req) => {
     .from('shares')
     .select('id', { count: 'exact', head: true })
     .eq('owner', user.id)
+    .is('group_id', null)
     .gte('created_at', since);
   if (recent.error) return json({ error: 'server' }, 500);
   if ((recent.count || 0) >= MAX_SHARES_PER_DAY) return json({ error: 'too_many' }, 429);
@@ -148,7 +90,13 @@ Deno.serve(async (req) => {
   if (pro === 'free') return json({ error: 'not_pro' }, 403);
 
   const code = newCode();
+  const tokenHash = `\\x${await sha256Hex(code)}`;
   const expiresAt = new Date(Date.now() + LIFETIME_SECONDS * 1000).toISOString();
+
+  if (group !== null) return await createGroup(user.id, group, code, tokenHash, expiresAt);
+  if (single === null) return json({ error: 'body' }, 400);
+  const input = single;
+
   const created = await db
     .from('shares')
     .insert({
@@ -156,7 +104,7 @@ Deno.serve(async (req) => {
       kind: input.kind,
       title: input.title,
       sport: input.sport,
-      token_hash: `\\x${await sha256Hex(code)}`,
+      token_hash: tokenHash,
       clip_count: input.clips.length,
       recorded_ms: input.recordedMs,
       expires_at: expiresAt,
@@ -176,6 +124,7 @@ Deno.serve(async (req) => {
     duration_ms: c.durationMs,
     checksum: c.checksum,
     edit: c.edit,
+    has_thumb: c.hasThumb,
     has_focus: c.hasFocus,
     has_ball: c.hasBall,
   }));
@@ -186,23 +135,38 @@ Deno.serve(async (req) => {
     return json({ error: 'server' }, 500);
   }
 
-  // Order of the queue (§5.4): thumbnails, the cover, then the clips with their framing files.
-  const prefix = `shares/${shareId}`;
-  const plan: Omit<Upload, 'url'>[] = [];
-  for (const c of input.clips) {
-    if (c.hasThumb) plan.push({ key: `${prefix}/clips/${c.position}/thumb.jpg`, kind: 'thumb', position: c.position, contentType: 'image/jpeg' });
-  }
-  if (input.cover) {
-    plan.push({ key: `${prefix}/cover.jpg`, kind: 'coverImage', position: null, contentType: 'image/jpeg' });
-    plan.push({ key: `${prefix}/cover.mp4`, kind: 'cover', position: null, contentType: 'video/mp4' });
-  }
-  for (const c of input.clips) {
-    plan.push({ key: `${prefix}/clips/${c.position}/video.mp4`, kind: 'video', position: c.position, contentType: 'video/mp4' });
-    if (c.hasFocus) plan.push({ key: `${prefix}/clips/${c.position}/focus.json`, kind: 'focus', position: c.position, contentType: 'application/json' });
-    if (c.hasBall) plan.push({ key: `${prefix}/clips/${c.position}/ball.json`, kind: 'ball', position: c.position, contentType: 'application/json' });
-  }
-  const uploads: Upload[] = [];
-  for (const item of plan) uploads.push({ ...item, url: await presign(item.key, 'PUT', LIFETIME_SECONDS) });
-
+  const uploads = await sign(plannedUploads(shareId, input));
   return json({ shareId, code, url: `${LINK_BASE}${code}`, expiresAt, uploads });
 });
+
+/**
+ * A group, its recordings and their clips, in one transaction (`create_share_group`): either the whole link exists or
+ * nothing does. The group's cover is the only cover; each recording uploads under its own id.
+ */
+async function createGroup(owner: string, group: GroupIn, code: string, tokenHash: string, expiresAt: string): Promise<Response> {
+  const created = await db.rpc('create_share_group', {
+    p_owner: owner,
+    p_token_hash: tokenHash,
+    p_expires_at: expiresAt,
+    p_recordings: groupRows(group),
+  });
+  if (created.error) {
+    console.error('create-share group', owner, created.error.message);
+    return json({ error: 'server' }, 500);
+  }
+  const ids = created.data as { group: string; recordings: string[] };
+  if (!ids || typeof ids.group !== 'string' || !Array.isArray(ids.recordings) || ids.recordings.length !== group.recordings.length) {
+    console.error('create-share group answer', owner, JSON.stringify(created.data));
+    return json({ error: 'server' }, 500);
+  }
+  const [cover, recordings] = await Promise.all([
+    sign(coverUploads(ids.group)),
+    Promise.all(
+      group.recordings.map(async (recording, i) => ({
+        shareId: ids.recordings[i],
+        uploads: await sign(plannedUploads(ids.recordings[i], recording)),
+      })),
+    ),
+  ]);
+  return json({ shareId: ids.group, code, url: `${LINK_BASE}${code}`, expiresAt, cover, recordings });
+}
