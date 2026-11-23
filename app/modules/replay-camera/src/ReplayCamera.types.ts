@@ -68,7 +68,16 @@ export type RemotePairing = { url: string; code: string; expiresAt: number; qrPa
 export type RemotePairFailure = 'expired' | 'locked' | 'notFound' | 'wrong' | 'denied' | 'full' | 'used' | 'closed';
 
 /** One file to upload with a presigned PUT URL (sharing design §5.4). */
-export type UploadItem = { id: string; path: string; url: string; contentType?: string; /** Mobile data allowed (default true). */ cellular?: boolean };
+export type UploadItem = {
+  id: string;
+  path: string;
+  url: string;
+  contentType?: string;
+  /** Mobile data allowed (default true). */
+  cellular?: boolean;
+  /** The transfer's priority, 0 to 1 (a hint to iOS); absent: the native order (`TransferOrder`). */
+  priority?: number;
+};
 
 /** A file to download into the app (a received clip or its framing file): a presigned GET URL and where it goes. */
 export type DownloadItem = { id: string; url: string; path: string };
@@ -170,6 +179,8 @@ export type ReplayCameraModuleEvents = {
    * for the phone to cool before starting), 'running', 'framing' (computing the 9:16 camera, almost done).
    */
   onBallProgress: (e: { clipPath: string; done: number; total: number; state: 'cooling' | 'running' | 'framing' }) => void;
+  /** How far an export with an `exportId` is (0..1), a few times a second while it runs (2026-11-23). iOS only. */
+  onExportProgress: (e: { exportId: string; progress: number }) => void;
   /** Jogadores analysis progress: `done` of `total` analysed pictures of the range (kept ones count as done). Android only. */
   onFocusProgress: (e: { clipPath: string; done: number; total: number }) => void;
   /** What the gesture detector saw lately (people, arms up, wave): the practice screen reads `raised`. */
@@ -291,6 +302,8 @@ export type ExportClipOptions = {
   overlayPngPath?: string;
   /** '#RRGGBB' behind the video where the overlay is transparent. */
   background: string;
+  /** Names this export for `onExportProgress` and `cancelExport` (2026-11-23); without it there is neither. */
+  exportId?: string;
 };
 
 export type ExportedClip = { path: string; durationMs: number };

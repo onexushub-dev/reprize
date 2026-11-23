@@ -10,6 +10,9 @@ struct UploadItem: Record {
   @Field var contentType: String = "video/mp4"
   /// Whether the file may go over mobile data ("Enviar pelos dados móveis"); Wi-Fi only when false.
   @Field var cellular: Bool = true
+  /// The transfer's priority (0 to 1, a hint to iOS) when the app sets the order itself, as across the recordings of a
+  /// group link; below 0, the order of `TransferOrder`.
+  @Field var priority: Double = -1
 }
 
 /// Uploads files through the system's background session: the transfer goes on with the app in the background or the
@@ -85,6 +88,7 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
         entry["url"] = item.url
         entry["contentType"] = item.contentType
         entry["cellular"] = item.cellular
+        entry["priority"] = item.priority
         entry["bytes"] = size
         entry["sent"] = 0.0
         entry["attempts"] = 0
@@ -107,7 +111,8 @@ final class BackgroundUploader: NSObject, URLSessionDataDelegate {
     request.allowsCellularAccess = (state().first { $0["id"] as? String == id }?["cellular"] as? Bool) ?? true
     request.setValue(contentType, forHTTPHeaderField: "Content-Type")
     let task = session.uploadTask(with: request, fromFile: URL(fileURLWithPath: path))
-    task.priority = TransferOrder.priority(for: id)
+    let given = (state().first { $0["id"] as? String == id }?["priority"] as? Double) ?? -1
+    task.priority = given >= 0 ? Float(min(1, given)) : TransferOrder.priority(for: id)
     // The file's id plus a token for this transfer: an older transfer of the same file that reports late is ignored.
     let token = UUID().uuidString
     task.taskDescription = id + Self.separator + token

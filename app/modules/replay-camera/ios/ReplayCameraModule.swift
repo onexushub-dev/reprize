@@ -70,6 +70,8 @@ struct ExportClipOptions: Record {
   @Field var height: Int = 1920
   @Field var overlayPngPath: String?
   @Field var background: String = "#0A0A0A"
+  /// Names the export for `onExportProgress` and `cancelExport` (2026-11-23); nil = neither.
+  @Field var exportId: String?
 }
 
 struct AnalyzeFocusOptions: Record {
@@ -163,6 +165,17 @@ private func concatVideosResult(paths: [String], outPath: String) async throws -
   }
 }
 
+private func cutClipResult(inPath: String, outPath: String, startMs: Double, endMs: Double, muted: Bool) async throws
+  -> [String: Any]
+{
+  do {
+    let result = try await ClipCut.cut(inPath: inPath, outPath: outPath, startMs: startMs, endMs: endMs, muted: muted)
+    return ["path": result.path, "durationMs": result.durationMs]
+  } catch {
+    throw ReplayException("CUT_FAILED", "\(error)")
+  }
+}
+
 public class ReplayCameraModule: Module {
   private var engine: ReplayEngine { ReplayEngine.shared }
 
@@ -173,7 +186,8 @@ public class ReplayCameraModule: Module {
            "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteStop",
            "onRemoteStart", "onRemoteFrame", "onRemoteCheck", "onRemoteVoice", "onCaptureButton", "onAudioChange",
            "onDiag", // onDiag: TEMP(diag-remote)
-           "onBallProgress", "onUploadProgress", "onUploadDone", "onUploadRetry", "onDownloadDone", "onDownloadRetry")
+           "onBallProgress", "onUploadProgress", "onUploadDone", "onUploadRetry", "onDownloadDone", "onDownloadRetry",
+           "onExportProgress")
 
     OnCreate {
       self.engine.emit = { [weak self] name, body in self?.sendEvent(name, body) }
@@ -181,6 +195,9 @@ public class ReplayCameraModule: Module {
       RemoteHost.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
       RemoteController.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
       RemoteVoice.shared.emit = { [weak self] name, body in self?.sendEvent(name, body) }
+      ClipExporter.onProgress = { [weak self] exportId, progress in
+        self?.sendEvent("onExportProgress", ["exportId": exportId, "progress": progress])
+      }
       BallAnalyzer.emit = { [weak self] clipPath, done, total, state in
         self?.sendEvent("onBallProgress", ["clipPath": clipPath, "done": done, "total": total, "state": state])
       }
@@ -320,8 +337,11 @@ public class ReplayCameraModule: Module {
           crop: o.crop.map { CGRect(x: $0.x, y: $0.y, width: $0.width, height: $0.height) },
           width: o.width, height: o.height, overlayPngPath: o.overlayPngPath, background: UIColor(hex: o.background))
         options.focus = o.focus.map { (path: $0.path, aspect: $0.aspect, fill: $0.fill) }
+        options.exportId = o.exportId
         let result = try await ClipExporter.export(options)
         return ["path": result.path, "durationMs": result.durationMs]
+      } catch ClipExporter.Failure.cancelled {
+        throw ReplayException("CANCELLED", "export cancelled")
       } catch {
         throw ReplayException("ENCODER_FAILED", "\(error)")
       }
@@ -337,6 +357,20 @@ public class ReplayCameraModule: Module {
 
     AsyncFunction("concatVideos") { (paths: [String], outPath: String) async throws -> [String: Any] in
       try await concatVideosResult(paths: paths, outPath: outPath)
+    }
+
+    // Sharing (2026-11-22): the sender's cut and silence in the file, passthrough only (never re-encoded).
+    AsyncFunction("cutClip") { (inPath: String, outPath: String, startMs: Double, endMs: Double, muted: Bool) async throws -> [String: Any] in
+      try await cutClipResult(inPath: inPath, outPath: outPath, startMs: startMs, endMs: endMs, muted: muted)
+    }
+
+    // Extra time after the app leaves the front (the shared clips' cuts, 2026-11-22).
+    AsyncFunction("beginBackgroundWork") { (name: String) async -> Int in
+      await BackgroundWork.begin(name: name)
+    }
+
+    AsyncFunction("endBackgroundWork") { (key: Int) async in
+      await BackgroundWork.end(key: key)
     }
 
     AsyncFunction("createThumbnail") { (clipPath: String, atMs: Double) async throws -> String in
@@ -371,6 +405,7 @@ public class ReplayCameraModule: Module {
     }
 
     Function("cancelBall") { (clipPath: String) in BallAnalyzer.cancel(clipPath: clipPath) }
+    Function("cancelExport") { (exportId: String) in ClipExporter.cancel(exportId) }
 
     AsyncFunction("classifySport") { (clipPath: String, startMs: Double, endMs: Double) async -> [String: Double] in
       await SportCheck.classify(clipPath: clipPath, startMs: startMs, endMs: endMs)

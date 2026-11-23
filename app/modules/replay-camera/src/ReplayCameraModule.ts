@@ -82,6 +82,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   // Seguir a Bola (missing in older builds).
   analyzeBall?(opts: AnalyzeBallOptions): Promise<BallAnalysis>;
   cancelBall?(clipPath: string): void;
+  /** Stops a running export by its `exportId` (2026-11-23). Absent on older builds. */
+  cancelExport?(exportId: string): void;
   probeBall?(): Promise<number>;
   /** TEMP(lab-android): Modo Foco's evaluation on an Android phone ('run' | 'reference'); the summary line. */
   labEvalAndroid?(which: string): Promise<string>;
@@ -122,6 +124,11 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   shareFiles(paths: string[]): Promise<'shared' | 'dismissed'>;
   /** Joins exports of the same size and codec into one video without re-encoding. */
   concatVideos(paths: string[], outPath: string): Promise<{ path: string; durationMs: number }>;
+  /** iOS: asks for the extra time an app leaving the front may keep (about 30 s); a key for `endBackgroundWork`. */
+  beginBackgroundWork?(name: string): Promise<number>;
+  endBackgroundWork?(key: number): Promise<void>;
+  /** iOS: the part of a clip, passthrough (no re-encode), without sound when `muted`. Absent on other platforms. */
+  cutClip?(inPath: string, outPath: string, startMs: number, endMs: number, muted: boolean): Promise<{ path: string; durationMs: number }>;
   // Background upload (iOS only: missing on Android and in older builds).
   uploadStart?(items: UploadItem[]): void;
   uploadState?(): UploadEntry[];

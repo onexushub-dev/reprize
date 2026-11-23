@@ -240,6 +240,15 @@ export function exportClip(opts: ExportClipOptions): Promise<ExportedClip> {
   return ReplayCameraModule.exportClip(opts);
 }
 
+/**
+ * Stops the export started with this `exportId` at once (2026-11-23): it rejects with `CANCELLED` and leaves no file.
+ * Its progress arrives as `onExportProgress`. Nothing happens on a build without it.
+ */
+export function cancelExport(exportId: string): void {
+  const cancel = ReplayCameraModule.cancelExport;
+  if (typeof cancel === 'function') cancel.call(ReplayCameraModule, exportId);
+}
+
 // ---- Modo Foco (iOS and Android). Without the native functions there is no analysis.
 
 /** Whether this phone records `quality` (4K needs a camera that has it); Full HD always. */
@@ -321,6 +330,39 @@ export function shareFiles(paths: string[]): Promise<'shared' | 'dismissed'> {
 }
 
 /** Joins exported videos of the same size and codec, in order, into `outPath` without re-encoding. */
+/**
+ * Runs `work` with the extra time iOS gives an app that leaves the front with work in hand (about 30 s): the work goes
+ * on while the person is already in another app. Elsewhere it simply runs.
+ */
+export async function withBackgroundTime<T>(name: string, work: () => Promise<T>): Promise<T> {
+  let key: number | undefined;
+  try {
+    if (ReplayCameraModule.beginBackgroundWork) key = await ReplayCameraModule.beginBackgroundWork(name);
+  } catch {
+    key = undefined;
+  }
+  try {
+    return await work();
+  } finally {
+    if (key !== undefined && ReplayCameraModule.endBackgroundWork) void ReplayCameraModule.endBackgroundWork(key).catch(() => {});
+  }
+}
+
+/**
+ * The part of a clip to share (the sender's cut, and no sound track when muted), copied without re-encoding. Undefined
+ * where the platform cannot (Android: sharing is iOS only for now).
+ */
+export function cutClip(
+  inPath: string,
+  outPath: string,
+  startMs: number,
+  endMs: number,
+  muted: boolean,
+): Promise<ExportedClip> | undefined {
+  if (!ReplayCameraModule.cutClip) return undefined;
+  return ReplayCameraModule.cutClip(inPath, outPath, startMs, endMs, muted);
+}
+
 export function concatVideos(paths: string[], outPath: string): Promise<ExportedClip> {
   return ReplayCameraModule.concatVideos(paths, outPath);
 }
