@@ -107,7 +107,7 @@ Nas gravações recebidas, em qualquer plano, o vídeo não aparece em print nem
 
 ## Códigos de indicação
 
-Parceiros (professores, donos de quadra) compartilham um link ou código que dá **o primeiro ano do PRO anual por R$ 83,90** a quem chega por ele; a receita e as assinaturas são atribuídas ao parceiro. O desconto não vale para quem já tem PRO nem para o mensal, não se soma ao teste grátis e não toca no Passe Avulso. No iPhone o desconto é um offer code da Apple; no Android é a oferta `partner` do RevenueCat. Rotina, relatórios e configuração: `docs/parceiros.md`; desenho: `docs/superpowers/specs/2026-11-15-partner-codes-design.md`.
+Parceiros (professores, donos de quadra) compartilham um link ou código ligado a uma **faixa de preço** (10%, 20% ou 30% no início), com desconto no **primeiro período** do PRO mensal e anual; depois a assinatura renova no preço normal. As assinaturas são atribuídas ao parceiro, e a comissão é apurada por mês sobre assinantes ativos e pagantes. O desconto não vale para quem já tem PRO, não se soma ao teste grátis e não toca no Passe Avulso. No iPhone o desconto é um offer code da Apple; no Android é a oferta `partner_<faixa>` do RevenueCat. Rotina, relatórios e configuração: `docs/parceiros.md`; desenho: `docs/superpowers/specs/2026-11-15-partner-codes-design.md`.
 
 ## Como o app decide
 
