@@ -1,17 +1,18 @@
 import { act, renderHook } from '@testing-library/react-native';
 
-import { usePlan } from '../entitlement';
+import { exportTierOf, useMarkExempt, usePlan } from '../entitlement';
 
 const mockStore = {
   v: 0,
   decision: null as null | { kind: string },
   plan: 'free' as 'free' | 'paid',
+  snapshot: { proActive: false, passTransactions: [] } as { proActive: boolean; passTransactions: never[]; proSince?: number },
   listeners: new Set<() => void>(),
 };
 
 const mockRepo = {
   v: 0,
-  sessions: {} as Record<string, { paid?: boolean; passTransactionId?: string }>,
+  sessions: {} as Record<string, { paid?: boolean; passTransactionId?: string; startedAt?: number }>,
   listeners: new Set<() => void>(),
 };
 
@@ -22,6 +23,7 @@ jest.mock('../../payments', () => ({
       return () => mockStore.listeners.delete(l);
     },
     version: () => mockStore.v,
+    getSnapshot: () => mockStore.snapshot,
     nextPlan: jest.fn(() =>
       mockStore.decision ? jest.requireActual('../../payments/rules').planOf(mockStore.decision) : mockStore.plan,
     ),
@@ -42,6 +44,7 @@ jest.mock('../../data/mmkv', () => ({
 beforeEach(() => {
   mockStore.plan = 'free';
   mockStore.decision = null;
+  mockStore.snapshot = { proActive: false, passTransactions: [] };
   mockRepo.sessions = { s1: { paid: true }, s2: { paid: false }, old: { passTransactionId: 'tx' } };
 });
 
@@ -82,4 +85,26 @@ test('re-renders when the repo notifies (a credit spent)', async () => {
     mockRepo.listeners.forEach((l) => l());
   });
   expect(result.current).toBe('free');
+});
+
+test('exportTierOf: a received recording without Pro is a courtesy; a paid export under the old rule is legacy', () => {
+  expect(exportTierOf('free', undefined)).toBe('free');
+  expect(exportTierOf('paid', undefined)).toBe('paid');
+  expect(exportTierOf('paid', undefined, true)).toBe('legacy');
+  // The old rule never frees a free export of its mark.
+  expect(exportTierOf('free', undefined, true)).toBe('free');
+  expect(exportTierOf('free', 'courtesy', true)).toBe('courtesy');
+  expect(exportTierOf('free', 'locked')).toBe('courtesy');
+  expect(exportTierOf('paid', 'pro', true)).toBe('legacy');
+});
+
+test('useMarkExempt: an active Pro bought before the rule; a paid recording made before it', async () => {
+  mockRepo.sessions = { early: { paid: true, startedAt: 0 }, late: { paid: true, startedAt: Date.parse('2030-01-01T00:00:00Z') } };
+  expect((await renderHook(() => useMarkExempt('early'))).result.current).toBe(true);
+  expect((await renderHook(() => useMarkExempt('late'))).result.current).toBe(false);
+  mockStore.snapshot = { proActive: true, passTransactions: [], proSince: 0 };
+  expect((await renderHook(() => useMarkExempt('late'))).result.current).toBe(true);
+  expect((await renderHook(() => useMarkExempt(undefined))).result.current).toBe(true);
+  mockStore.snapshot = { proActive: true, passTransactions: [], proSince: Date.parse('2030-01-01T00:00:00Z') };
+  expect((await renderHook(() => useMarkExempt(undefined))).result.current).toBe(false);
 });

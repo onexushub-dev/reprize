@@ -27,22 +27,24 @@ export type ExportOptions = {
 /**
  * Legacy tier names still accepted until the export takes only a `Plan`. `courtesy`: a received recording exported by
  * someone without Pro (a courtesy spent on it): the paid export capped at Full HD, with the app mark (sharing §2.9).
+ * `legacy`: a paid export that keeps the rule of its day, without the app mark (`payments/watermarkRule.ts`).
  */
-export type ExportTier = Plan | 'pass' | 'pro' | 'courtesy';
+export type ExportTier = Plan | 'pass' | 'pro' | 'courtesy' | 'legacy';
 type Tier = ExportTier;
 
 /**
  * Free: HD (720x1280), no sound (the clip may have it: it is locked here, so a recording already made can be unlocked
  * later), no Modo Foco, and the app mark; the chosen speed goes in. Paid (a paid plan, pass, pro): Full HD (or 2K/4K for
- * a 4K clip), its sound, any speed, Modo Foco, no app mark. A landscape clip gets the same frame turned on its side, so it
+ * a 4K clip), its sound, any speed, Modo Foco, and the app mark too (`legacy` leaves without it). A landscape clip gets the same frame turned on its side, so it
  * fills the screen when the phone is held sideways, like any video in Photos. Any speed other than 1x plays without
  * sound. Modo Foco applies when on, ready, not turned and not zoomed by hand.
  */
 /**
- * true: every clip carries the Reprize mark, on every plan. false (the rule since 2026-10-27): only free recordings
- * carry it, Pro and the Single Pass never do.
+ * true (the rule since 2026-11-23): every clip carries the Reprize mark, on every plan, except a `legacy` export (what
+ * was bought or recorded before the rule, `payments/watermarkRule.ts`). false (the rule from 2026-10-27): only free
+ * recordings and courtesies carry it.
  */
-export const WATERMARK_ON_EVERY_PLAN = false as boolean;
+export const WATERMARK_ON_EVERY_PLAN = true as boolean;
 
 export function exportOptions(
   tier: Tier,
@@ -78,7 +80,7 @@ export function exportOptions(
     crop: zoom && zoom.scale > 1 ? cropRect(zoom) : undefined,
     rotation,
     // The mark follows the plan as it is, also during the field test: it is the release look, not a locked feature.
-    watermark: WATERMARK_ON_EVERY_PLAN || tier === 'free' || tier === 'courtesy',
+    watermark: tier === 'free' || tier === 'courtesy' || (WATERMARK_ON_EVERY_PLAN && tier !== 'legacy'),
     ...(follow ? { focus: { path: focus.path, aspect: landscape ? ('landscape' as const) : ('portrait' as const) } } : {}),
     ...(ballOn && ball ? { focus: { path: ball.path, aspect: 'portrait' as const, fill: true } } : {}),
   };

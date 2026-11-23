@@ -428,7 +428,7 @@ test('deleting asks first, then removes the file and the clip', async () => {
   expect(router.back).not.toHaveBeenCalled();
 });
 
-test('Compartilhar exports with the cut, speed and zoom, without the app mark on a paid recording, then opens the share sheet', async () => {
+test('Compartilhar exports with the cut, speed and zoom, without the app mark on a paid recording from before the mark rule, then opens the share sheet', async () => {
   const zoom = { scale: 2, cx: 0.25, cy: 0.75 };
   __setClip({ ...base, edit: { speed: 2, muted: false, zoom } });
   await open();
@@ -962,8 +962,8 @@ describe('Modo Foco', () => {
       expect(camera.exportClip).not.toHaveBeenCalled();
       expect(screen.getByText('Salve seus clipes com qualidade PRO')).toBeTruthy();
       expect(screen.getByText('Seu clipe tem som e Modo Foco')).toBeTruthy();
-      expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD, Com marca d’água')).toBeTruthy();
-      expect(screen.getByLabelText('PRO: Com som, Com Modo Foco, Full HD, Sem marca d’água')).toBeTruthy();
+      expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD')).toBeTruthy();
+      expect(screen.getByLabelText('PRO: Com som, Com Modo Foco, Full HD')).toBeTruthy();
     });
 
     test('"Continuar no plano grátis" exports HD at the chosen speed with the mark, no sound and no framing', async () => {
@@ -1007,7 +1007,7 @@ describe('Modo Foco', () => {
       await open();
       await pressAction('Salvar na galeria');
       expect(screen.getByText('Seu clipe tem som')).toBeTruthy();
-      expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD, Com marca d’água')).toBeTruthy();
+      expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD')).toBeTruthy();
     });
   });
 

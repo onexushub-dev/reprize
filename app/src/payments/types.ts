@@ -1,6 +1,15 @@
 export type PassTransaction = { id: string; productId: string; purchasedAt: number };
 
-export type Snapshot = { proActive: boolean; passTransactions: PassTransaction[] };
+export type Snapshot = {
+  proActive: boolean;
+  passTransactions: PassTransaction[];
+  /**
+   * When the active Pro was first bought (RevenueCat's original purchase date of the entitlement, kept across renewals),
+   * in ms. Decides whether the subscription keeps the rule of its day for the app mark (`payments/watermarkRule.ts`).
+   * Absent when Pro is not active or the store did not say.
+   */
+  proSince?: number;
+};
 
 export const EMPTY_SNAPSHOT: Snapshot = { proActive: false, passTransactions: [] };
 

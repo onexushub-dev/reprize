@@ -59,6 +59,7 @@ import { useCourtesyGate } from "../../components/useCourtesyGate";
 import { useFreeExportGate } from "../../components/useFreeExportGate";
 import {
   exportTierOf,
+  useMarkExempt,
   useProActive,
   useReceivedAccess,
   useViewPlan,
@@ -94,6 +95,8 @@ export default function SessionSummary() {
   const plan = useViewPlan(id);
   // A received recording (sharing §2.8–10): Pro as one's own, else Full HD with the mark after a courtesy.
   const access = useReceivedAccess(id);
+  // Paid exports carry the app mark too, unless what paid for them predates that rule (payments/watermarkRule.ts).
+  const noMark = useMarkExempt(id);
   // Sharing follows the subscription, not the recording: a Single Pass does not share (sharing design, decision 2).
   const shareAllowed = canShare(useProActive() ? "paid" : "free");
   // The clock for the link's time left, read again every minute.
@@ -205,7 +208,7 @@ export default function SessionSummary() {
   );
   const batch = useBatchActions({
     plan,
-    tier: exportTierOf(plan, access),
+    tier: exportTierOf(plan, access, noMark),
     labelOf: (c) =>
       c.name
         ? c.name

@@ -280,7 +280,7 @@ describe('free recording', () => {
     setup('free');
     await render(<SessionSummary />);
     expect(screen.getByText('Seus clipes com qualidade PRO')).toBeTruthy();
-    expect(screen.getByText('Full HD, som, Modo Foco e sem marca d’água.')).toBeTruthy();
+    expect(screen.getByText('Full HD, som e Modo Foco.')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: /^Seus clipes com qualidade PRO/ }));
     expect(screen.getByText('Libere a qualidade PRO nesta gravação')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Assinar o PRO' })).toBeTruthy();
