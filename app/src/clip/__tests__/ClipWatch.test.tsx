@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
+import { colors } from '../../theme/tokens';
 import { ClipWatch } from '../ClipWatch';
+
+/** react-native-svg stores a colour as an ARGB number: '#FF5A36' → 0xFFFF5A36. */
+const argb = (hex: string) => (0xff000000 + parseInt(hex.slice(1), 16)) >>> 0;
 
 function props(over: object = {}) {
   return {
@@ -44,6 +48,14 @@ test('watching shows the video, the name, delete, and Editar · Salvar · Enviar
   expect(p.onDelete).toHaveBeenCalled();
   expect(p.onBack).toHaveBeenCalled();
   expect(screen.queryByRole('tab')).toBeNull();
+});
+
+test('the delete button is white like the others around the video, not red (2026-11-22)', async () => {
+  const view = await render(<ClipWatch {...props()} />);
+  expect(screen.getByRole('button', { name: 'Apagar clipe' })).toBeTruthy();
+  const tree = JSON.stringify(view.toJSON());
+  expect(tree).not.toContain(`"stroke":{"type":0,"payload":${argb(colors.rec)}}`);
+  expect(tree).toContain(`"stroke":{"type":0,"payload":${argb(colors.text)}}`);
 });
 
 test('the Modo Foco tag says on or preparing, and opens it', async () => {

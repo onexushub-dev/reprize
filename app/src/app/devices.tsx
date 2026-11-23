@@ -18,6 +18,7 @@ import { useRemoteTest } from '../devices/useRemoteTest';
 import { useReduceMotion } from '../components/useReduceMotion';
 import { useT } from '../i18n/useT';
 import { colors, fonts, footer, radius } from '../theme/tokens';
+import { GlassButton } from '../components/GlassButton';
 
 /** After this long without a press the sheet adds what to check. */
 const WAITED_LONG_MS = 15_000;
@@ -233,14 +234,14 @@ export default function Devices() {
               <RemoteIcon color={colors.accent} size={28} />
               <Text style={styles.title}>{t('setup.bluetoothRemote')}</Text>
               {/* The ✕ of the camera's panels (2026-11-22): the same grey circle, top right. */}
-              <Pressable
+              <GlassButton
                 accessibilityRole="button"
                 accessibilityLabel={t('common.close')}
                 hitSlop={10}
                 onPress={() => router.back()}
                 style={styles.close}>
                 <CloseIcon size={16} color="#D8D8D8" />
-              </Pressable>
+              </GlassButton>
             </View>
 
             {adding ? renderAdding() : listed ? renderList() : renderFirst()}
@@ -341,7 +342,7 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: footer.side, paddingTop: 12, gap: 16 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   title: { flex: 1, fontFamily: fonts.display, fontSize: 32, lineHeight: 34, color: colors.text },
-  close: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#3A3A3A', alignItems: 'center', justifyContent: 'center' },
+  close: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   section: { fontFamily: fonts.bodyBold, fontSize: 13, letterSpacing: 0.6, color: colors.muted, textTransform: 'uppercase' },
   card: { backgroundColor: colors.ground, borderRadius: radius.card, overflow: 'hidden' },
   remote: { flexDirection: 'row', alignItems: 'center', paddingLeft: 14, paddingRight: 6, paddingVertical: 10, gap: 8 },

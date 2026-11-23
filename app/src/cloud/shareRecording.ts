@@ -1,14 +1,16 @@
 import { countBucket } from '../analytics/session';
 import { track } from '../analytics';
+import { clipNumber } from '../components/format';
 import { files, repo } from '../data/mmkv';
 import type { SessionShare } from '../data/schema';
-import { recordingShareInput, uploadItems } from './shareInput';
+import { sharePrep } from './appSharePrep';
+import { prepJobs, recordingShareInput, uploadItems } from './shareInput';
 import { createShare, type ShareRefusal, turnOffShare } from './shares';
 import { uploadQueue } from './appUploadQueue';
-import { plannedShares, saveUploadPlan } from './uploadPlan';
+import { plannedShares, saveUploadPlan, setPrepJobs } from './uploadPlan';
 
 /** A link still shown again instead of making a new one: it has at least this long left. */
-const REUSE_MARGIN_MS = 5 * 60 * 1000;
+export const REUSE_MARGIN_MS = 5 * 60 * 1000;
 
 export type ShareRecordingResult = { ok: true; shared: SessionShare } | { ok: false; reason: ShareRefusal };
 
@@ -20,7 +22,7 @@ export function liveShare(sessionId: string, now: number = Date.now()): SessionS
   return shared;
 }
 
-function waitBucket(ms: number): '<2s' | '2-5s' | '5-10s' | '>10s' {
+export function waitBucket(ms: number): '<2s' | '2-5s' | '5-10s' | '>10s' {
   if (ms < 2000) return '<2s';
   if (ms < 5000) return '2-5s';
   if (ms <= 10000) return '5-10s';
@@ -31,11 +33,21 @@ function waitBucket(ms: number): '<2s' | '2-5s' | '5-10s' | '>10s' {
  * Makes the recording's link (sharing design §3.1): one request, then the link is stored on the recording and its
  * uploads are kept for the queue. A live link is returned as it is. The notice must have been accepted before.
  */
-export async function shareRecording(sessionId: string, now: () => number = Date.now): Promise<ShareRecordingResult> {
+export async function shareRecording(
+  sessionId: string,
+  now: () => number = Date.now,
+  /** Only these clips (picked-clips link, 2026-11-23); absent = the whole recording. */
+  clipIds?: readonly string[],
+): Promise<ShareRecordingResult> {
   const live = liveShare(sessionId, now());
   if (live !== undefined) return { ok: true, shared: live };
   const session = repo.getSession(sessionId);
-  const clips = repo.listClips(sessionId);
+  const all = repo.listClips(sessionId);
+  // Picked clips keep the number they show in the recording, not their place in the pick.
+  const clips =
+    clipIds === undefined
+      ? all
+      : all.flatMap((clip, index) => (clipIds.includes(clip.id) ? [{ ...clip, number: clipNumber(clip, index) }] : []));
   if (session === undefined || session.endedAt === undefined || clips.length === 0) return { ok: false, reason: 'failed' };
 
   const { input, local } = recordingShareInput(session, clips, files, repo.sessionStats(sessionId).recordedMs);
@@ -54,13 +66,17 @@ export async function shareRecording(sessionId: string, now: () => number = Date
     expiresAt: Date.parse(share.expiresAt),
     clips: clips.length,
     state: 'active',
+    ...(clipIds === undefined ? {} : { clipIds: clips.map((c) => c.id) }),
   };
   saveUploadPlan(share.shareId, { expiresAt: shared.expiresAt, items: uploadItems(share, local) });
+  setPrepJobs(share.shareId, prepJobs(share, local));
   repo.setShared(sessionId, shared);
   // A new link always starts sending: a "Pausar envio" left from before does not hold it.
   uploadQueue.setManualPause(false);
   uploadQueue.sync();
-  track('share_created', { clips: countBucket(clips.length), wait: waitBucket(waitMs) });
+  // The cuts and framing files, made right away, each upload starting as its file is ready.
+  void sharePrep.run();
+  track('share_created', { clips: countBucket(clips.length), wait: waitBucket(waitMs), recordings: '1', picked: clipIds === undefined ? 'no' : 'yes' });
   return { ok: true, shared };
 }
 
@@ -90,7 +106,8 @@ export async function clearAllShares(): Promise<number> {
     const shared = session.shared;
     if (shared === undefined) continue;
     count += 1;
-    if (shared.state === 'active' && shared.expiresAt > Date.now()) await turnOffShare(shared.shareId);
+    // A group's recording is turned off with its group (`clearAllGroups`); the server refuses it alone.
+    if (shared.groupId === undefined && shared.state === 'active' && shared.expiresAt > Date.now()) await turnOffShare(shared.shareId);
     uploadQueue.forget(shared.shareId);
     repo.setShared(session.id, undefined);
   }

@@ -1,6 +1,7 @@
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { router, useIsFocused } from "expo-router";
 import {
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -42,7 +43,9 @@ import {
 import type { RemotePeer, ReplayErrorCode } from "../../modules/replay-camera/src/ReplayCamera.types";
 import { useCameraPinch } from "../camera/useCameraPinch";
 import { useLandscapeTurn } from "../camera/useDeviceLandscape";
-import { CameraBar, type CameraPanel, type TriggerKey } from "../components/CameraBar";
+import { BAR_GAP, CameraBar, type CameraPanel, type TourTargets, type TriggerKey } from "../components/CameraBar";
+import { CameraTour, type TourStep } from "../components/CameraTour";
+import { cameraTourSeen, finishCameraTour } from "../onboarding/cameraTour";
 import { PhoneRemotePanel } from "../components/PhoneRemotePanel";
 import { PrepareSheet } from "../components/PrepareSheet";
 import { modeTip } from "../components/format";
@@ -313,10 +316,14 @@ export default function Setup() {
   // Coming back to this screen, read the remote again (adjusting state during render, not in an effect): it may have
   // been paired or forgotten on the remote screen, and the status events of a remote that connected meanwhile were not
   // heard.
+  // The first-time tour (2026-11-22, model A): read again on coming back, as Ajustes > Tutorial turns it back on.
+  const [tourSeen, setTourSeen] = useState(cameraTourSeen);
+  const [tourTargets, setTourTargets] = useState<TourTargets | undefined>(undefined);
   const [remoteReadFocused, setRemoteReadFocused] = useState(focused);
   if (remoteReadFocused !== focused) {
     setRemoteReadFocused(focused);
     if (focused) {
+      setTourSeen(cameraTourSeen());
       if (controllerSupported) setControlHost(remoteControllerHost());
       if (remoteSupported) setRemoteLinked(remoteHostControllers());
     }
@@ -584,8 +591,12 @@ export default function Setup() {
         spin={spinDeg}
         turned={landscape}
         reversed={landscape && turn === 90}
+        onTargets={tourSeen ? undefined : (next) => setTourTargets((prev) => (sameTargets(prev, next) ? prev : next))}
       />
     );
+    // The tour waits for a quiet camera, upright: nothing open, nothing loading, no note over the camera.
+    const showTour =
+      !tourSeen && !landscape && focused && phase === "idle" && panel === undefined && message === null && !waiting && !preparing;
     // A tap on the camera around an open panel closes it.
     const backdrop =
       panel === undefined ? null : (
@@ -663,7 +674,7 @@ export default function Setup() {
             {panel === undefined ? null : (
               <View
                 pointerEvents="box-none"
-                style={[styles.landscapePanel, { [columnSide]: barHeight + 10, [notchSide]: LANDSCAPE_NOTCH }]}
+                style={[styles.landscapePanel, { [columnSide]: barHeight + BAR_GAP, [notchSide]: LANDSCAPE_NOTCH }]}
               >
                 {renderPanel()}
               </View>
@@ -683,15 +694,47 @@ export default function Setup() {
         {/* The same bar either way (2026-11-22): on its side it stays where it is on the phone and only its contents
             turn, so nothing moves or flashes when the phone turns. */}
         {bar}
+        {showTour && tourTargets !== undefined ? (
+          <CameraTour
+            steps={tourSteps(tourTargets)}
+            onDone={() => {
+              finishCameraTour();
+              setTourSeen(true);
+            }}
+          />
+        ) : null}
       </>
     );
+  }
+
+  /** The tour's four tips, on the controls as they are now (the clip length chosen, the quality this phone has). */
+  function tourSteps(targets: TourTargets): TourStep[] {
+    const quality = !has4k ? "cameraTour.qualityBodyFixed" : fourKAllowed ? "cameraTour.qualityBodyPaid" : "cameraTour.qualityBody";
+    const chip = (icon: (color: string) => ReactNode, label: string) => ({ label, icon: icon(colors.text) });
+    return [
+      { key: "clip", target: targets.clip, title: t("cameraTour.clipTitle"), body: t("cameraTour.clipBody") },
+      { key: "quality", target: targets.quality, title: t("cameraTour.qualityTitle"), body: t(quality) },
+      {
+        key: "triggers",
+        target: targets.triggers,
+        title: t("cameraTour.triggersTitle"),
+        body: t("cameraTour.triggersBody"),
+        chips: [
+          chip((color) => <RemoteIcon size={15} color={color} />, t("setup.remoteShort")),
+          chip((color) => <WaveIcon size={15} color={color} />, t("setup.waveShort")),
+          chip((color) => <MicIcon size={15} color={color} />, sourceLabel("voice", locale)),
+        ],
+      },
+      { key: "record", target: targets.record, round: true, title: t("cameraTour.recordTitle"), body: t("cameraTour.recordBody") },
+    ];
   }
 
   /** The panel open over the camera: upright just above the bar's buttons; on its side beside the column, centred. */
   function renderPanel() {
     const place = landscape
       ? { maxHeight: screen.width - 16 }
-      : { position: "absolute" as const, left: 8, right: 8, bottom: barHeight + 8, maxHeight: Math.max(260, screen.height - barHeight - 70) };
+      : // Above the settings by the same distance as the settings sit above the black (2026-11-22).
+        { position: "absolute" as const, left: 8, right: 8, bottom: barHeight + BAR_GAP, maxHeight: Math.max(260, screen.height - barHeight - 70) };
     // A sideways swipe on a panel goes through the settings in their order (2026-11-22); no quality without 4K.
     const order: CameraPanel[] = has4k ? ["clip", "quality", "triggers"] : ["clip", "triggers"];
     const swipeTo = (to: "next" | "previous") => {
@@ -909,6 +952,14 @@ export default function Setup() {
     openingRemoteSheet(); // the camera stays on under the sheet (presses are heard through it)
     router.push({ pathname: "/devices", params: { kind: "remote" } });
   }
+}
+
+/** The tour's targets moved (a layout pass measures them again and again: only a real change re-renders). */
+function sameTargets(a: TourTargets | undefined, b: TourTargets): boolean {
+  if (a === undefined) return false;
+  return (["clip", "quality", "triggers", "record"] as const).every(
+    (k) => Math.round(a[k].x) === Math.round(b[k].x) && Math.round(a[k].y) === Math.round(b[k].y) && Math.round(a[k].width) === Math.round(b[k].width),
+  );
 }
 
 /** On its side: room left on the notch's side (landscape points). */

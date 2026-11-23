@@ -1,7 +1,7 @@
 import type { UploadEntry, UploadItem } from '../../../modules/replay-camera/src/ReplayCamera.types';
 import type { ConfirmResult } from '../shares';
 import type { UploadPlan } from '../uploadPlan';
-import { createUploadQueue, videoOf } from '../uploadQueue';
+import { createUploadQueue, groupPriority, groupProgress, type ShareProgress, videoOf } from '../uploadQueue';
 
 const item = (key: string): UploadItem => ({ id: `shares/sh/${key}`, path: `/local/${key}`, url: `u/${key}`, contentType: 'x' });
 const PLAN: UploadPlan = {
@@ -116,7 +116,8 @@ test('a finished clip is confirmed with the server and counted', async () => {
   finish('clips/1/video.mp4', 'done');
   queue.handleDone({ id: 'shares/sh/clips/1/video.mp4', ok: true });
   await flush();
-  expect(confirm).toHaveBeenCalledWith('sh', [1]);
+  // With the size actually sent (a cut is smaller than announced: the server takes it).
+  expect(confirm).toHaveBeenCalledWith('sh', [1], [100]);
   expect(confirmed()).toEqual([1]);
   expect(queue.progress('sh')).toMatchObject({ state: 'uploading', done: 1, total: 2 });
 });
@@ -198,7 +199,7 @@ test('a clip that finishes while another is being confirmed is confirmed right a
   await flush();
   await flush();
   expect(confirm).toHaveBeenCalledTimes(2);
-  expect(confirm).toHaveBeenLastCalledWith('sh', [2]);
+  expect(confirm).toHaveBeenLastCalledWith('sh', [2], [100]);
 });
 
 test('a file not made yet (the cover while it exports) waits, and starts once its path is set', () => {
@@ -237,4 +238,70 @@ test('a pause left on the last share that was turned off does not hold the next 
   expect(paused()).toBe(false);
   expect(queue.held()).toBe(false);
   expect(native.resume).toHaveBeenCalled();
+});
+
+describe('group links (multi-recording share design §5.3)', () => {
+  const in3 = (position: number) => ({ id: 'g', position, count: 3 });
+  const of = (share: string, file: string) => `shares/${share}/${file}`;
+
+  test('the order: cover still, every first still, cover video, then recording by recording, each still before its video', () => {
+    const files: [string, number][] = [
+      [of('g', 'cover.jpg'), 0],
+      [of('r1', 'clips/1/thumb.jpg'), 1],
+      [of('r2', 'clips/1/thumb.jpg'), 2],
+      [of('r3', 'clips/1/thumb.jpg'), 3],
+      [of('g', 'cover.mp4'), 0],
+      [of('r1', 'clips/1/video.mp4'), 1],
+      [of('r1', 'clips/1/focus.json'), 1],
+      [of('r1', 'clips/2/thumb.jpg'), 1],
+      [of('r1', 'clips/2/video.mp4'), 1],
+      [of('r1', 'clips/200/video.mp4'), 1],
+      [of('r2', 'clips/1/video.mp4'), 2],
+      [of('r2', 'clips/2/thumb.jpg'), 2],
+      [of('r2', 'clips/2/video.mp4'), 2],
+      [of('r3', 'clips/1/video.mp4'), 3],
+      [of('r3', 'clips/200/ball.json'), 3],
+    ];
+    const priorities = files.map(([id, position]) => groupPriority(id, in3(position)));
+    for (let i = 1; i < priorities.length; i += 1) expect(priorities[i]).toBeLessThan(priorities[i - 1]);
+    expect(priorities[0]).toBe(1);
+    expect(Math.min(...priorities)).toBeGreaterThan(0);
+  });
+
+  test('ten recordings of 200 clips keep the order and stay between 0 and 1', () => {
+    const last = groupPriority(of('r10', 'clips/200/ball.json'), { id: 'g', position: 10, count: 10 });
+    const ninth = groupPriority(of('r9', 'clips/200/ball.json'), { id: 'g', position: 9, count: 10 });
+    const tenthFirst = groupPriority(of('r10', 'clips/1/video.mp4'), { id: 'g', position: 10, count: 10 });
+    expect(last).toBeGreaterThan(0);
+    expect(tenthFirst).toBeLessThan(ninth);
+  });
+
+  test('a group plan starts with its order; a plan of one recording leaves it to the uploader', () => {
+    const groupPlan: UploadPlan = { ...PLAN, group: in3(2) };
+    const { queue, native } = setup({ plan: groupPlan });
+    queue.sync();
+    const started: UploadItem[] = native.start.mock.calls[0][0];
+    expect(started.map((i) => i.priority)).toEqual(PLAN.items.map((i) => groupPriority(i.id, in3(2))));
+    const single = setup();
+    single.queue.sync();
+    expect(single.native.start.mock.calls[0][0].every((i: UploadItem) => i.priority === undefined)).toBe(true);
+  });
+
+  test('the group progress adds its recordings up and counts the ones fully sent', () => {
+    const part = (over: Partial<ShareProgress>): ShareProgress => ({
+      state: 'uploading',
+      done: 0,
+      total: 4,
+      failed: 0,
+      sentBytes: 0,
+      totalBytes: 400,
+      ...over,
+    });
+    const going = groupProgress([part({ state: 'done', done: 4, sentBytes: 400 }), part({ done: 1, sentBytes: 150 })]);
+    expect(going).toMatchObject({ state: 'uploading', done: 5, total: 8, sentBytes: 550, totalBytes: 800, recordings: 2, recordingsDone: 1 });
+    expect(groupProgress([part({ state: 'done', done: 4 }), part({ state: 'done', done: 4 })]).state).toBe('done');
+    expect(groupProgress([part({ state: 'paused', pausedBy: 'you' }), part({})])).toMatchObject({ state: 'paused', pausedBy: 'you' });
+    expect(groupProgress([part({ state: 'done', done: 4 }), part({ state: 'failed', failed: 4 })]).state).toBe('failed');
+    expect(groupProgress([part({ state: 'none', total: 0 })]).state).toBe('none');
+  });
 });

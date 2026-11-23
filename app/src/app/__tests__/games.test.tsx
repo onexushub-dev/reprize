@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { setLocale } from '../../i18n';
 import Games from '../games';
 
-jest.mock('expo-router', () => ({ router: { push: jest.fn(), back: jest.fn(), dismissTo: jest.fn() } }));
+jest.mock('expo-router', () => ({ router: { push: jest.fn(), back: jest.fn(), dismissTo: jest.fn() }, useLocalSearchParams: jest.fn(() => ({})) }));
 jest.mock('../../session/SessionContext', () => ({ useSession: jest.fn() }));
 jest.mock('../../components/useClipThumbnail', () => ({ useClipThumbnail: () => undefined }));
 jest.mock('../../payments', () => ({
@@ -203,6 +203,28 @@ test('the recording opened last says so', async () => {
   repo.getPrefs.mockReturnValue({});
 });
 
+test('on a received recording "Visto por último" comes after "Compartilhada por", and a second line of badges gets its own room over the clips and time', async () => {
+  repo.getPrefs.mockReturnValue({ lastOpenedSessionId: 's1' });
+  const received = { shareId: 'sh1', code: 'c', from: 'Ana Beatriz', receivedAt: 0, expiresAt: 1, total: 4, recordedMs: 12 * 60_000 };
+  repo.listSessions.mockReturnValue([
+    { session: { id: 's1', sport: 'outro', startedAt: 0, endedAt: 1, name: 'Jogo da Ana', received }, clips: 4, firstClip: clip },
+  ]);
+  repo.sessionStats.mockReturnValue({ clips: 4, bytes: 1, recordedMs: 60_000 });
+  await render(<Games />);
+  const badges = screen.getByTestId('badges');
+  const last = badges.children[badges.children.length - 1];
+  expect(last).toBe(screen.getByTestId('badge-last-seen'));
+  expect(screen.getByRole('button', { name: /Jogo da Ana, 4 clipes.*Visto por último$/ })).toBeTruthy();
+  // One line of badges: room for one line.
+  expect(screen.getByTestId('badge-space')).toHaveStyle({ height: 26 });
+  // They wrapped onto two lines: the room grows with them, so they never sit over "4 clipes · 12min".
+  await act(async () => {
+    fireEvent(badges, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 200, height: 50 } } });
+  });
+  expect(screen.getByTestId('badge-space')).toHaveStyle({ height: 54 });
+  repo.getPrefs.mockReturnValue({});
+});
+
 test('once a recording has been received, a filter tells mine and received apart', async () => {
   const received = { shareId: 'sh1', code: 'c', from: 'Ana', receivedAt: 0, expiresAt: 1, total: 1 };
   repo.listSessions.mockReturnValue([
@@ -276,4 +298,26 @@ test('a received recording shows the minutes that came with the link; an older l
   await render(<Games />);
   expect(screen.getByText('6 clipes · 12min')).toBeTruthy();
   expect(screen.getByText('6 clipes')).toBeTruthy();
+});
+
+test('opened by a group link: on Recebidas, saying how many came and from whom (multi-recording share design §3.2)', async () => {
+  const { useLocalSearchParams } = jest.requireMock('expo-router');
+  useLocalSearchParams.mockReturnValueOnce({ received: '2', from: 'Ana' });
+  const received = { shareId: 'r1', code: 'c', from: 'Ana', receivedAt: 0, expiresAt: Date.now() + 3600_000, total: 12, groupId: 'g1', download: 'waiting' };
+  repo.listSessions.mockReturnValue([
+    { session: { id: 's1', sport: 'outro', startedAt: 2, endedAt: 2, name: 'Meu jogo' }, clips: 1, firstClip: clip },
+    { session: { id: 's2', sport: 'outro', startedAt: 1, endedAt: 1, name: 'Jogo 1', received }, clips: 0 },
+  ]);
+  repo.sessionStats.mockReturnValue({ clips: 0, bytes: 0, recordedMs: 0 });
+  await render(<Games />);
+  expect(screen.getByText('2 gravações recebidas de Ana')).toBeTruthy();
+  expect(screen.queryByText('Meu jogo')).toBeNull();
+  // Not downloaded yet: the clips the link brings and the download mark on its frame, not one more badge (2026-11-22);
+  // VoiceOver says it in words.
+  expect(screen.getByText('12 clipes')).toBeTruthy();
+  expect(screen.queryByText('Não baixada')).toBeNull();
+  expect(screen.getByTestId('not-downloaded')).toBeTruthy();
+  expect(screen.getByRole('button', { name: /^Jogo 1, 12 clipes, Compartilhado por Ana, Não baixada$/ })).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Todas' }));
+  expect(screen.queryByText('2 gravações recebidas de Ana')).toBeNull();
 });

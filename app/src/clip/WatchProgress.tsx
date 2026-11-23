@@ -6,6 +6,7 @@ import { MutedIcon, PauseIcon, PlayIcon, SoundIcon } from '../components/icons';
 import { seconds } from '../components/format';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
+import { GlassButton } from '../components/GlassButton';
 
 type Props = {
   player: ReturnType<typeof useVideoPlayer>;
@@ -62,13 +63,13 @@ export function WatchProgress({ player, trim, speed, playing, onTogglePlay, onSe
   const share = span > 0 ? Math.min(Math.max((atMs - trim.startMs) / span, 0), 1) : 0;
   return (
     <View style={styles.row}>
-      <Pressable
+      <GlassButton
         accessibilityRole="button"
         accessibilityLabel={playing ? t('clip.pause') : t('clip.play')}
         onPress={onTogglePlay}
         style={styles.play}>
         {playing ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
-      </Pressable>
+      </GlassButton>
       <View
         {...pan.panHandlers}
         accessibilityLabel={t('clip.positionInClip')}
@@ -101,7 +102,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },

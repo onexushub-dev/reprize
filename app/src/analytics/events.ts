@@ -7,6 +7,8 @@ export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'lo
 
 /** A count sent as a range, so the number of distinct values stays small and nothing is a precise tally. */
 export type CountBucket = '0' | '1' | '2-5' | '6-20' | '21+';
+/** Recordings in one link (multi-recording share design §9). */
+export type RecordingsBucket = '1' | '2-3' | '4-6' | '7-10';
 export type DurationBucket = '<1m' | '1-5m' | '5-30m' | '>30m';
 /** A recording (a game) runs much longer than an app session, so it gets wider ranges. */
 export type RecordingDurationBucket = '<5m' | '5-15m' | '15-30m' | '30-60m' | '>60m';
@@ -71,12 +73,21 @@ export type AnalyticsEvents = {
   pairing_failed: { reason: RemotePairFailure | 'invalid_link' };
 
   // Sharing (sharing design §9)
-  /** A link was created for a recording; `clips` is how many it carries, `wait` the time from the tap to the QR code. */
-  share_created: { clips: CountBucket; wait: '<2s' | '2-5s' | '5-10s' | '>10s' };
+  /**
+   * A link was created; `clips` is how many it carries (all its recordings together), `wait` the time from the tap to the
+   * QR code, `recordings` how many recordings it holds (1 for a single recording's link).
+   */
+  /** `picked`: a link with only some clips of the recording (2026-11-23). */
+  share_created: { clips: CountBucket; wait: '<2s' | '2-5s' | '5-10s' | '>10s'; recordings: RecordingsBucket; picked: 'yes' | 'no' };
   /** Every clip of a link reached the cloud; `duration` from the link's creation. */
   share_upload_done: { clips: CountBucket; duration: DurationBucket };
-  /** A link was opened in the app for the first time on this phone; `new_user`: the phone had no recording of its own. */
-  share_received: { clips: CountBucket; new_user: boolean };
+  /**
+   * A link was opened in the app for the first time on this phone; `new_user`: the phone had no recording of its own;
+   * `recordings`: how many the link holds.
+   */
+  share_received: { clips: CountBucket; new_user: boolean; recordings: RecordingsBucket };
+  /** Baixar on a recording of a group link: its place in the link (does the recipient want their own match only?). */
+  share_group_download: { position: number; recordings: RecordingsBucket };
   /** Every clip of a received recording is on the phone; `duration` from the first opening. */
   share_downloaded: { clips: CountBucket; duration: DurationBucket };
   /** Someone who came by a link made their first own recording (once per phone). */

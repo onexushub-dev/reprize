@@ -1,6 +1,5 @@
 import { type ComponentRef, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
-import { initialWindowMetrics } from 'react-native-safe-area-context';
 
 import { BackIcon, DownloadIcon, EditIcon, ShareIcon, TrashIcon } from '../components/icons';
 import { MAX_CLIP_NAME } from '../data/schema';
@@ -8,6 +7,7 @@ import { ProgressRing, TickIcon } from '../components/sportIcons';
 import { useT } from '../i18n/useT';
 import { colors, fonts, footer } from '../theme/tokens';
 import { EDGE, IconButton, SCRIM } from './IconButton';
+import { INSETS } from './insets';
 
 type Props = {
   /** The video, laid out for the area it gets (the whole screen here). */
@@ -45,11 +45,6 @@ type Props = {
 };
 
 const FADE_MS = 120;
-/**
- * The phone's safe area, read once (the app is portrait only): SafeAreaView measured itself again on every clip a swipe
- * brought in, so the bars jumped by the home bar's height and cut the buttons for a moment (2026-11-21).
- */
-const INSETS = initialWindowMetrics ? initialWindowMetrics.insets : { top: 0, bottom: 0, left: 0, right: 0 };
 
 /**
  * Watch mode, after the Photos app (2026-11-20): the clip as large as the screen allows; on top, back, the name and
@@ -116,8 +111,9 @@ export function ClipWatch(p: Props) {
               returnKeyType="done"
               style={styles.name}
             />
+            {/* White like the other buttons around the video (2026-11-22): the confirmation that follows says it deletes. */}
             <IconButton label={t('clip.deleteClip')} onPress={p.onDelete}>
-              <TrashIcon />
+              <TrashIcon color={colors.text} />
             </IconButton>
           </View>
           {p.ballTag ? (

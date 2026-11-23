@@ -29,6 +29,7 @@ import { ClipStrip } from '../../clip/ClipStrip';
 import { ClipWatch } from '../../clip/ClipWatch';
 import { beginEdit, type EditSnapshot, hasChanges, lastTool, rememberTool, restorePatch, type ToolId } from '../../clip/editSession';
 import { IconButton, SCRIM } from '../../clip/IconButton';
+import { allowedEdit, NO_LOCKS, receivedBallOf, receivedFramingHere } from '../../clip/receivedFraming';
 import { NeighbourStage } from '../../clip/NeighbourStage';
 import { BallChip, type BallChipState } from '../../clip/BallChip';
 import { BallIntroSheet } from '../../clip/BallIntroSheet';
@@ -75,6 +76,7 @@ import { accessPlan } from '../../payments/rules';
 import { clipExportJob } from '../../share/clipExport';
 import { exportTierOf, useReceivedAccess, useViewPlan } from '../../share/entitlement';
 import { cachedExport, rememberExport } from '../../share/exportCache';
+import { createExportTracker, type ExportTracker, isCancelled } from '../../share/exportTracker';
 import { exportChoices, type ShortSide } from '../../share/exportSize';
 import { labelledPaths } from '../../share/labelledFile';
 import { frameLayout } from '../../share/layout';
@@ -232,6 +234,12 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   );
   const session = clip ? repo.getSession(clip.sessionId) : undefined;
   const received = session !== undefined && session.received !== undefined;
+  // A received clip (2026-11-22): the sound of a clip sent without it cannot come back; everything else is the
+  // recipient's to change, as on a clip of their own. Bola starts from the sender's framing when it came with the clip.
+  const locks = clip && clip.locked ? clip.locked : NO_LOCKS;
+  // Only where this phone can show Bola: elsewhere a clip sent on Bola opens on Jogadores, which every iPhone can do
+  // (2026-11-22, iPhone XR); the sender keeps sending it on Bola.
+  const receivedBall = received && clip && ballAvailable() ? receivedBallOf(clip) : undefined;
   // Received clips: the capture message under the video goes away while a system sheet or the screen's exit draws a copy
   // of the screen without the video (it would flash otherwise). See `CaptureGuard`'s `quiet`.
   const [quiet, setQuiet] = useState(false);
@@ -261,7 +269,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // the player picks Jogadores or Bola again. A finished analysis is just shown: nothing runs for it.
   const [staleAtOpen] = useState(() => {
     const c = repo.getClip(id);
-    if (!c) return { focus: false, ball: false };
+    if (!c) return { focus: false, ball: false, toPlayers: false, framing: undefined };
     const e = readEdit(c.edit);
     const f = c.focus;
     const focusDone =
@@ -269,20 +277,31 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       (f.status === 'ready' || f.status === 'none') &&
       // a result from before the 5 fps change (no `every`) is kept: only a deliberate switch analyses again
       (f.every === undefined || f.every === focusEveryMs());
+    // A clip received on Bola where this phone cannot show Bola: opens on Jogadores instead (it is analysed if it did not
+    // come with the clip).
+    const here = receivedFramingHere(e.framing, { received, ball: ballAvailable(), players: isFocusSupported() });
+    if (here !== undefined) return { focus: false, ball: false, toPlayers: true, framing: here };
     const sport = ballSportIdOf(repo.getSession(c.sessionId));
     const b = c.ball;
     const ballDone =
-      b !== undefined &&
-      sport !== undefined &&
-      ballForCut(b, c.trim, sport) &&
-      ballRulesCurrent(b) &&
-      (b.status === 'ready' || b.status === 'unsuitable');
-    return { focus: e.framing === 'focus' && !focusDone, ball: e.framing === 'ball' && !ballDone };
+      (received && receivedBallOf(c) !== undefined) ||
+      (b !== undefined &&
+        sport !== undefined &&
+        ballForCut(b, c.trim, sport) &&
+        ballRulesCurrent(b) &&
+        (b.status === 'ready' || b.status === 'unsuitable'));
+    return {
+      focus: e.framing === 'focus' && !focusDone,
+      ball: e.framing === 'ball' && !ballDone,
+      toPlayers: false,
+      framing: undefined as 'focus' | 'none' | undefined,
+    };
   });
   /** Cleared by the player's own pick (pickFraming): from then on the queues may run for this clip. */
   const blockedAuto = useRef(staleAtOpen);
   useEffect(() => {
-    if (staleAtOpen.focus || staleAtOpen.ball) setEdit({ framing: 'none' });
+    if (staleAtOpen.framing !== undefined) setEdit({ framing: staleAtOpen.framing });
+    else if (staleAtOpen.focus || staleAtOpen.ball) setEdit({ framing: 'none' });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the clip opens
   }, []);
   const soundOff = edit.muted;
@@ -380,6 +399,26 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     return () => clearTimeout(timer);
   }, [saved]);
   const exporting = useRef(false);
+  // Salvar/Enviar's export (2026-11-23): its progress fills the card's ring, and Cancelar stops it at once.
+  const tracker = useRef<ExportTracker | undefined>(undefined);
+  const cancelled = useRef(false);
+  useEffect(() => {
+    const made = createExportTracker();
+    tracker.current = made;
+    const off = made.subscribe(() => {
+      // An export that just ended drops out of the sum: the card moves on to "Salvando…" instead of going back to 0%.
+      if (!made.known() || made.running() === 0) return;
+      const progress = made.runningProgress();
+      setJob((j) => (j !== undefined && j.stage === 'preparing' ? { ...j, progress } : j));
+    });
+    return () => {
+      off();
+      // Leaving mid-export: the phone stops making a video nobody will get.
+      made.cancelAll();
+      made.dispose();
+      tracker.current = undefined;
+    };
+  }, []);
   const captureRefView = useRef<ComponentRef<typeof View>>(null);
 
   // The shape after the player's own turn; the clip's own rotation is already in the thumbnail's shape.
@@ -408,13 +447,18 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // as (its model and rules; undefined = no Bola card).
   const [, setSportTick] = useState(0);
   const recSport = recordingSportOf(session);
-  const ballSport = ballSportIdOf(session);
+  // A received recording carries the sender's sport (2026-11-22); a link from before it, the sport of the Bola that came.
+  const sessionBallSport = ballSportIdOf(session);
+  const ballSport =
+    sessionBallSport !== undefined ? sessionBallSport : receivedBall !== undefined ? receivedBall.sport || 'basquete' : undefined;
   // The framing before Bola was tapped: where the clip goes back to when Bola is cancelled or finds no ball.
   const beforeBall = useRef<'none' | 'focus'>('none');
   // Bola only for a sport with a ball model: a clip stored on Bola whose recording's sport is not known (or has no model)
   // shows as the Original it is, nothing queued, until the player says the sport (spec 2026-11-11 decision 5).
   const ballChosen = edit.framing === 'ball' && ballSport !== undefined;
-  const ballFile = clip && ballSport !== undefined ? readyBallFile(clip) : undefined;
+  // The sender's Bola while the cut stays inside it, else this phone's own analysis of the cut.
+  const ballFile =
+    receivedBall !== undefined ? receivedBall.file : clip && ballSport !== undefined ? readyBallFile(clip) : undefined;
   const ballTrack = useMemo(
     () => (ballFile && sizeKnown ? readFocusFile(ballFile, 'portrait') : undefined),
     [ballFile, sizeKnown],
@@ -425,9 +469,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const cutKey = clip ? `${clip.trim.startMs}:${clip.trim.endMs}` : '';
   // On, with the cut or the sport changed or never analysed: the queue analyses it (the frames already found are reused).
   useEffect(() => {
-    if (!ballChosen || leaving || blockedAuto.current.ball) return;
+    if (!ballChosen || leaving || blockedAuto.current.ball || receivedBall !== undefined) return;
     ballQueue.request(id);
-  }, [ballChosen, cutKey, ballSport, id, leaving]);
+  }, [ballChosen, cutKey, ballSport, id, leaving, receivedBall]);
   // Test 47a: no ball in play on this cut and sport: back to the framing before the tap (spec 2026-11-11 decision 6),
   // the chip says so for a few seconds and the Bola card is dimmed.
   const unsuitable =
@@ -520,6 +564,14 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     if (current && focusSupported) focusQueue.ensure(current);
     // the recording's sport too: on Android a beach tennis clip is framed without the next court's people
   }, [id, focusSupported, sizeKnown, playersChosen, cutKey, recSport?.sport]);
+  // TEMP(diag-sharing): what a received clip has to frame with, once its shape is known (2026-11-22: a clip sent on Bola
+  // opened on Jogadores).
+  useEffect(() => {
+    if (!received || !clip || !sizeKnown) return;
+    const ballNote = ballFile ? (ballTrack ? 'ok' : 'ilegivel') : clip.ball ? `nao cobre o corte (${clip.ball.status})` : 'nao veio';
+    diag(`clipe recebido: modo ${edit.framing}, jogadores ${focusFile ? (track ? 'ok' : 'ilegivel') : 'nao veio'}, bola ${ballNote}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per clip, when its shape is known
+  }, [id, received, sizeKnown]);
   // The introduction, once ever: the framing grows out of the whole video with a caption.
   const reduceMotion = useReduceMotion();
   const [introDue] = useState(() => !repo.getPrefs().focusIntroSeen);
@@ -804,7 +856,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   }
 
   function setEdit(patch: Partial<ReturnType<typeof readEdit>>) {
-    repo.updateClip(id, { edit: storedEdit(applyEdit(edit, patch)) });
+    repo.updateClip(id, { edit: storedEdit(applyEdit(edit, allowedEdit(patch, locks))) });
   }
 
   function commitZoom(z: { scale: number; cx: number; cy: number }) {
@@ -824,7 +876,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
    * Seguir a Bola's analysis at once (what it found stays for later); Bola shows its first-use sheet first.
    */
   function pickFraming(framing: 'none' | 'focus' | 'ball') {
-    blockedAuto.current = { focus: false, ball: false }; // the player's own pick: analyses may run now
+    blockedAuto.current = { focus: false, ball: false, toPlayers: false, framing: undefined }; // the player's own pick: analyses may run now
     if (framing === edit.framing) return;
     if (framing === 'ball') {
       if (ballSport === undefined) return;
@@ -1092,7 +1144,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     const t0 = Date.now();
     const overlayPngPath = await captureOverlay(captureRefView);
     const t1 = Date.now();
-    const result = await exportClip({ clipPath: clip!.path, ...job!.options, overlayPngPath, background: colors.ground });
+    const options = { clipPath: clip!.path, ...job!.options, overlayPngPath, background: colors.ground };
+    const running = tracker.current;
+    const result = await (running !== undefined ? running.exportClip(options) : exportClip(options));
     const o = job!.options;
     diagExport({ frameMs: t1 - t0, renderMs: Date.now() - t1, lengthMs: o.endMs - o.startMs, width: o.width, height: o.height, side, focus: !!o.focus, speed: o.speed, muted: !!o.muted });
     removeQuietly(overlayPngPath);
@@ -1133,6 +1187,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       await showSide(picked);
     }
     exporting.current = true;
+    cancelled.current = false;
+    if (tracker.current !== undefined) tracker.current.reset();
     // The render and the gallery write get the phone to themselves: Modo Foco analyses of other clips (they start again
     // afterwards) made a 30 s save take over a minute and froze the playback (2026-11-10 field log).
     focusQueue.setHold('all');
@@ -1142,12 +1198,15 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     setJob({ kind, stage: 'preparing' });
     try {
       const path = await ensureExport();
+      if (cancelled.current) return;
       setJob({ kind, stage: 'delivering' });
       if (kind === 'share') {
         setTimeout(() => setJob((j) => (j && j.kind === 'share' ? undefined : j)), SHARE_HANDOFF_MS);
       }
       await action(path);
     } catch (error) {
+      // Cancelar is the player's choice, not a failure: the card just closes.
+      if (cancelled.current || isCancelled(error)) return;
       // A screen closed mid-export is the player leaving, not a failure.
       if (!(error instanceof Error && error.message === 'closed')) trackEvent('export_failed', { reason: 'prepare_failed' });
       setNotice('clip.prepareFailed');
@@ -1157,6 +1216,13 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       setBusy(false);
       setJob(undefined);
     }
+  }
+
+  /** Cancelar on the card: the export stops at once and leaves no file. */
+  function cancelExportJob() {
+    cancelled.current = true;
+    setJob((j) => (j !== undefined && j.stage === 'preparing' ? { ...j, cancelling: true } : j));
+    if (tracker.current !== undefined) tracker.current.cancelAll();
   }
 
   /** The export reached the player (the gallery or the share sheet): one report of its size and where it went. */
@@ -1211,12 +1277,14 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   if (focusChip === 'on' || focusChip === 'off' || focusChip === 'preparing') focusUi = focusChip;
   // A ready framing is read once the video's shape is known: until then it is still on its way, not impossible.
   else if (focusFile && !sizeKnown && edit.rotation === 0) focusUi = 'preparing';
-  const tools = focusSupported ? EDIT_TOOLS : EDIT_TOOLS.filter((t) => t.id !== 'focus');
+  // A received clip whose framing came with it shows the Foco tool even where this phone cannot analyse.
+  const framingSent = received && (focusFile !== undefined || ballFile !== undefined);
+  const tools = focusSupported || framingSent ? EDIT_TOOLS : EDIT_TOOLS.filter((t) => t.id !== 'focus');
   // Spec 2026-11-11 (P1): while Bola is still being tracked, Salvar and Enviar wait (with a note). Jogadores does not
   // hold them: it is ready in seconds, and older clips have it on by default.
   const tracking = ballChip !== undefined && ballChip.kind === 'working';
   let ballUi: BallUi = 'hidden';
-  if (ballAvailable() && ballSport !== undefined) {
+  if (receivedBall !== undefined || (ballAvailable() && ballSport !== undefined)) {
     if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
     else ballUi = unsuitable !== undefined ? 'unsuitable' : 'off';
   }
@@ -1245,6 +1313,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       if (ballChosen) cancelBall();
       else if (edit.framing === 'focus') pickFraming('none');
     },
+    locks,
     chooseSport,
     resetZoom: () => {
       setEdit({ zoom: undefined });
@@ -1464,7 +1533,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           </View>
         </Pressable>
       ) : null}
-      {job ? <ExportProgress job={job} /> : null}
+      {job ? <ExportProgress job={job} onCancel={job.stage === 'preparing' ? cancelExportJob : undefined} /> : null}
     </View>
   );
 }

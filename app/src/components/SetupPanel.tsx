@@ -16,6 +16,7 @@ import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import { CloseIcon, InfoIcon } from './icons';
 import { ProBadge } from './ProBadge';
+import { GlassButton } from './GlassButton';
 
 /**
  * The camera's setting panels (2026-11-22, after Lens Buddy): each of the three buttons over the record button (clip
@@ -165,14 +166,14 @@ export function SetupPanel({ title, onClose, place, turn = 0, children, testID, 
             ))}
           </View>
         )}
-        <Pressable
+        <GlassButton
           accessibilityRole="button"
           accessibilityLabel={t('common.close')}
           hitSlop={10}
           onPress={onClose}
           style={styles.close}>
           <CloseIcon size={16} color="#D8D8D8" />
-        </Pressable>
+        </GlassButton>
       </View>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} bounces={false} showsVerticalScrollIndicator={false}>
         {children}
@@ -369,7 +370,7 @@ const styles = StyleSheet.create({
   pages: { flexDirection: 'row', gap: 5 },
   page: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#4A4A4A' },
   pageOn: { width: 16, backgroundColor: colors.accent },
-  close: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#3A3A3A', alignItems: 'center', justifyContent: 'center' },
+  close: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   scroll: { flexGrow: 0, flexShrink: 1 },
   content: { gap: 14 },
   group: { backgroundColor: GROUP, borderRadius: 14, padding: 12, gap: 10 },

@@ -71,7 +71,13 @@ jest.mock('../../../modules/replay-camera', () => ({
   videoShape: jest.fn(() => undefined),
   findContentStart: jest.fn(async () => 0),
   isFocusSupported: jest.fn(() => true),
+  cancelExport: jest.fn(),
+  addReplayListener: jest.fn((event: string, cb: (e: unknown) => void) => {
+    if (event === 'onExportProgress') mockExportProgress.emit = cb;
+    return { remove: jest.fn() };
+  }),
 }));
+const mockExportProgress: { emit: (e: unknown) => void } = { emit: () => {} };
 jest.mock('../../analytics', () => ({ track: jest.fn(), sessionSummary: { note: jest.fn() } }));
 jest.mock('../../focus/appBallQueue', () => ({
   ballQueue: { request: jest.fn(), cancel: jest.fn(), progress: jest.fn(() => undefined), subscribe: jest.fn(() => () => {}) },
@@ -519,6 +525,62 @@ test('while the video is made, a card shows only "Preparando o vídeo…"', asyn
   await act(async () => finish({ path: '/exports/e1.mp4', durationMs: 1 }));
   expect(screen.queryByText('Preparando o vídeo…')).toBeNull();
   expect(screen.getByText('Salvo na galeria.')).toBeTruthy();
+});
+
+test('the card shows how far the video is, and Cancelar stops it at once with no error (2026-11-23)', async () => {
+  const { track } = jest.requireMock('../../analytics');
+  let fail: (e: unknown) => void = () => {};
+  camera.exportClip.mockImplementationOnce(() => new Promise((_r, reject) => (fail = reject)));
+  await open();
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Salvar na galeria' })));
+  const exportId = camera.exportClip.mock.calls.at(-1)[0].exportId;
+  expect(typeof exportId).toBe('string');
+  await act(async () => mockExportProgress.emit({ exportId, progress: 0.5 }));
+  expect(screen.getByText('50%')).toBeTruthy();
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cancelar' })));
+  expect(camera.cancelExport).toHaveBeenCalledWith(exportId);
+  expect(screen.getByRole('button', { name: 'Cancelando…' })).toBeDisabled();
+  await act(async () => fail(Object.assign(new Error('export cancelled'), { code: 'CANCELLED' })));
+  expect(screen.queryByText('Preparando o vídeo…')).toBeNull();
+  expect(screen.queryByText('Não foi possível preparar o vídeo. Tente de novo.')).toBeNull();
+  expect(track).not.toHaveBeenCalledWith('export_failed', expect.anything());
+  expect(media.Asset.create).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Salvar na galeria' })).toBeEnabled();
+});
+
+test('Cancelar while the mark is still being drawn: no video is made at all (review 2026-11-23)', async () => {
+  const { captureOverlay } = jest.requireMock('../../share/captureOverlay');
+  let drawn: (path: string) => void = () => {};
+  captureOverlay.mockImplementationOnce(() => new Promise((r) => (drawn = r)));
+  await open();
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Salvar na galeria' })));
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cancelar' })));
+  await act(async () => drawn('/tmp/overlay.png'));
+  expect(camera.exportClip).not.toHaveBeenCalled();
+  expect(screen.queryByText('Preparando o vídeo…')).toBeNull();
+  expect(screen.queryByText('Não foi possível preparar o vídeo. Tente de novo.')).toBeNull();
+  // The next Salvar works again.
+  await pressAction('Salvar na galeria');
+  expect(camera.exportClip).toHaveBeenCalledTimes(1);
+});
+
+test('leaving the clip while its video is made stops the export (review 2026-11-23)', async () => {
+  camera.exportClip.mockImplementationOnce(() => new Promise(() => {}));
+  const view = await render(<ClipEditor />);
+  await act(async () => {});
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Salvar na galeria' })));
+  const exportId = camera.exportClip.mock.calls.at(-1)[0].exportId;
+  await act(async () => view.unmount());
+  expect(camera.cancelExport).toHaveBeenCalledWith(exportId);
+});
+
+test('a look made before goes out with no card left on screen', async () => {
+  await open();
+  await pressAction('Salvar na galeria');
+  await pressAction('Compartilhar');
+  expect(camera.exportClip).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText('Preparando o vídeo…')).toBeNull();
+  expect(screen.queryByText(/%$/)).toBeNull();
 });
 
 test('a failed export shows the error and re-enables the buttons', async () => {

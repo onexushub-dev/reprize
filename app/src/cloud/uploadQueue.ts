@@ -1,6 +1,6 @@
 import type { UploadEntry, UploadItem } from '../../modules/replay-camera/src/ReplayCamera.types';
 import type { ConfirmResult } from './shares';
-import type { UploadPlan } from './uploadPlan';
+import type { PlanGroup, UploadPlan } from './uploadPlan';
 
 /** The system background uploader (`BackgroundUpload.swift`). */
 export type NativeUploads = {
@@ -22,7 +22,8 @@ export type UploadQueueDeps = {
     confirmed(shareId: string): number[];
     setConfirmed(shareId: string, positions: number[]): void;
   };
-  confirm(shareId: string, positions: number[]): Promise<ConfirmResult | null>;
+  /** `sizes`: the bytes of each file sent, in the order of `positions`. */
+  confirm(shareId: string, positions: number[], sizes: number[]): Promise<ConfirmResult | null>;
   cellular(): boolean;
   /** "Pausar envio", kept across launches. */
   manualPause: { get(): boolean; set(paused: boolean): void };
@@ -56,6 +57,63 @@ export function videoOf(id: string): { shareId: string; position: number } | und
   return match === null ? undefined : { shareId: match[1], position: Number(match[2]) };
 }
 
+const GROUP_FILE = /\/clips\/(\d+)\/([a-z]+)\.[a-z0-9]+$/;
+
+/**
+ * The priority of a group link's file (multi-recording share design §5.3), a hint the uploader passes to iOS. In order:
+ * the cover's still (the link's page), the first clip's still of every recording (the recipient's list), the cover
+ * video, then recording by recording in the link's order, each clip's still just before its video. So the first
+ * recordings become watchable first instead of every recording advancing slowly together.
+ */
+export function groupPriority(id: string, group: PlanGroup): number {
+  if (id.endsWith('/cover.jpg')) return 1;
+  if (id.endsWith('/cover.mp4')) return 0.975;
+  const count = Math.max(1, group.count);
+  const band = 0.96 / count;
+  const top = 0.97 - (Math.min(Math.max(group.position, 1), count) - 1) * band;
+  const match = GROUP_FILE.exec(id);
+  if (match === null) return top - band / 2;
+  const clip = Math.min(Number(match[1]), 999);
+  const kind = match[2];
+  if (kind === 'thumb' && clip === 1) return 0.99 - 0.001 * Math.min(group.position, 9);
+  const offset = kind === 'thumb' ? clip - 0.5 : kind === 'video' ? clip : clip + 0.25;
+  return top - (band * offset) / 1000;
+}
+
+/** A group link's progress: its recordings' progress together, and how many recordings are fully sent. */
+export type GroupProgress = ShareProgress & { recordings: number; recordingsDone: number };
+
+export function groupProgress(parts: ShareProgress[]): GroupProgress {
+  const known = parts.filter((p) => p.state !== 'none');
+  const sum = (pick: (p: ShareProgress) => number) => known.reduce((total, p) => total + pick(p), 0);
+  const done = sum((p) => p.done);
+  const total = sum((p) => p.total);
+  const failed = sum((p) => p.failed);
+  const paused = known.find((p) => p.state === 'paused');
+  const recordingsDone = known.filter((p) => p.state === 'done').length;
+  const state: ShareProgress['state'] =
+    known.length === 0
+      ? 'none'
+      : recordingsDone === parts.length
+        ? 'done'
+        : paused !== undefined
+          ? 'paused'
+          : failed > 0 && done + failed === total
+            ? 'failed'
+            : 'uploading';
+  return {
+    state,
+    pausedBy: state === 'paused' && paused !== undefined ? paused.pausedBy : undefined,
+    done,
+    total,
+    failed,
+    sentBytes: sum((p) => p.sentBytes),
+    totalBytes: sum((p) => p.totalBytes),
+    recordings: parts.length,
+    recordingsDone,
+  };
+}
+
 /**
  * The upload queue of shared recordings (sharing design §5.4). Plans are kept on the phone; the system uploader does
  * the transfers. Nothing uploads while held (a recording is on: decision 16); held transfers pause and start again
@@ -87,9 +145,11 @@ export function createUploadQueue(deps: UploadQueueDeps) {
 
   const entriesById = (): Map<string, UploadEntry> => new Map(deps.native.state().map((e) => [e.id, e]));
 
-  function withCellular(items: UploadItem[]): UploadItem[] {
+  /** The items as the uploader takes them: the mobile data choice of now and, in a group link, their order. */
+  function withCellular(items: UploadItem[], plan?: UploadPlan): UploadItem[] {
     const cellular = deps.cellular();
-    return items.map((item) => ({ ...item, cellular }));
+    const group = plan === undefined ? undefined : plan.group;
+    return items.map((item) => (group === undefined ? { ...item, cellular } : { ...item, cellular, priority: groupPriority(item.id, group) }));
   }
 
   async function confirmShare(shareId: string): Promise<void> {
@@ -113,7 +173,11 @@ export function createUploadQueue(deps: UploadQueueDeps) {
     if (pending.length === 0) return;
     confirming.add(shareId);
     try {
-      const result = await deps.confirm(shareId, pending);
+      const sizes = pending.map((position) => {
+        const entry = known.get(`shares/${shareId}/clips/${position}/video.mp4`);
+        return entry === undefined ? 0 : Math.round(entry.bytes);
+      });
+      const result = await deps.confirm(shareId, pending, sizes);
       if (result === null) return;
       if (result.done.length > 0) {
         const total = plan.items.filter((item) => videoOf(item.id) !== undefined).length;
@@ -128,7 +192,7 @@ export function createUploadQueue(deps: UploadQueueDeps) {
         return v !== undefined && result.failed.includes(v.position);
       });
       deps.log(`envio confirmado: ${result.done.length} ok, ${result.missing.length} ausentes, ${result.failed.length} de novo`);
-      if (again.length > 0 && !held) deps.native.start(withCellular(again));
+      if (again.length > 0 && !held) deps.native.start(withCellular(again, plan));
       notify();
     } finally {
       confirming.delete(shareId);
@@ -154,7 +218,7 @@ export function createUploadQueue(deps: UploadQueueDeps) {
       // An empty path is a file not made yet (the cover while it exports).
       const fresh = plan.items.filter((item) => item.path !== '' && !known.has(item.id));
       if (fresh.length > 0 && !held) {
-        deps.native.start(withCellular(fresh));
+        deps.native.start(withCellular(fresh, plan));
         deps.log(`envio: ${fresh.length} arquivos começaram`);
       }
       void confirmShare(shareId);
@@ -247,7 +311,7 @@ export function createUploadQueue(deps: UploadQueueDeps) {
         return entry !== undefined && entry.status === 'failed';
       });
       if (failed.length > 0) {
-        deps.native.start(withCellular(failed));
+        deps.native.start(withCellular(failed, plan));
         deps.log(`envio: tentar de novo, ${failed.length} arquivos`);
       }
       notify();

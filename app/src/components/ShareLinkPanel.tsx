@@ -1,5 +1,5 @@
 import * as Clipboard from 'expo-clipboard';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
@@ -8,7 +8,7 @@ import type { SessionShare } from '../data/schema';
 import { useT } from '../i18n/useT';
 import { colors, fonts, radius } from '../theme/tokens';
 import { Button } from './Button';
-import { ClockIcon, CopyIcon, EyeIcon, FilmIcon, ShareIcon } from './icons';
+import { ClockIcon, CopyIcon, EyeIcon, FilmIcon, ReplayIcon, ShareIcon } from './icons';
 import { hoursLeft } from './shareTime';
 import { ShareUploadStatus } from './ShareUploadStatus';
 
@@ -18,9 +18,18 @@ const STATUS_EVERY_MS = 15 * 1000;
 /**
  * The link of a shared recording (sharing design §3.1, steps 2 and 5): the QR code the athletes scan at the court, how
  * long it lasts, how many phones opened it, Copiar beside the link and Enviar link (the system sheet, where WhatsApp is). A
- * reported link is down (§8.3): the sheet says so instead of offering the QR code.
+ * reported link is down (§8.3): the sheet says so instead of offering the QR code. A group link (multi-recording share
+ * design §6) passes how many `recordings` it holds and its own `upload` status; `shared.shareId` is then the group's.
  */
-export function ShareLinkPanel({ shared }: { shared: SessionShare }) {
+export function ShareLinkPanel({
+  shared,
+  recordings,
+  upload,
+}: {
+  shared: Pick<SessionShare, 'shareId' | 'url' | 'expiresAt' | 'clips' | 'clipIds'>;
+  recordings?: number;
+  upload?: ReactNode;
+}) {
   const { t } = useT();
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -52,15 +61,23 @@ export function ShareLinkPanel({ shared }: { shared: SessionShare }) {
   return (
     <View style={styles.root}>
       <Text style={styles.scan} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-        {t('sharing.scan')}
+        {recordings === undefined ? t('sharing.scan') : t('sharing.scanGroup')}
       </Text>
       <View style={styles.qr} accessible accessibilityLabel={shared.url}>
         <QRCode value={shared.url} size={204} color="#0A0A0A" backgroundColor="#FFFFFF" ecl="M" />
       </View>
       <View style={styles.chips}>
+        {recordings === undefined ? null : (
+          <View style={styles.chip}>
+            <ReplayIcon size={14} color={colors.soft} />
+            <Text style={styles.chipText}>{t('sharing.recordings', { count: recordings })}</Text>
+          </View>
+        )}
         <View style={styles.chip}>
           <FilmIcon size={14} color={colors.soft} />
-          <Text style={styles.chipText}>{t('sharing.clips', { count: shared.clips })}</Text>
+          <Text style={styles.chipText}>
+            {shared.clipIds !== undefined ? t('sharing.pickedClips', { count: shared.clips }) : t('sharing.clips', { count: shared.clips })}
+          </Text>
         </View>
         <View style={styles.chip}>
           <ClockIcon size={14} color={colors.soft} />
@@ -96,7 +113,7 @@ export function ShareLinkPanel({ shared }: { shared: SessionShare }) {
           onPress={() => void Share.share({ message: t('sharing.message', { url: shared.url }) })}
         />
       </View>
-      <ShareUploadStatus shareId={shared.shareId} />
+      {upload === undefined ? <ShareUploadStatus shareId={shared.shareId} /> : upload}
     </View>
   );
 }

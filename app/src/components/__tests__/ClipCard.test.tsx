@@ -46,3 +46,10 @@ test('a clip still arriving says where it is', async () => {
   expect(screen.getByText('Na fila')).toBeTruthy();
   expect(screen.getByLabelText('Clipe 5, ainda chegando')).toBeTruthy();
 });
+
+test('a clip not downloaded yet shows the sender\'s still and no queue word (multi-recording share design §5.4)', async () => {
+  await render(<PendingClipTile number={2} width={120} downloading={false} thumb="file:///r/2.thumb.jpg" idle />);
+  expect(screen.getByLabelText('Clipe 2, não baixado')).toBeTruthy();
+  expect(screen.queryByText('Na fila')).toBeNull();
+  expect(screen.getByText('2')).toBeTruthy();
+});

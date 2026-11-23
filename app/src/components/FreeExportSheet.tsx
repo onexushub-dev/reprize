@@ -24,6 +24,7 @@ import {
   SoundIcon,
 } from "./icons";
 import { useClipThumbnail } from "./useClipThumbnail";
+import { GlassButton } from "./GlassButton";
 
 /** `pro`: subscribe to PRO ("Assinar o PRO") · `pass`: the Single Pass for the whole recording ("Só para esta gravação") · `go`: export on the free plan · `cancel`: nothing. */
 export type FreeExportChoice = "pro" | "pass" | "go" | "cancel";
@@ -216,7 +217,7 @@ export function FreeExportSheet({
         />
         <SafeAreaView edges={["bottom"]} style={styles.sheet}>
           <View style={styles.grabber} />
-          <Pressable
+          <GlassButton
             accessibilityRole="button"
             accessibilityLabel={t("common.cancel")}
             hitSlop={8}
@@ -224,7 +225,7 @@ export function FreeExportSheet({
             style={styles.close}
           >
             <CloseIcon color={colors.soft} size={18} />
-          </Pressable>
+          </GlassButton>
 
           {/* Scrolls when the phone lies down and the whole sheet does not fit; the actions stay in view. */}
           <ScrollView
@@ -380,7 +381,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.ground,
   },
   body: { flexGrow: 0 },
   bodyContent: { gap: 12, paddingTop: 10, paddingBottom: 4 },

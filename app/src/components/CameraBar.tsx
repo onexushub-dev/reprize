@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { type ComponentRef, type ReactNode, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
@@ -7,6 +7,7 @@ import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import { sourceLabel } from './sourceLabel';
 import { GalleryIcon, GearFilledIcon, MicIcon, PhoneIcon, RemoteIcon, ResolutionIcon, SaveLastIcon, WatchIcon, WaveIcon } from './icons';
+import { GLASS, GlassButton } from './GlassButton';
 
 export type CameraPanel = 'clip' | 'quality' | 'triggers' | 'test' | 'phone';
 export type TriggerKey = 'remote' | 'watch' | 'voice' | 'wave' | 'phone';
@@ -42,9 +43,22 @@ type Props = {
    * read top to bottom (clip length → quality → triggers), the arrows pointing down.
    */
   reversed?: boolean;
+  /** Where the three settings and the record button sit on the screen (the first-time tour points at them). */
+  onTargets?: (targets: TourTargets) => void;
 };
 
 type SettingKind = 'clip' | 'quality' | 'triggers';
+
+/** A control's place on the screen, in window points. */
+export type TourRect = { x: number; y: number; width: number; height: number };
+export type TourTargets = Record<SettingKind | 'record', TourRect>;
+const TARGET_KINDS = ['clip', 'quality', 'triggers', 'record'] as const;
+
+/** Between the three settings and the black under them; the panels keep the same distance above the settings. */
+export const BAR_GAP = 16;
+
+/** How far the row of Gravar sits into the bottom safe area (points): more = lower, more camera. */
+const DOCK_LOWER = 12;
 
 /** Until the buttons are measured, a slot as long as the longest of them can be. */
 const SLOT_FALLBACK = 128;
@@ -55,7 +69,7 @@ const SLOT_FALLBACK = 128;
  * Gravações, the record button and Ajustes.
  */
 export function CameraBar(props: Props) {
-  const { clipSeconds, quality, qualityFixed, triggers, panel, onPanel, busy, onRecord, onRecordings, onSettings, onLayout, spin, turned = false, reversed = false } = props;
+  const { clipSeconds, quality, qualityFixed, triggers, panel, onPanel, busy, onRecord, onRecordings, onSettings, onLayout, spin, turned = false, reversed = false, onTargets } = props;
   const waiting = props.waiting ?? busy;
   const { t, locale } = useT();
   const active = (kind: 'clip' | 'quality' | 'triggers') => panel === kind || (kind === 'triggers' && (panel === 'test' || panel === 'phone'));
@@ -69,13 +83,39 @@ export function CameraBar(props: Props) {
   const [lengths, setLengths] = useState<Partial<Record<SettingKind, number>>>({});
   const measured = Object.values(lengths).filter((n): n is number => n !== undefined);
   const long = measured.length === 0 ? SLOT_FALLBACK : Math.max(...measured);
+  // Where each control is on the screen, for the first-time tour: measured after each layout.
+  const clipRef = useRef<ComponentRef<typeof View>>(null);
+  const qualityRef = useRef<ComponentRef<typeof View>>(null);
+  const triggersRef = useRef<ComponentRef<typeof View>>(null);
+  const recordRef = useRef<ComponentRef<typeof View>>(null);
+  const measureTargets = () => {
+    if (onTargets === undefined) return;
+    const views = { clip: clipRef.current, quality: qualityRef.current, triggers: triggersRef.current, record: recordRef.current };
+    const found: Partial<TourTargets> = {};
+    for (const kind of TARGET_KINDS) {
+      const view = views[kind];
+      if (view === null) return;
+      view.measureInWindow((x, y, width, height) => {
+        found[kind] = { x, y, width, height };
+        if (TARGET_KINDS.every((k) => found[k] !== undefined)) onTargets(found as TourTargets);
+      });
+    }
+  };
+  useEffect(() => {
+    measureTargets();
+  });
   const measure = (kind: SettingKind) => (e: LayoutChangeEvent) => {
     const width = Math.ceil(e.nativeEvent.layout.width);
     if (lengths[kind] !== width) setLengths((prev) => ({ ...prev, [kind]: width }));
+    measureTargets();
   };
   /** A setting button, turned with the phone: on its side it stands in a slot as tall as the longest button. */
-  const slot = (kind: SettingKind, pill: ReactNode) => {
-    const sized = <View onLayout={measure(kind)}>{pill}</View>;
+  const slot = (kind: SettingKind, ref: typeof clipRef, pill: ReactNode) => {
+    const sized = (
+      <View ref={ref} onLayout={measure(kind)}>
+        {pill}
+      </View>
+    );
     return turned ? (
       <View style={[styles.slot, { height: long }]}>
         <Animated.View style={[styles.slotInner, { width: long }, upright]}>{sized}</Animated.View>
@@ -86,8 +126,9 @@ export function CameraBar(props: Props) {
   };
   const pills = (
     <>
-        {slot('clip', <Pill
+        {slot('clip', clipRef, <Pill
           label={`${clipSeconds}s`}
+          keepCase
           a11y={t('setup.clipA11y', { seconds: clipSeconds })}
           active={active('clip')}
           disabled={busy}
@@ -95,7 +136,7 @@ export function CameraBar(props: Props) {
           <SaveLastIcon size={19} color={tint('clip')} />
         </Pill>)}
         {arrow}
-        {slot('quality', <Pill
+        {slot('quality', qualityRef, <Pill
           label={quality}
           a11y={t('setup.qualityA11y', { quality })}
           active={active('quality')}
@@ -104,7 +145,7 @@ export function CameraBar(props: Props) {
           <ResolutionIcon size={18} color={tint('quality')} />
         </Pill>)}
         {arrow}
-        {slot('triggers', <Pill
+        {slot('triggers', triggersRef, <Pill
           label={triggers.length === 0 ? t('setup.triggersTitle') : undefined}
           a11y={t('setup.triggersA11y', { items: triggerItems.length === 0 ? t('setup.triggersNone') : triggerItems.join(', ') })}
           active={active('triggers')}
@@ -119,17 +160,18 @@ export function CameraBar(props: Props) {
   );
   const buttons = (
     <>
-        <Pressable
-          accessibilityRole="button"
+        <GlassButton
           accessibilityLabel={t('setup.myRecordings')}
           disabled={busy}
           onPress={onRecordings}
           style={[styles.side, waiting && styles.busy]}>
           <Animated.View style={upright}>
-            <GalleryIcon size={44} />
+            <GalleryIcon size={40} under={GLASS.fill} />
           </Animated.View>
-        </Pressable>
+        </GlassButton>
         <Pressable
+          ref={recordRef}
+          onLayout={measureTargets}
           accessibilityRole="button"
           accessibilityLabel={t('setup.dockRecord')}
           accessibilityState={{ disabled: busy, busy }}
@@ -138,8 +180,7 @@ export function CameraBar(props: Props) {
           style={[styles.record, waiting && styles.recordBusy]}>
           {waiting ? <ActivityIndicator color={colors.text} /> : <View style={styles.recordFill} />}
         </Pressable>
-        <Pressable
-          accessibilityRole="button"
+        <GlassButton
           accessibilityLabel={t('setup.settings')}
           disabled={busy}
           onPress={onSettings}
@@ -147,7 +188,7 @@ export function CameraBar(props: Props) {
           <Animated.View style={upright}>
             <GearFilledIcon size={32} />
           </Animated.View>
-        </Pressable>
+        </GlassButton>
     </>
   );
   // Upright (2026-11-22, trying it): the black only behind Gravar's row; the three settings float over the camera, so
@@ -176,6 +217,7 @@ const TRIGGER_ICON: Record<TriggerKey, (color: string) => ReactNode> = {
 
 function Pill({
   label,
+  keepCase = false,
   a11y,
   active,
   disabled,
@@ -183,6 +225,8 @@ function Pill({
   children,
 }: {
   label?: string;
+  /** The label as written, not in capitals: the seconds' "s" stays small ("30s", 2026-11-22). */
+  keepCase?: boolean;
   a11y: string;
   active: boolean;
   disabled: boolean;
@@ -198,7 +242,7 @@ function Pill({
       onPress={onPress}
       style={[styles.pill, active && styles.pillActive]}>
       {children}
-      {label === undefined ? null : <Text style={[styles.pillText, active && { color: colors.onAccent }]}>{label}</Text>}
+      {label === undefined ? null : <Text style={[styles.pillText, keepCase && styles.pillTextAsWritten, active && { color: colors.onAccent }]}>{label}</Text>}
     </Pressable>
   );
 }
@@ -224,8 +268,10 @@ function Arrow({ reversed }: { reversed: boolean }) {
 }
 
 const styles = StyleSheet.create({
-  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: 16 },
-  ground: { backgroundColor: colors.ground, paddingTop: 14 },
+  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: BAR_GAP },
+  // Lower into the home bar's area (2026-11-22, tuning it): the black band is shorter and the camera shows more. The
+  // safe area still applies; DOCK_LOWER of it goes under the buttons' band.
+  ground: { backgroundColor: colors.ground, paddingTop: 10, marginBottom: -DOCK_LOWER },
   pills: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
   pill: {
     height: 44,
@@ -241,14 +287,18 @@ const styles = StyleSheet.create({
   },
   pillActive: { backgroundColor: colors.accent, borderColor: colors.accent },
   pillText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.text, textTransform: 'uppercase' },
+  pillTextAsWritten: { textTransform: 'none' },
   triggerIcons: { flexDirection: 'row', gap: 5 },
   // On its side: a button turned upright is as wide as it was tall and as tall as it was long (the longest of them).
   pillsReversed: { flexDirection: 'row-reverse' },
   arrowReversed: { transform: [{ scaleX: -1 }] },
   slot: { width: 48, alignItems: 'center', justifyContent: 'center' },
   slotInner: { height: 48, alignItems: 'center', justifyContent: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly', paddingBottom: 8 },
-  side: { width: 56, height: 56, alignItems: 'center', justifyContent: 'center' },
+  row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-evenly' },
+  // Minhas gravações and Ajustes beside Gravar (2026-11-22, trying it): the glass of the app's auxiliary buttons (back,
+  // delete), with its press feedback; the gallery a touch smaller (40) so it weighs as the gear. Before: bare icons
+  // (`variant="bare"`, side 56); a white ring like the settings' was tried and dropped.
+  side: { width: 62, height: 62, borderRadius: 31 },
   busy: { opacity: 0.4 },
   // As on the phone held on its side: a white ring with a gap, the app's amber inside (2026-11-22).
   record: {

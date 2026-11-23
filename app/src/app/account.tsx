@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { deleteAccount, signOut, useAccount, type Account, type DeleteResult } from '../account/account';
 import { SignInButtons } from '../account/SignInButtons';
 import { SHARING_ENABLED } from '../account/flags';
+import { groupClips, shareGroup, type ShareGroup } from '../cloud/shareGroups';
 import { useShareStatus } from '../cloud/shareStatus';
 import { appVersion } from '../components/AboutLinks';
 import { Button } from '../components/Button';
@@ -17,6 +18,7 @@ import {
   CheckIcon,
   FilmIcon,
   GiftIcon,
+  InfoIcon,
   LockIcon,
   LogoutIcon,
   ShareIcon,
@@ -25,11 +27,13 @@ import {
 import { hoursLeft } from '../components/shareTime';
 import { SheetTitle } from '../components/SheetTitle';
 import { repo } from '../data/mmkv';
+import { restartCameraTour } from '../onboarding/cameraTour';
 import type { Session, SessionShare } from '../data/schema';
 import { useT } from '../i18n/useT';
 import { openPaywall } from '../payments/feedback';
 import { useProActive } from '../share/entitlement';
 import { colors, fonts, radius } from '../theme/tokens';
+import { GlassButton } from '../components/GlassButton';
 
 type Busy = 'out' | 'delete';
 type Translate = ReturnType<typeof useT>['t'];
@@ -84,9 +88,9 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('common.back')} onPress={() => router.back()} style={styles.back}>
+        <GlassButton accessibilityRole="button" accessibilityLabel={t('common.back')} onPress={() => router.back()} style={styles.back}>
           <BackIcon />
-        </Pressable>
+        </GlassButton>
         <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
           {t('account.title')}
         </Text>
@@ -136,6 +140,19 @@ export default function SettingsScreen() {
         </Section>
 
         {SHARING_ENABLED && pro ? <SharingNow /> : null}
+
+        {/* The camera's first-time tour again (2026-11-22): back on the camera, the tips start over. */}
+        <Section label={t('account.sectionHelp')}>
+          <Row
+            icon={<InfoIcon size={18} color={colors.text} />}
+            label={t('account.tutorial')}
+            value={t('account.tutorialValue')}
+            onPress={() => {
+              restartCameraTour();
+              router.back();
+            }}
+          />
+        </Section>
 
         <Section label={t('account.sectionAbout')}>
           <Row icon={<FilmIcon size={19} />} label={t('about.terms')} onPress={() => void Linking.openURL(t('about.termsUrl'))} />
@@ -245,7 +262,7 @@ function Profile({ account, busy, onSignOut }: { account: Account; busy: boolean
           </Text>
         ) : null}
       </View>
-      <Pressable
+      <GlassButton
         accessibilityRole="button"
         accessibilityLabel={t('account.signOutA11y')}
         disabled={busy}
@@ -253,12 +270,12 @@ function Profile({ account, busy, onSignOut }: { account: Account; busy: boolean
         style={styles.signOut}
       >
         {busy ? <ActivityIndicator color={colors.soft} /> : <LogoutIcon color={colors.soft} size={19} />}
-      </Pressable>
+      </GlassButton>
     </View>
   );
 }
 
-/** The recordings this phone is sharing now: each opens its share sheet. */
+/** The recordings this phone is sharing now: each opens its share sheet; a group link is one row (2026-11-22). */
 function SharingNow() {
   const { t } = useT();
   const version = useSyncExternalStore(repo.subscribe, repo.version);
@@ -279,16 +296,54 @@ function SharingNow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- version is the change signal
     [version, now],
   );
-  if (live.length === 0) return null;
+  const rows: ({ kind: 'recording'; session: Session & { shared: SessionShare } } | { kind: 'group'; group: ShareGroup })[] = [];
+  for (const session of live) {
+    const groupId = session.shared.groupId;
+    if (groupId === undefined) {
+      rows.push({ kind: 'recording', session });
+      continue;
+    }
+    if (rows.some((row) => row.kind === 'group' && row.group.groupId === groupId)) continue;
+    const group = shareGroup(groupId);
+    if (group !== undefined) rows.push({ kind: 'group', group });
+  }
+  if (rows.length === 0) return null;
   return (
     <Section label={t('account.sectionShares')}>
-      {live.map((session, i) => (
-        <View key={session.id}>
+      {rows.map((row, i) => (
+        <View key={row.kind === 'group' ? row.group.groupId : row.session.id}>
           {i > 0 ? <Separator /> : null}
-          <SharingRow session={session} now={now} />
+          {row.kind === 'group' ? <GroupSharingRow group={row.group} now={now} /> : <SharingRow session={row.session} now={now} />}
         </View>
       ))}
     </Section>
+  );
+}
+
+function GroupSharingRow({ group, now }: { group: ShareGroup; now: number }) {
+  const { t } = useT();
+  const status = useShareStatus(group.groupId, 60 * 1000);
+  const hours = hoursLeft(group.expiresAt, now);
+  const parts = [
+    t('sharing.clips', { count: groupClips(group) }),
+    status !== undefined && status.opened > 0 ? t('sharing.opened', { count: status.opened }) : undefined,
+    hours >= 1 ? t('sharing.hoursLeftShort', { count: hours }) : t('sharing.lastHour'),
+  ].filter((p): p is string => p !== undefined);
+  return (
+    <Pressable accessibilityRole="button" onPress={() => router.push(`/share/group?group=${group.groupId}`)} style={styles.row}>
+      <View style={styles.rowIcon}>
+        <View style={styles.liveDot} />
+      </View>
+      <View style={styles.profileText}>
+        <Text style={styles.rowLabel} numberOfLines={1}>
+          {t('sharing.groupLabel', { count: group.recordings.length })}
+        </Text>
+        <Text style={styles.small} numberOfLines={1}>
+          {parts.join(' · ')}
+        </Text>
+      </View>
+      <ChevronIcon size={17} color={colors.muted} />
+    </Pressable>
   );
 }
 
@@ -356,9 +411,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -415,9 +467,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.ground,
     alignItems: 'center',
     justifyContent: 'center',
   },

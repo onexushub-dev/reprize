@@ -53,10 +53,11 @@ test('first time: tells how to pair the remote, step by step, and tells the setu
   expect(isRemoteSheetOpen()).toBe(true);
 });
 
-test('a press shows the remote as connected', async () => {
+test('a press shows the remote as connected, in the list (2026-11-22: no first-time ✓ screen in between)', async () => {
   await render(<Devices />);
   await press();
-  expect(screen.getByText('Controle conectado')).toBeTruthy();
+  expect(screen.getByText('Seus controles')).toBeTruthy();
+  expect(screen.getByLabelText('Controle, Conectado')).toBeTruthy();
   expect(screen.queryByText('Aperte um botão do controle…')).toBeNull();
 });
 

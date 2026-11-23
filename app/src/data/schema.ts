@@ -57,10 +57,46 @@ export type SessionReceived = {
   recordedMs?: number;
   /** A courtesy was spent on it (the server said so, `use_courtesy`): its clips leave in Full HD with the mark. */
   courtesy?: boolean;
+  /**
+   * Came in a group link (multi-recording share design §5.1): the group's id. `code` is the group's and `shareId` this
+   * recording's own; `open-share` is called with both.
+   */
+  groupId?: string;
+  /** What the person chose (§5.4); absent: `on`, as every link opened before the choice existed. */
+  download?: ReceivedDownload;
+  /** The size of all its clips (bytes), as the group link listed it. */
+  bytes?: number;
+  /**
+   * The link is over (turned off, expired early, reported), as the server said when the app last asked (2026-11-22):
+   * kept, so nothing asks again and an empty recording can leave the phone.
+   */
+  ended?: ReceivedEnd;
 };
 
+export type ReceivedEnd = 'off' | 'expired' | 'removed';
+
+/**
+ * Whether a received recording downloads: `on`; `waiting` (a group's recording until Baixar, or after Cancelar);
+ * `paused` (Pausar, until Continuar).
+ */
+export type ReceivedDownload = 'on' | 'waiting' | 'paused';
+
 /** The sender's link for a recording: what the share sheet shows again until it expires. Times in ms. */
-export type SessionShare = { shareId: string; url: string; createdAt: number; expiresAt: number; clips: number; state: 'active' | 'off' };
+export type SessionShare = {
+  shareId: string;
+  url: string;
+  createdAt: number;
+  expiresAt: number;
+  clips: number;
+  state: 'active' | 'off';
+  /** A link with only these clips of the recording (picked-clips link, 2026-11-23); absent = all of them. */
+  clipIds?: string[];
+  /**
+   * Shared in a group link (multi-recording share design §5.1): `url` is the group's link, `shareId` the recording's own
+   * share (its uploads and progress), and this the group's id (`cloud/shareGroups.ts`).
+   */
+  groupId?: string;
+};
 
 /**
  * The recording's sport (spec 2026-11-11 §5), stored under its historical name. `sport`: the sport the player chose
@@ -187,6 +223,11 @@ export type Clip = {
   name?: string;
   /** On a received recording: the clip's place in the share it came from (sharing design §5.5). */
   sharePosition?: number;
+  /**
+   * On a received clip: what the sender's edit fixed (2026-11-22, `cloud/shareCut.ts`). `sound`: the file has no sound,
+   * so it cannot be turned on. The cut is fixed by the file itself (nothing outside it was sent).
+   */
+  locked?: { sound?: true };
   /** When the edited video was last saved to Photos / sent through the share sheet (the clip itself stays inside the app). */
   savedAt?: number;
   sharedAt?: number;
@@ -234,6 +275,8 @@ export type Prefs = {
   modeSettings?: Partial<Record<ModeId, StoredModeSettings>>;
   /** "Prepare o celular" (no case, out of the sun) was dismissed for good before a recording. */
   prepareTipSeen?: boolean;
+  /** The first-time tour of the camera was finished or skipped (Ajustes > Tutorial turns it back off). */
+  cameraTourSeen?: boolean;
   /** The recording opened last: "Visto por último" in Minhas gravações. */
   lastOpenedSessionId?: string;
   /**

@@ -6,6 +6,7 @@ import type { TFunction } from '../i18n';
 import { useT } from '../i18n/useT';
 import { colors, fonts, radius } from '../theme/tokens';
 import { CheckIcon, PauseIcon, PlayIcon } from './icons';
+import { GlassButton } from './GlassButton';
 
 /** One line for where the clips are: "7 de 12 clipes enviados", paused, all sent, or what did not upload. */
 export function uploadLine(t: TFunction, progress: ShareProgress): string {
@@ -21,8 +22,24 @@ export function uploadLine(t: TFunction, progress: ShareProgress): string {
  * use mobile data whenever there is no Wi-Fi (2026-11-20: the switch is gone).
  */
 export function ShareUploadStatus({ shareId }: { shareId: string }) {
-  const { t } = useT();
   const progress = useShareProgress(shareId);
+  return <UploadStatusCard progress={progress} onRetry={() => uploadQueue.retry(shareId)} />;
+}
+
+/**
+ * The card of ShareUploadStatus for any progress: one recording's, or a group link's together (`count` then says how
+ * many recordings went up, under the clips).
+ */
+export function UploadStatusCard({
+  progress,
+  onRetry,
+  recordings,
+}: {
+  progress: ShareProgress;
+  onRetry: () => void;
+  recordings?: { done: number; count: number };
+}) {
+  const { t } = useT();
   if (progress.state === 'none') return <Text style={styles.note}>{t('sharing.uploadNote')}</Text>;
   if (progress.state === 'done') {
     return (
@@ -31,7 +48,9 @@ export function ShareUploadStatus({ shareId }: { shareId: string }) {
           <CheckIcon size={16} />
         </View>
         <View style={styles.text}>
-          <Text style={styles.line}>{uploadLine(t, progress)}</Text>
+          <Text style={styles.line}>
+            {recordings === undefined ? uploadLine(t, progress) : t('sharing.groupAllSent', { count: recordings.count })}
+          </Text>
           <Text style={styles.sub}>{t('sharing.allSentNote')}</Text>
         </View>
       </View>
@@ -41,20 +60,28 @@ export function ShareUploadStatus({ shareId }: { shareId: string }) {
   const byYou = progress.state === 'paused' && progress.pausedBy === 'you';
   // A pause for a recording ends by itself when the recording ends: no button then.
   const canToggle = !(progress.state === 'paused' && progress.pausedBy === 'recording');
-  const sent = t('sharing.sent', { done: progress.done, count: progress.total });
-  const sub = progress.state === 'paused' || progress.state === 'failed' ? uploadLine(t, progress) : t('sharing.keepGoing');
+  const sent =
+    recordings === undefined
+      ? t('sharing.sent', { done: progress.done, count: progress.total })
+      : t('sharing.recordingsSent', { done: recordings.done, count: recordings.count });
+  const sub =
+    progress.state === 'paused' || progress.state === 'failed'
+      ? uploadLine(t, progress)
+      : recordings === undefined
+        ? t('sharing.keepGoing')
+        : t('sharing.sent', { done: progress.done, count: progress.total });
   return (
     <View style={styles.root}>
       <View style={styles.head}>
         {canToggle ? (
-          <Pressable
+          <GlassButton
             accessibilityRole="button"
             accessibilityLabel={byYou ? t('sharing.resumeUpload') : t('sharing.pauseUpload')}
             onPress={() => uploadQueue.setManualPause(!byYou)}
             style={styles.toggle}
           >
             {byYou ? <PlayIcon color={colors.accent} size={18} /> : <PauseIcon size={16} />}
-          </Pressable>
+          </GlassButton>
         ) : null}
         <View style={styles.text}>
           <Text style={styles.line}>{sent}</Text>
@@ -66,7 +93,7 @@ export function ShareUploadStatus({ shareId }: { shareId: string }) {
         <View style={[styles.fill, { width: `${Math.round(fraction * 100)}%` }, progress.state === 'paused' && styles.fillPaused]} />
       </View>
       {progress.failed > 0 && progress.state !== 'paused' ? (
-        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => uploadQueue.retry(shareId)}>
+        <Pressable accessibilityRole="button" hitSlop={8} onPress={onRetry}>
           <Text style={styles.retry}>{t('sharing.retry')}</Text>
         </Pressable>
       ) : null}
@@ -81,9 +108,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.ground,
     alignItems: 'center',
     justifyContent: 'center',
   },

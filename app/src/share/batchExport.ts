@@ -88,6 +88,8 @@ export async function runBatch(o: BatchOptions): Promise<BatchResult> {
       perClipMs.push(Date.now() - clockStart);
       done.push({ index, clip, path: result.path });
     } catch {
+      // After Cancelar (2026-11-23) a rejection is the stop, not a failure, whatever code the bridge left on it.
+      if (o.signal.cancelled) return;
       failed.push({ index, clip, reason: 'export' });
     }
     finish();

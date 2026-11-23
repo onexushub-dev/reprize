@@ -28,7 +28,8 @@ async function keep(path: string, dir: Directory, name: string): Promise<string>
 
 /**
  * Makes the cover of the recording's live link if its plan still waits for it, then hands it to the upload queue. Runs
- * on the share sheet, which draws the app mark (`capture`); a sheet closed too early leaves it for the next opening.
+ * on the share sheet, which draws the app mark (`capture`); a sheet closed too early leaves it for the next opening. A
+ * group link has one cover, in the group's own plan: the sheet passes its first recording.
  */
 export async function ensureCover(
   sessionId: string,
@@ -37,12 +38,14 @@ export async function ensureCover(
 ): Promise<void> {
   const session = repo.getSession(sessionId);
   const shared = session ? session.shared : undefined;
-  if (shared === undefined || shared.state !== 'active' || running.has(shared.shareId)) return;
-  const plan = uploadPlan(shared.shareId);
+  if (shared === undefined || shared.state !== 'active') return;
+  const planId = shared.groupId === undefined ? shared.shareId : shared.groupId;
+  if (running.has(planId)) return;
+  const plan = uploadPlan(planId);
   if (plan === undefined || !coverPending(plan.items)) return;
   const clips = repo.listClips(sessionId);
   if (clips.length === 0) return;
-  running.add(shared.shareId);
+  running.add(planId);
   let failed = false;
   try {
     const made = await exportCover(clips[0], {
@@ -51,20 +54,20 @@ export async function ensureCover(
       exportClip,
       still: createThumbnail,
     });
-    const dir = shareFilesDir(shared.shareId);
+    const dir = shareFilesDir(planId);
     dir.create({ intermediates: true, idempotent: true });
     const cover = { video: await keep(made.video, dir, 'cover.mp4'), image: await keep(made.image, dir, 'cover.jpg') };
     // Read again: the plan may have been forgotten (link turned off) while the cover was made.
-    const now = uploadPlan(shared.shareId);
+    const now = uploadPlan(planId);
     if (now === undefined) return;
-    saveUploadPlan(shared.shareId, { ...now, items: attachCover(now.items, cover) });
+    saveUploadPlan(planId, { ...now, items: attachCover(now.items, cover) });
     diag('envio: capa pronta');
     uploadQueue.sync();
   } catch (e) {
     diag(`envio: capa FALHOU (${e instanceof Error ? e.message : String(e)})`);
     failed = true;
   } finally {
-    running.delete(shared.shareId);
+    running.delete(planId);
   }
   // Stopped by iOS while the app was away, and reported only once it was back: the return to the front has already
   // passed, so make it again now.

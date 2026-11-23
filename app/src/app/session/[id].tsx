@@ -44,7 +44,9 @@ import {
   MoreIcon,
 } from "../../components/icons";
 import { clipNumber, sessionLabel } from "../../components/format";
-import { useReceiveProgress } from "../../cloud/receive";
+import { receiveQueue, useReceiveProgress } from "../../cloud/receive";
+import { removeReceivedFiles } from "../../cloud/receivedPaths";
+import { confirmClipsShare, confirmShare } from "../../cloud/shareConfirm";
 import { markOpened } from "../../data/lastOpened";
 import { removeFile, repo } from "../../data/mmkv";
 import { MAX_GAME_NAME, type Clip } from "../../data/schema";
@@ -66,6 +68,7 @@ import { useBatchActions } from "../../share/useBatchActions";
 import { useT } from "../../i18n/useT";
 import { useSession } from "../../session/SessionContext";
 import { colors, fonts, footer } from "../../theme/tokens";
+import { GlassButton } from "../../components/GlassButton";
 
 export default function SessionSummary() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -105,7 +108,34 @@ export default function SessionSummary() {
       const outcome = await openPaywall(t, "locked_feature");
       if (outcome !== "purchased" && outcome !== "restored") return;
     }
-    router.push(`/share/${id}`);
+    // Asked first (2026-11-22): what goes in the link and for how long; a link that exists opens straight away.
+    if (!session) return;
+    confirmShare(t, [session], clips.length, () => router.push(`/share/${id}`));
+  }
+
+  // A link with only the picked clips (2026-11-23): one live link per recording, so a live one is shown, not doubled.
+  async function sharePicked() {
+    if (!shareAllowed) {
+      track("pro_feature_blocked", { feature: "share" });
+      const outcome = await openPaywall(t, "locked_feature");
+      if (outcome !== "purchased" && outcome !== "restored") return;
+    }
+    if (!session || pickedClips.length === 0) return;
+    const ids = pickedClips.map((c) => c.id).join(",");
+    confirmClipsShare(
+      t,
+      session,
+      sessionLabel(session, undefined, locale),
+      pickedClips.length,
+      () => {
+        stopSelecting();
+        router.push(`/share/${id}?clips=${ids}`);
+      },
+      () => {
+        stopSelecting();
+        router.push(`/share/${id}`);
+      },
+    );
   }
 
   // Jogadores and Bola are analysed only when the player picks them on a clip (2026-11-11): nothing runs from this list.
@@ -267,7 +297,9 @@ export default function SessionSummary() {
           style: "destructive",
           onPress: () => {
             setDeleted(live);
+            const sharedWithMe = session && session.received ? session.received.shareId : undefined;
             repo.deleteSession(id).forEach((path) => removeFile(path));
+            if (sharedWithMe !== undefined) removeReceivedFiles(sharedWithMe);
             if (state.sessionId === id) reset();
             leaveToGames();
           },
@@ -320,11 +352,21 @@ export default function SessionSummary() {
     }
     if (!hadClips.current || !session) return;
     hadClips.current = false;
+    // Cancelar on a received recording took its clips off the phone: the recording stays, ready to download again.
+    if (session.received && session.received.download === "waiting") return;
     repo.deleteSession(id).forEach((path) => removeFile(path));
     if (state.sessionId === id) reset();
     leaveToGames();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the clip list changes
   }, [clips.length, session]);
+
+  // A received recording on screen: its link is asked about (the person's own tap: a link turned off is learnt here),
+  // and it is never removed from under the person while open (2026-11-22).
+  const isReceived = session !== undefined && session.received !== undefined;
+  useEffect(() => {
+    if (!isReceived) return;
+    return receiveQueue.opened(id);
+  }, [id, isReceived]);
 
   const { width: screenWidth } = useWindowDimensions();
   const tileWidth = Math.floor((screenWidth - 4) / 3);
@@ -334,7 +376,7 @@ export default function SessionSummary() {
   );
   type Tile =
     | { kind: "clip"; key: string; clip: Clip; number: number }
-    | { kind: "pending"; key: string; number: number; downloading: boolean };
+    | { kind: "pending"; key: string; number: number; downloading: boolean; thumb?: string };
   const ownTiles = (): Tile[] =>
     clips.map((clip, index) => ({ kind: "clip", key: clip.id, clip, number: clipNumber(clip, index) }));
   /**
@@ -362,6 +404,7 @@ export default function SessionSummary() {
         key: `slot-${place.position}`,
         number: place.number,
         downloading: !receive.paused && running.includes(place.position),
+        thumb: receive.thumbs === undefined ? undefined : receive.thumbs[place.position],
       };
     });
     // A clip whose place is not in the list (an old share): after the others.
@@ -440,14 +483,14 @@ export default function SessionSummary() {
         {/* The name field, "Gravação · date, time" until the player names it, opens the screen (2026-11-02). */}
         {session ? (
           <View style={styles.header}>
-            <Pressable
+            <GlassButton
               accessibilityRole="button"
               accessibilityLabel={t("common.back")}
               onPress={goBack}
               style={styles.round}
             >
               <BackIcon />
-            </Pressable>
+            </GlassButton>
             <TextInput
               accessibilityLabel={t("summary.nameLabel")}
               value={name}
@@ -470,7 +513,7 @@ export default function SessionSummary() {
             {/* Selecting (2026-11-22, trying it): "Todos"/"Limpar" where "…" was, and an ✕ to stop where "Selecionar"
                 was; the numbers under the name stay. */}
             {selecting ? (
-              <Pressable
+              <GlassButton
                 accessibilityRole="button"
                 accessibilityLabel={
                   pickedClips.length === clips.length
@@ -486,35 +529,35 @@ export default function SessionSummary() {
                     ? t("summary.clear")
                     : t("summary.all")}
                 </Text>
-              </Pressable>
+              </GlassButton>
             ) : (
-              <Pressable
+              <GlassButton
                 accessibilityRole="button"
                 accessibilityLabel={t("summary.more")}
                 onPress={openMenu}
                 style={[styles.round, styles.roundSmall]}
               >
                 <MoreIcon />
-              </Pressable>
+              </GlassButton>
             )}
             {selecting ? (
-              <Pressable
+              <GlassButton
                 accessibilityRole="button"
                 accessibilityLabel={t("summary.cancelSelection")}
                 onPress={stopSelecting}
                 style={[styles.round, styles.roundSmall]}
               >
                 <CloseIcon size={18} />
-              </Pressable>
+              </GlassButton>
             ) : clips.length > 0 ? (
-              <Pressable
+              <GlassButton
                 accessibilityRole="button"
                 accessibilityLabel={t("summary.selectClips")}
                 onPress={() => setSelecting(true)}
                 style={styles.pill}
               >
                 <Text style={styles.pillText}>{t("summary.select")}</Text>
-              </Pressable>
+              </GlassButton>
             ) : null}
           </View>
         ) : null}
@@ -545,7 +588,7 @@ export default function SessionSummary() {
 
         {/* A received recording: who sent it and how far the download is (the free unlock is offered on Salvar). */}
         {SHARING_ENABLED && session && session.received ? (
-          <ReceivedBanner sessionId={id} received={session.received} />
+          <ReceivedBanner sessionId={id} received={session.received} onDelete={confirmDeleteGame} />
         ) : null}
 
         {/* A live link: where the upload is and how long it lasts; a tap opens the share sheet. */}
@@ -611,13 +654,15 @@ export default function SessionSummary() {
             />
           </View>
         }
-        extraData={[selecting, picked, plan, tileWidth]}
+        extraData={[selecting, picked, plan, tileWidth, receive]}
         renderItem={({ item }) =>
           item.kind === "pending" ? (
             <PendingClipTile
               number={item.number}
               width={tileWidth}
               downloading={item.downloading}
+              thumb={item.thumb}
+              idle={receive.download !== "on"}
             />
           ) : (
             <ClipCard
@@ -650,6 +695,7 @@ export default function SessionSummary() {
             count={pickedClips.length}
             paid={plan === "paid"}
             busy={working}
+            onLink={canShareHere ? () => void sharePicked() : undefined}
             onShare={() =>
               void exportAfterNotice("share", pickedClips, batch.share)
             }
@@ -754,9 +800,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -774,9 +817,6 @@ const styles = StyleSheet.create({
     height: 36,
     paddingHorizontal: 14,
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },

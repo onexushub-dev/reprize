@@ -1,6 +1,6 @@
 import type { TriggerSource } from '../data/schema';
 import type { Analytics } from './core';
-import type { CountBucket, DurationBucket, RecordingDurationBucket } from './events';
+import type { CountBucket, DurationBucket, RecordingDurationBucket, RecordingsBucket } from './events';
 
 export type SummaryCounter = 'clip_saved' | 'export' | 'zoom' | 'guide' | 'economy';
 
@@ -10,6 +10,13 @@ export function countBucket(n: number): CountBucket {
   if (n <= 5) return '2-5';
   if (n <= 20) return '6-20';
   return '21+';
+}
+
+export function recordingsBucket(count: number): RecordingsBucket {
+  if (count <= 1) return '1';
+  if (count <= 3) return '2-3';
+  if (count <= 6) return '4-6';
+  return '7-10';
 }
 
 export function durationBucket(ms: number): DurationBucket {

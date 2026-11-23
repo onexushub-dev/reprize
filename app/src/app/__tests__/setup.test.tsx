@@ -75,6 +75,7 @@ jest.mock("../../data/mmkv", () => {
     voiceEnabled: false,
     screenEconomy: true,
     prepareTipSeen: true, // the "Prepare o celular" sheet has its own tests
+    cameraTourSeen: true, // the first-time tour has its own tests
   };
   let prefs: any = { ...initial };
   return {
@@ -416,6 +417,15 @@ test("a quick camera reopen shows nothing (it only flashed); a slow one says so 
   }
 });
 
+test("a panel opens above the settings by the same 16 pt the settings sit above the black (2026-11-22)", async () => {
+  session({});
+  await render(<Setup />);
+  await openClip();
+  const { StyleSheet } = jest.requireActual("react-native");
+  // barHeight is 0 until the bar is laid out on a phone: the panel sits BAR_GAP above it.
+  expect(StyleSheet.flatten(screen.getByTestId("clip-panel").props.style).bottom).toBe(16);
+});
+
 test('the Bluetooth remote and the Apple Watch come first, under "Recomendados", then the other triggers', async () => {
   session({});
   await render(<Setup />);
@@ -473,6 +483,68 @@ test("the wave trigger toggles the gesture preference", async () => {
       }),
     }),
   );
+});
+
+describe("the first-time tour of the camera (2026-11-22)", () => {
+  type FiberLike = { stateNode: unknown; return: FiberLike | null } | null;
+  /**
+   * Every host view answers where it is (the jest mock of measureInWindow answers nothing), then the screen renders
+   * again so the bar measures its controls.
+   */
+  async function measured(view: { rerender: (ui: React.ReactElement) => Promise<void> }) {
+    for (const el of screen.container.queryAll(() => true)) {
+      let fiber = el.unstable_fiber as FiberLike;
+      while (fiber !== null) {
+        const node = fiber.stateNode as { measureInWindow?: unknown } | null;
+        if (node !== null && typeof node === "object" && jest.isMockFunction(node.measureInWindow)) {
+          (node.measureInWindow as jest.Mock).mockImplementation((cb: (x: number, y: number, w: number, h: number) => void) =>
+            cb(20, 630, 80, 44),
+          );
+          break;
+        }
+        fiber = fiber.return;
+      }
+    }
+    await act(async () => {
+      await view.rerender(<Setup />);
+    });
+  }
+
+  test("a new player gets four tips over the real controls, then never again", async () => {
+    repo.setPrefs({ cameraTourSeen: undefined });
+    session({});
+    const view = await render(<Setup />);
+    await measured(view);
+    expect(screen.getByTestId("camera-tour")).toBeTruthy();
+    expect(screen.getByText("1 de 4")).toBeTruthy();
+    expect(screen.getByText("Defina o tamanho do clipe")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
+    expect(screen.getByText("Qualidade da imagem")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
+    expect(screen.getByText("Salve sem tocar no celular")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
+    expect(screen.getByText("4 de 4")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Entendi" }));
+    expect(screen.queryByTestId("camera-tour")).toBeNull();
+    expect(repo.getPrefs().cameraTourSeen).toBe(true);
+  });
+
+  test("Pular ends it for good", async () => {
+    repo.setPrefs({ cameraTourSeen: undefined });
+    session({});
+    const view = await render(<Setup />);
+    await measured(view);
+    await fireEvent.press(screen.getByRole("button", { name: "Pular" }));
+    expect(screen.queryByTestId("camera-tour")).toBeNull();
+    expect(repo.getPrefs().cameraTourSeen).toBe(true);
+  });
+
+  test("seen before: no tour", async () => {
+    session({});
+    const view = await render(<Setup />);
+    await measured(view);
+    expect(screen.queryByTestId("camera-tour")).toBeNull();
+  });
 });
 
 describe('"Prepare o celular" before a recording (2026-11-08)', () => {
@@ -1682,4 +1754,12 @@ describe("Testar gatilhos (2026-11-22)", () => {
     await openTest();
     expect(screen.getByText("Ligue um gatilho para testar.")).toBeTruthy();
   });
+});
+
+test('the clip length reads with a small "s" for seconds, the other settings in capitals (2026-11-22)', async () => {
+  const { StyleSheet } = jest.requireActual('react-native');
+  session({});
+  await render(<Setup />);
+  const seconds = screen.getAllByText(/^\d+s$/)[0];
+  expect(StyleSheet.flatten(seconds.props.style).textTransform).toBe('none');
 });

@@ -139,6 +139,29 @@ test('cancel stops starting clips; one finishing after cancel is removed and not
   expect(mockFiles.size).toBe(0);
 });
 
+test('exports stopped by Cancelar are not reported as failures (2026-11-23)', async () => {
+  const t = setup();
+  const signal = { cancelled: false };
+  t.exportClip.mockImplementation(async () => {
+    signal.cancelled = true;
+    throw Object.assign(new Error('export cancelled'), { code: 'CANCELLED' });
+  });
+  const r = await runBatch({ ...t.base, signal, clips: ['a', 'b'].map((id) => clipOf(id)) });
+  expect(r.failed).toEqual([]);
+  expect(r.done).toEqual([]);
+});
+
+test('after Cancelar, any rejection is a stop, not a failure, even without the CANCELLED code (review 2026-11-23)', async () => {
+  const t = setup();
+  const signal = { cancelled: false };
+  t.exportClip.mockImplementation(async () => {
+    signal.cancelled = true;
+    throw new Error('wrapped by the bridge');
+  });
+  const r = await runBatch({ ...t.base, signal, clips: ['a', 'b'].map((id) => clipOf(id)) });
+  expect(r.failed).toEqual([]);
+});
+
 test('a forced orientation reaches every job', async () => {
   const t = setup();
   await runBatch({ ...t.base, orientation: 'landscape', clips: [clipOf('a'), clipOf('b')] });

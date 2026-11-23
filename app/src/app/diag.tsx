@@ -27,6 +27,7 @@ import { applyLabVariants, ballMaxWidth, ballMotionTiles, scanSequential } from 
 import { focusEveryMs } from '../focus/appFocusQueue';
 import { colors, fonts, radius } from '../theme/tokens';
 import { SHARING_ENABLED } from '../account/flags';
+import { clearAllGroups } from '../cloud/shareGroup';
 import { clearAllShares } from '../cloud/shareRecording';
 import { QrScanner } from '../components/QrScanner';
 
@@ -130,7 +131,7 @@ function LabSwitches() {
           text: 'Limpar',
           style: 'destructive',
           onPress: () => {
-            void clearAllShares().then((count) => diag(`envio: compartilhamentos limpos em ${count} gravações`));
+            void clearAllGroups().then(() => clearAllShares()).then((count) => diag(`envio: compartilhamentos limpos em ${count} gravações`));
           },
         },
       ],

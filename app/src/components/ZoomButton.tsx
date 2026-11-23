@@ -1,8 +1,9 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
 import { useT } from '../i18n/useT';
 import { formatZoom } from '../modes/zoom';
 import { colors, fonts } from '../theme/tokens';
+import { GlassButton } from './GlassButton';
 
 type Props = {
   value: number;
@@ -16,18 +17,19 @@ export function ZoomButton({ value, onPress, lit = false }: Props) {
   const { t } = useT();
   const text = formatZoom(value);
   return (
-    <Pressable
+    <GlassButton
+      variant="overlay"
       accessibilityRole="button"
       accessibilityLabel={t('setup.zoomA11y', { value: text })}
       accessibilityHint={t('setup.zoomHint')}
       onPress={onPress}
       style={[styles.button, lit && styles.lit]}>
       <Text style={[styles.text, lit && styles.litText]}>{text}</Text>
-    </Pressable>
+    </GlassButton>
   );
 }
 
-// A dark round glass, the value in amber (2026-11-22): the same glass as the three settings buttons over the camera.
+// A dark round glass, the value in amber (2026-11-22): the app's glass button over the camera (`GlassButton`).
 const styles = StyleSheet.create({
   button: {
     width: 52,
@@ -35,11 +37,8 @@ const styles = StyleSheet.create({
     borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(12,12,12,0.55)',
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   text: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.accent },
-  lit: { backgroundColor: colors.accent, borderColor: colors.accent },
+  lit: { backgroundColor: colors.accent, borderColor: colors.accent, borderTopColor: colors.accent },
   litText: { color: colors.onAccent },
 });

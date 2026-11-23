@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,11 +14,15 @@ import { lastOpenedSession, subscribeLastOpened } from '../data/lastOpened';
 import { removeFile, repo } from '../data/mmkv';
 import { useT } from '../i18n/useT';
 import { SHARING_ENABLED } from '../account/flags';
+import { removeReceivedFiles } from '../cloud/receivedPaths';
+import { confirmShare } from '../cloud/shareConfirm';
+import { type PickRefusal, shareablePick } from '../cloud/sharePick';
 import { track } from '../analytics';
 import { openPaywall } from '../payments/feedback';
 import { canShare } from '../payments/limits';
 import { useProActive } from '../share/entitlement';
 import { colors, fonts, footer } from '../theme/tokens';
+import { GlassButton } from '../components/GlassButton';
 
 type Filter = 'all' | 'mine' | 'received';
 
@@ -40,7 +44,15 @@ export default function Games() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- version is the change signal
     [version],
   );
-  const [filter, setFilter] = useState<Filter>('all');
+  // Opened by a group link (multi-recording share design §3.2): on Recebidas, saying how many came and from whom.
+  const params = useLocalSearchParams<{ received?: string; from?: string }>();
+  const [groupNote] = useState(() => {
+    const count = typeof params.received === 'string' ? Number(params.received) : NaN;
+    if (!Number.isInteger(count) || count < 1) return undefined;
+    const from = typeof params.from === 'string' && params.from !== '' ? params.from : undefined;
+    return from === undefined ? t('received.groupNoteUnknown', { count }) : t('received.groupNote', { count, name: from });
+  });
+  const [filter, setFilter] = useState<Filter>(groupNote === undefined ? 'all' : 'received');
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<string[]>([]);
   const hasReceived = games.some((g) => g.session.received !== undefined);
@@ -96,20 +108,40 @@ export default function Games() {
   const allPicked = pickable.length > 0 && pickable.every((id) => picked.includes(id));
   const pickAll = () => setPicked(allPicked ? [] : pickable);
 
-  // Compartilhar (2026-11-22): one recording by link, as from its "…" (several at once comes later). Only a recording
-  // made here, ended, with clips; on the free plan the paywall first.
+  // Compartilhar (2026-11-22): 1 to 10 recordings made here, ended, with clips, in one link (multi-recording share
+  // design §3.1); on the free plan the paywall first. One recording keeps its own sheet; two or more, the group's.
   const shareAllowed = canShare(useProActive() ? 'paid' : 'free');
-  const toShare = pickedGames.length === 1 ? pickedGames[0] : undefined;
-  const shareable = toShare !== undefined && toShare.session.received === undefined && toShare.clips > 0;
-  async function shareRecording() {
-    if (toShare === undefined) return;
+  const pick = shareablePick(pickedGames);
+  const refusal: PickRefusal | undefined = pick.ok ? undefined : pick.reason;
+  const shareHint =
+    refusal === 'tooMany'
+      ? t('games.shareLimit')
+      : refusal === 'tooManyClips'
+        ? t('games.shareClipLimit')
+        : refusal === 'received'
+          ? t('games.shareReceived')
+          : refusal === 'empty'
+            ? t('games.shareEmpty')
+            : undefined;
+  async function shareRecordings() {
+    if (!pick.ok) return;
     if (!shareAllowed) {
       track('pro_feature_blocked', { feature: 'share' });
       const outcome = await openPaywall(t, 'locked_feature');
       if (outcome !== 'purchased' && outcome !== 'restored') return;
     }
-    stopSelecting();
-    router.push(`/share/${toShare.session.id}`);
+    const ids = pickedGames.map((g) => g.session.id);
+    const clips = pickedGames.reduce((total, g) => total + g.clips, 0);
+    // Asked first (2026-11-22): what goes in the link and for how long; a link that exists opens straight away.
+    confirmShare(
+      t,
+      pickedGames.map((g) => g.session),
+      clips,
+      () => {
+        stopSelecting();
+        router.push(ids.length === 1 ? `/share/${ids[0]}` : `/share/group?ids=${ids.join(',')}`);
+      },
+    );
   }
 
   const confirmDelete = () => {
@@ -121,7 +153,10 @@ export default function Games() {
         text: t('common.delete'),
         style: 'destructive',
         onPress: () => {
-          for (const game of pickedGames) repo.deleteSession(game.session.id).forEach((path) => removeFile(path));
+          for (const game of pickedGames) {
+            repo.deleteSession(game.session.id).forEach((path) => removeFile(path));
+            if (game.session.received !== undefined) removeReceivedFiles(game.session.received.shareId);
+          }
           stopSelecting();
         },
       },
@@ -131,34 +166,34 @@ export default function Games() {
   return (
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.root}>
       <View style={styles.header}>
-        <Pressable accessibilityRole="button" accessibilityLabel={t('common.back')} onPress={() => router.back()} style={styles.back}>
+        <GlassButton accessibilityRole="button" accessibilityLabel={t('common.back')} onPress={() => router.back()} style={styles.back}>
           <BackIcon />
-        </Pressable>
+        </GlassButton>
         <Text style={styles.title} accessibilityRole="header" numberOfLines={1}>
           {t('games.title')}
         </Text>
         {/* Selecting (2026-11-22), as on a recording's screen: "Todos"/"Limpar" in amber, and an ✕ to stop. */}
         {selecting ? (
           <>
-            <Pressable
+            <GlassButton
               accessibilityRole="button"
               accessibilityLabel={allPicked ? t('summary.clearSelection') : t('summary.selectAll')}
               onPress={pickAll}
               style={styles.pill}>
               <Text style={[styles.pillText, styles.pillTextAccent]}>{allPicked ? t('summary.clear') : t('summary.all')}</Text>
-            </Pressable>
-            <Pressable
+            </GlassButton>
+            <GlassButton
               accessibilityRole="button"
               accessibilityLabel={t('summary.cancelSelection')}
               onPress={stopSelecting}
               style={styles.close}>
               <CloseIcon size={18} />
-            </Pressable>
+            </GlassButton>
           </>
         ) : games.length > 0 ? (
-          <Pressable accessibilityRole="button" onPress={() => setSelecting(true)} style={styles.pill}>
+          <GlassButton accessibilityRole="button" onPress={() => setSelecting(true)} style={styles.pill}>
             <Text style={styles.pillText}>{t('games.select')}</Text>
-          </Pressable>
+          </GlassButton>
         ) : null}
       </View>
       {games.length > 0 ? (
@@ -171,15 +206,16 @@ export default function Games() {
             </>
           ) : null}
           <View style={styles.filtersEnd} />
-          <Pressable
+          <GlassButton
             accessibilityRole="button"
             accessibilityLabel={t('games.dateFilter')}
             onPress={() => setPickingDay(true)}
             style={[styles.calendar, day !== undefined && styles.calendarOn]}>
             <CalendarIcon size={18} color={day !== undefined ? colors.onAccent : colors.text} />
-          </Pressable>
+          </GlassButton>
         </View>
       ) : null}
+      {groupNote !== undefined && filter === 'received' ? <Text style={styles.groupNote}>{groupNote}</Text> : null}
       {dayShown ? (
         <Pressable
           accessibilityRole="button"
@@ -243,16 +279,18 @@ export default function Games() {
             text={
               pickedGames.length === 0
                 ? t('games.tapRecordings')
-                : t('games.selectedRecordings', { count: pickedGames.length })
+                : SHARING_ENABLED && (refusal === 'tooMany' || refusal === 'tooManyClips') && shareHint !== undefined
+                  ? shareHint
+                  : t('games.selectedRecordings', { count: pickedGames.length })
             }
             left={
               SHARING_ENABLED
                 ? [
                     {
                       label: t('summary.shareButton'),
-                      hint: pickedGames.length > 1 ? t('games.shareOne') : undefined,
-                      disabled: !shareable,
-                      onPress: () => void shareRecording(),
+                      hint: shareHint,
+                      disabled: !pick.ok,
+                      onPress: () => void shareRecordings(),
                       icon: <LinkShareIcon size={26} color={colors.accent} />,
                     },
                   ]
@@ -283,9 +321,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -294,9 +329,6 @@ const styles = StyleSheet.create({
     height: 36,
     paddingHorizontal: 14,
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -306,9 +338,6 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -318,13 +347,10 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  calendarOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  calendarOn: { backgroundColor: colors.accent, borderColor: colors.accent, borderTopColor: colors.accent },
   dayChip: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
@@ -335,6 +361,7 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     backgroundColor: 'rgba(255,176,0,0.14)',
   },
+  groupNote: { paddingHorizontal: 4, fontFamily: fonts.bodySemi, fontSize: 14, color: colors.received },
   dayChipText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
   list: { gap: 8, paddingBottom: 24 },
   day: {

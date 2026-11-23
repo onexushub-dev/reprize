@@ -124,18 +124,38 @@ export function ClipCard({ clip, number, width, onPress, onLongPress, selecting 
 
 /**
  * A clip of a received recording that has not arrived yet, in the same grid: its number, "Baixando" on the one coming
- * now and "Na fila" on the others.
+ * now and "Na fila" on the others. With the sender's still once it is here (multi-recording share design §5.4), so the
+ * recording can be seen before it is downloaded; `idle` when nothing is downloading it (not chosen yet, or paused).
  */
-export function PendingClipTile({ number, width, downloading }: { number: number; width: number; downloading: boolean }) {
+export function PendingClipTile({
+  number,
+  width,
+  downloading,
+  thumb,
+  idle = false,
+}: {
+  number: number;
+  width: number;
+  downloading: boolean;
+  thumb?: string;
+  idle?: boolean;
+}) {
   const { t } = useT();
+  const text = downloading ? t('summary.downloading') : idle ? undefined : t('summary.pending');
   return (
     <View
       accessible
-      accessibilityLabel={t('summary.pendingA11y', { number })}
+      accessibilityLabel={t(idle ? 'summary.notDownloadedA11y' : 'summary.pendingA11y', { number })}
       style={[styles.tile, styles.pending, { width, height: Math.round(width * TILE_RATIO) }]}>
-      <Text style={[styles.number, styles.pendingNumber]}>{number}</Text>
-      <DownloadIcon color={colors.muted} size={20} />
-      <Text style={styles.pendingText}>{downloading ? t('summary.downloading') : t('summary.pending')}</Text>
+      {thumb !== undefined ? (
+        <>
+          <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <View style={styles.dim} />
+        </>
+      ) : null}
+      <Text style={[styles.number, thumb === undefined && styles.pendingNumber]}>{number}</Text>
+      <DownloadIcon color={thumb === undefined ? colors.muted : colors.text} size={20} />
+      {text !== undefined ? <Text style={[styles.pendingText, thumb !== undefined && styles.pendingTextOn]}>{text}</Text> : null}
     </View>
   );
 }
@@ -182,4 +202,6 @@ const styles = StyleSheet.create({
   pending: { alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.surface },
   pendingNumber: { color: colors.muted },
   pendingText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.muted },
+  pendingTextOn: { color: colors.text, ...shadow },
+  dim: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(10,10,10,0.45)' },
 });

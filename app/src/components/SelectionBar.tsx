@@ -1,15 +1,18 @@
 import type { ReactNode } from 'react';
-import { ActionSheetIOS, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActionSheetIOS, Alert, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
-import { MoreIcon, ShareIcon, TrashIcon } from './icons';
+import { LinkShareIcon, MoreIcon, ShareIcon, TrashIcon } from './icons';
+import { GlassButton } from './GlassButton';
 
 type Props = {
   count: number;
   /** Compilar is a paid feature: on the free plan it says "PRO" and opens the paywall. */
   paid: boolean;
   busy: boolean;
+  /** Compartilhar by link (picked-clips link, 2026-11-23): first on the left; absent where this recording cannot be shared. */
+  onLink?: () => void;
   onShare: () => void;
   onSave: () => void;
   onCompile: () => void;
@@ -23,7 +26,7 @@ type Props = {
  * Enviar on the left, how many are picked in the middle, Apagar and "…" (Salvar, Compilar, Etiqueta) on the right, all
  * in the app's amber.
  */
-export function SelectionBar({ count, paid, busy, onShare, onSave, onCompile, onLabel, onDelete }: Props) {
+export function SelectionBar({ count, paid, busy, onLink, onShare, onSave, onCompile, onLabel, onDelete }: Props) {
   const { t } = useT();
   const blocked = count === 0 || busy;
 
@@ -56,6 +59,9 @@ export function SelectionBar({ count, paid, busy, onShare, onSave, onCompile, on
     <PickBar
       text={count === 0 ? t('summary.tapClips') : t('summary.selectedClips', { count })}
       left={[
+        ...(onLink !== undefined
+          ? [{ label: t('summary.shareLink', { count }), disabled: blocked, onPress: onLink, icon: <LinkShareIcon size={26} color={colors.accent} /> }]
+          : []),
         { label: t('summary.share', { count }), disabled: blocked, onPress: onShare, icon: <ShareIcon size={26} color={colors.accent} /> },
       ]}
       right={[
@@ -70,11 +76,7 @@ export function SelectionBar({ count, paid, busy, onShare, onSave, onCompile, on
           hint: paid ? undefined : t('summary.compileLocked'),
           disabled: blocked,
           onPress: openMore,
-          icon: (
-            <View style={styles.more}>
-              <MoreIcon size={20} color={colors.accent} />
-            </View>
-          ),
+          icon: <MoreIcon size={22} color={colors.accent} />,
         },
       ]}
     />
@@ -113,36 +115,27 @@ export function PickBar({ text, left, right }: { text: string; left: PickAction[
 
 type ActionProps = { label: string; hint?: string; disabled: boolean; onPress: () => void; children: ReactNode };
 
+/** A round glass button, as the iPhone's Photos bar (2026-11-22), with its press feedback (`GlassButton`). */
 function Action({ label, hint, disabled, onPress, children }: ActionProps) {
   return (
-    <Pressable
-      accessibilityRole="button"
+    <GlassButton
       accessibilityLabel={label}
       accessibilityHint={hint}
       accessibilityState={{ disabled }}
       disabled={disabled}
       hitSlop={6}
       onPress={onPress}
-      style={({ pressed }) => [styles.action, (pressed || disabled) && { opacity: disabled ? 0.35 : 0.7 }]}>
+      style={[styles.action, disabled && styles.actionOff]}>
       {children}
-    </Pressable>
+    </GlassButton>
   );
 }
 
 const styles = StyleSheet.create({
   bar: { flexDirection: 'row', alignItems: 'center', minHeight: 56, gap: 8 },
-  side: { flexDirection: 'row', alignItems: 'center', gap: 4, width: 104 },
+  side: { flexDirection: 'row', alignItems: 'center', gap: 8, width: 104 },
   sideEnd: { justifyContent: 'flex-end' },
-  action: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  // The "…" in a ring, as in Photos.
-  more: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    borderColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  action: { width: 48, height: 48, borderRadius: 24 },
+  actionOff: { opacity: 0.35 },
   count: { flex: 1, fontFamily: fonts.bodyBold, fontSize: 16, color: colors.text, textAlign: 'center' },
 });

@@ -11,6 +11,8 @@ export type OpenedClip = {
   video?: string;
   focus?: string;
   ball?: string;
+  /** The sender's still of the clip (it may not have arrived yet): shown before the clip is downloaded. */
+  thumb?: string;
 };
 
 const SOURCES: TriggerSource[] = ['screen', 'gesture', 'remote', 'watch', 'voice', 'phone'];
@@ -23,6 +25,15 @@ const range = (v: unknown): { startMs: number; endMs: number } | undefined => {
   const endMs = num(r.endMs);
   return startMs !== undefined && endMs !== undefined && endMs > startMs ? { startMs, endMs } : undefined;
 };
+
+/**
+ * What the sender's edit fixed, as the share carries it (`shareLocksOf`); undefined when nothing is. Only the sound:
+ * a framing or zoom lock from a link made by a test build of 2026-11-22 is ignored (the recipient may change them).
+ */
+function lockedOf(value: unknown): Clip['locked'] {
+  if (typeof value !== 'object' || value === null) return undefined;
+  return (value as Record<string, unknown>).sound === true ? { sound: true } : undefined;
+}
 
 /**
  * The received clip as the sender left it (sharing design decision 7: the sender's cut, speed, zoom, rotation and
@@ -62,6 +73,8 @@ export function receivedClip(
   if (shortSide !== undefined) clip.shortSide = shortSide;
   if (name) clip.name = name;
   if (edit) clip.edit = edit;
+  const locks = lockedOf(meta.locks);
+  if (locks !== undefined) clip.locked = locks;
   if (files.focus) clip.focus = { v: 1, status: 'ready', file: files.focus, ...(focusRange || {}) };
   if (files.ball && ballMeta && ballRange) {
     const sport = typeof ballMeta.sport === 'string' ? (ballMeta.sport as BallSportId) : undefined;

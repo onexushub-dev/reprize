@@ -97,10 +97,10 @@ export function ballActive(
 /** What this clip uses that a free export drops: shown first in the free-export notice (it always lists every loss). */
 export type FreeLosses = { focus: boolean; sound: boolean };
 
-export function freeLosses(clip: Pick<Clip, 'edit' | 'focus'> & Partial<Pick<Clip, 'ball' | 'trim'>>): FreeLosses {
+export function freeLosses(clip: Pick<Clip, 'edit' | 'focus'> & Partial<Pick<Clip, 'ball' | 'trim' | 'sharePosition'>>): FreeLosses {
   const { focus, rotation, zoom, speed, muted, framing } = readEdit(clip.edit);
   const manualZoom = zoom !== undefined && zoom.scale > 1;
-  const ballFile = clip.trim ? readyBallFile({ ball: clip.ball, trim: clip.trim }) : undefined;
+  const ballFile = clip.trim ? readyBallFile({ ball: clip.ball, trim: clip.trim, sharePosition: clip.sharePosition }) : undefined;
   return {
     // Seguir a Bola is a framing too: a free export leaves without it, as without Modo Foco.
     focus:

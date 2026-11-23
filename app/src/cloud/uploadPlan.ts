@@ -2,17 +2,32 @@ import type { UploadItem } from '../../modules/replay-camera/src/ReplayCamera.ty
 import { Directory, Paths } from 'expo-file-system';
 
 import { kv } from '../data/mmkv';
+import type { PrepJob } from './shareInput';
 
 /**
  * The uploads of each share, kept on the phone until the share expires (sharing design §5.4). The queue reads them at
  * launch and whenever it starts again; the URLs stay valid until `expiresAt` (ms).
  */
-export type UploadPlan = { expiresAt: number; items: UploadItem[] };
+export type UploadPlan = { expiresAt: number; items: UploadItem[]; group?: PlanGroup };
+
+/**
+ * A plan that belongs to a group link (multi-recording share design §5.3): `position` is the recording's place in the
+ * link (1 to `count`), 0 for the group's cover. The queue orders the uploads of the whole link with it.
+ */
+export type PlanGroup = { id: string; position: number; count: number };
+
+function planGroup(value: unknown): PlanGroup | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { id, position, count } = value as Partial<PlanGroup>;
+  if (typeof id !== 'string' || typeof position !== 'number' || typeof count !== 'number') return undefined;
+  return { id, position, count };
+}
 
 const INDEX = 'reprize:v1:share-uploads';
 const keyOf = (shareId: string) => `reprize:v1:share-uploads:${shareId}`;
 const PAUSED = 'reprize:v1:uploads-paused';
 const confirmedKey = (shareId: string) => `reprize:v1:share-confirmed:${shareId}`;
+const prepKey = (shareId: string) => `reprize:v1:share-prep:${shareId}`;
 
 function readJson(key: string): unknown {
   const raw = kv.getString(key);
@@ -41,9 +56,10 @@ export function uploadPlan(shareId: string): UploadPlan | undefined {
   const plan = readJson(keyOf(shareId));
   if (Array.isArray(plan)) return { expiresAt: 0, items: plan as UploadItem[] };
   if (typeof plan !== 'object' || plan === null) return undefined;
-  const { expiresAt, items } = plan as Partial<UploadPlan>;
+  const { expiresAt, items, group } = plan as Partial<UploadPlan>;
   if (typeof expiresAt !== 'number' || !Array.isArray(items)) return undefined;
-  return { expiresAt, items };
+  const inGroup = planGroup(group);
+  return inGroup === undefined ? { expiresAt, items } : { expiresAt, items, group: inGroup };
 }
 
 /** Files made for a share (its cover), kept until the share is forgotten. */
@@ -60,6 +76,7 @@ export function forgetUploadPlan(shareId: string): void {
   }
   kv.delete(keyOf(shareId));
   kv.delete(confirmedKey(shareId));
+  kv.delete(prepKey(shareId));
   kv.set(INDEX, JSON.stringify(plannedShares().filter((id) => id !== shareId)));
 }
 
@@ -86,4 +103,15 @@ export function uploadsPaused(): boolean {
 
 export function setUploadsPaused(paused: boolean): void {
   kv.set(PAUSED, paused ? 'on' : 'off');
+}
+
+/** The files still to make before their uploads (`sharePrep.ts`), in order. */
+export function prepJobsOf(shareId: string): PrepJob[] {
+  const list = readJson(prepKey(shareId));
+  return Array.isArray(list) ? (list as PrepJob[]) : [];
+}
+
+export function setPrepJobs(shareId: string, jobs: PrepJob[]): void {
+  if (jobs.length === 0) kv.delete(prepKey(shareId));
+  else kv.set(prepKey(shareId), JSON.stringify(jobs));
 }

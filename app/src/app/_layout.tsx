@@ -11,7 +11,9 @@ import { isRemoteSupported, remoteHostStart, remoteHostStop } from '../../module
 import { analytics, initAnalytics, sessionSummary, track } from '../analytics';
 import { useScreenViews } from '../analytics/useScreenViews';
 import { startUploadQueue } from '../cloud/appUploadQueue';
+import { startSharePrep } from '../cloud/appSharePrep';
 import { startReceiveQueue } from '../cloud/receive';
+import { GlassDialogHost } from '../components/GlassDialog';
 import { startFocusQueue } from '../focus/appFocusQueue';
 import { useLocaleSync } from '../i18n/useT';
 import { payments } from '../payments';
@@ -72,6 +74,7 @@ export default function RootLayout() {
 
   // Shared recordings upload in the background; the queue starts again what a swiped-away app left (sharing design §5.4).
   useEffect(() => startUploadQueue(), []);
+  useEffect(() => startSharePrep(), []);
   // Received recordings download into the app while their link lasts (sharing design §5.5).
   useEffect(() => startReceiveQueue(), []);
 
@@ -118,7 +121,10 @@ export default function RootLayout() {
         />
         {/* Compartilhar gravação: a sheet over the recording, closed by swiping down. */}
         <Stack.Screen name="share/[id]" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="share/group" options={{ presentation: 'modal' }} />
       </Stack>
+      {/* The app's confirmations, in its glass (2026-11-23): shown over whatever screen asked. */}
+      <GlassDialogHost />
     </SessionProvider>
   );
 }

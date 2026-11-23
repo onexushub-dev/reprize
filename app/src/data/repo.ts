@@ -1,4 +1,4 @@
-import { type Clip, DEFAULT_PREFS, DEFAULT_TRIM_MS, MAX_CLIP_NAME, MAX_GAME_NAME, type Prefs, type Session, type SessionReceived, type SessionShare, type Sport } from './schema';
+import { type Clip, DEFAULT_PREFS, DEFAULT_TRIM_MS, MAX_CLIP_NAME, MAX_GAME_NAME, type Prefs, type ReceivedDownload, type ReceivedEnd, type Session, type SessionReceived, type SessionShare, type Sport } from './schema';
 
 export interface KV {
   getString(key: string): string | undefined;
@@ -199,6 +199,22 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       changed();
     },
 
+    /** Baixar, Pausar, Continuar or Cancelar on a received recording. */
+    setReceivedDownload(id: string, download: ReceivedDownload): void {
+      const session = getSession(id);
+      if (!session || !session.received || session.received.download === download) return;
+      write(key.session(id), { ...session, received: { ...session.received, download } });
+      changed();
+    },
+
+    /** The server said the link of this received recording is over. */
+    setReceivedEnded(id: string, ended: ReceivedEnd): void {
+      const session = getSession(id);
+      if (!session || !session.received || session.received.ended === ended) return;
+      write(key.session(id), { ...session, received: { ...session.received, ended } });
+      changed();
+    },
+
     /** The link this recording was shared with; undefined forgets it. */
     setShared(id: string, shared: SessionShare | undefined): void {
       const session = getSession(id);
@@ -319,8 +335,12 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       return touched;
     },
 
-    /** Games with at least one existing clip, newest first. */
+    /**
+     * Games with at least one existing clip, newest first. A received recording not downloaded yet (a group link's,
+     * multi-recording share design §5.4) is listed too while its link lasts: Baixar is on its screen.
+     */
     listSessions(): { session: Session; clips: number; firstClip?: Clip }[] {
+      const now = Date.now();
       return sessionIds()
         .map((id) => getSession(id))
         .filter((s): s is Session => s !== undefined)
@@ -328,7 +348,11 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
           const clips = this.listClips(session.id);
           return { session, clips: clips.length, firstClip: clips[0] };
         })
-        .filter((g) => g.clips > 0)
+        .filter(
+          (g) =>
+            g.clips > 0 ||
+            (g.session.received !== undefined && g.session.received.expiresAt > now && g.session.received.ended === undefined),
+        )
         .sort((a, b) => b.session.startedAt - a.session.startedAt);
     },
 

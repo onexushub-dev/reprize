@@ -53,3 +53,10 @@ test('missing or broken edit data falls back to the whole clip, its place in the
     number: 3,
   });
 });
+
+test('the sound sent off stays off (2026-11-22); a framing or zoom lock from an earlier test build is ignored', () => {
+  const files = { video: '/r/3.mp4' };
+  expect(receivedClip('s1', opened({ locks: { framing: true, sound: true, zoom: true } }), files, 1).locked).toEqual({ sound: true });
+  expect(receivedClip('s1', opened({ locks: { framing: true } }), files, 1).locked).toBeUndefined();
+  expect(receivedClip('s1', opened({}), files, 1).locked).toBeUndefined();
+});

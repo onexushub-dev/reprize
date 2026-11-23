@@ -1,4 +1,4 @@
-import { acceptNotice, createShare, NOTICE_VERSION, noticeAccepted, type ShareInput } from '../shares';
+import { acceptNotice, createShare, createShareGroup, NOTICE_VERSION, noticeAccepted, type ShareInput } from '../shares';
 
 jest.mock('@supabase/supabase-js', () => ({
   FunctionsHttpError: class FunctionsHttpError extends Error {
@@ -62,4 +62,31 @@ test('the notice is read and accepted at the current version', async () => {
     { account: 'u1', version: NOTICE_VERSION },
     { onConflict: 'account,version', ignoreDuplicates: true },
   );
+});
+
+test('a group link is one request, and comes back with each recording in the order sent', async () => {
+  const group = {
+    shareId: 'g1',
+    code: 'abc',
+    url: 'https://reprizeapp.com/v/abc',
+    expiresAt: 'x',
+    cover: [],
+    recordings: [
+      { shareId: 'r1', uploads: [] },
+      { shareId: 'r2', uploads: [] },
+    ],
+  };
+  const body = { kind: 'group' as const, recordings: [{ ...input, cover: false }, { ...input, cover: false }] };
+  mockInvoke.mockResolvedValue({ data: group, error: null });
+  await expect(createShareGroup(body)).resolves.toEqual({ ok: true, group });
+  expect(mockInvoke).toHaveBeenCalledTimes(1);
+  expect(mockInvoke).toHaveBeenCalledWith('create-share', { body });
+});
+
+test('a group answer missing recordings is a failure; a refusal is passed on', async () => {
+  const body = { kind: 'group' as const, recordings: [input, input] };
+  mockInvoke.mockResolvedValue({ data: { shareId: 'g1', recordings: [{ shareId: 'r1', uploads: [] }] }, error: null });
+  await expect(createShareGroup(body)).resolves.toEqual({ ok: false, reason: 'failed' });
+  mockInvoke.mockResolvedValue({ data: null, error: new FunctionsHttpError({ error: 'not_pro' }) });
+  await expect(createShareGroup(body)).resolves.toEqual({ ok: false, reason: 'not_pro' });
 });

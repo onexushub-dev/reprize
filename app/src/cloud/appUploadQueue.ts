@@ -25,7 +25,7 @@ import {
   uploadPlan,
   uploadsPaused,
 } from './uploadPlan';
-import { createUploadQueue, type ShareProgress } from './uploadQueue';
+import { createUploadQueue, type GroupProgress, groupProgress, type ShareProgress } from './uploadQueue';
 
 /** The app's upload queue, on the system background uploader (sharing design §5.4). */
 export const uploadQueue = createUploadQueue({
@@ -93,4 +93,23 @@ function progressSnapshot(shareId: string | undefined): ShareProgress {
 /** A share's upload progress, kept up to date. */
 export function useShareProgress(shareId: string | undefined): ShareProgress {
   return useSyncExternalStore(uploadQueue.subscribe, () => progressSnapshot(shareId));
+}
+
+const groupSnapshots = new Map<string, { version: number; value: GroupProgress }>();
+
+/** A group link's progress as of the queue's current version (its recordings' shares, joined by commas). */
+function groupSnapshot(key: string): GroupProgress {
+  const version = uploadQueue.version();
+  const cached = groupSnapshots.get(key);
+  if (cached !== undefined && cached.version === version) return cached.value;
+  const ids = key === '' ? [] : key.split(',');
+  const value = groupProgress(ids.map((id) => uploadQueue.progress(id)));
+  groupSnapshots.set(key, { version, value });
+  return value;
+}
+
+/** The progress of a group link's recordings together, kept up to date. */
+export function useGroupProgress(shareIds: string[]): GroupProgress {
+  const key = shareIds.join(',');
+  return useSyncExternalStore(uploadQueue.subscribe, () => groupSnapshot(key));
 }

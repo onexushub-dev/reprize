@@ -1,5 +1,7 @@
 // A shared link, https://reprizeapp.com/v/<code> (or www.), opened in the app (sharing design §3.2, §7): the received
-// recording is made (or found again), its clips start downloading, and the recording opens.
+// recording is made (or found again), its clips start downloading, and the recording opens. A group link
+// (multi-recording share design §3.2) makes one received recording per recording in it and opens Minhas gravações on
+// Recebidas, where each one is downloaded when the person chooses.
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -37,16 +39,33 @@ function openRecording(sessionId: string) {
   router.push(session);
 }
 
+/** A group link: Minhas gravações on Recebidas, with how many came and from whom; the same stack as a recording. */
+function openReceivedList(count: number, from: string | undefined) {
+  const list = `/games?received=${count}${from === undefined ? '' : `&from=${encodeURIComponent(from)}`}` as const;
+  if (router.canGoBack()) {
+    router.replace(list);
+    return;
+  }
+  router.replace(repo.getPrefs().onboardingDone ? '/setup' : '/onboarding');
+  router.push(list);
+}
+
 function Receive({ code }: { code: string }) {
   const { t } = useT();
   const [failure, setFailure] = useState<Failure | undefined>(undefined);
+  // A group link is known only once the server answers: "Abrindo as gravações…" from then until the list opens.
+  const [many, setMany] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let alive = true;
     receiveShare(code).then((result) => {
       if (!alive) return;
-      if (result.ok) openRecording(result.sessionId);
+      if (result.ok && result.kind === 'group') {
+        setMany(true);
+        openReceivedList(result.count, result.from);
+      }
+      else if (result.ok) openRecording(result.sessionId);
       else setFailure(result.state);
     });
     return () => {
@@ -65,14 +84,16 @@ function Receive({ code }: { code: string }) {
             ? t('received.notFound')
             : failure === 'own'
               ? t('received.own')
-              : t('received.error');
+              : failure === 'update'
+                ? t('received.update')
+                : t('received.error');
 
   return (
     <SafeAreaView style={styles.root}>
       {failure === undefined ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.accent} />
-          <Text style={styles.body}>{t('received.opening')}</Text>
+          <Text style={styles.body}>{many ? t('received.openingMany') : t('received.opening')}</Text>
         </View>
       ) : (
         <View style={styles.center}>
