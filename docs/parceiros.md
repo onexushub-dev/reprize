@@ -53,23 +53,29 @@ As três faixas usam 12 dos 50 planos e ofertas ativos do Play e 3 das 10 oferta
 
 ## Mudar, remover ou renovar
 
-- **Mudar de faixa:** mova a entrada do parceiro para os metadados da nova faixa e crie os dois códigos nas ofertas da nova faixa na Apple. Desative os códigos antigos. Quem ainda não comprou passa a ver a nova faixa na próxima abertura. Quem já comprou não muda.
+- **Mudar de faixa:** na Apple, desative os dois códigos atuais, porque um código precisa ser desativado antes de ser usado em outra oferta. Crie os mesmos códigos nas ofertas da nova faixa e **espere até poderem ser resgatados** (pode levar até 1 hora). Só então mova o parceiro para os metadados da nova faixa. Quem ainda não comprou passa a ver a nova faixa na próxima abertura. Quem já comprou não muda.
 - **Mudar o preço de uma faixa:** crie uma faixa nova e mova os parceiros, para o percentual exibido continuar igual ao preço das lojas.
 - **Remover:** tire o parceiro dos metadados e desative os códigos na Apple. Quem já foi atribuído continua atribuído, e ninguém novo entra.
-- **Renovar:** se a Apple exigir validade (no máximo 6 meses), anote a data e crie um código novo antes de vencer.
+- **Renovar:** se a Apple exigir validade (no máximo 6 meses) ou o lote chegar perto do limite de 25.000 resgates, crie um novo lote **com o mesmo código**. Um código diferente não funciona, porque o app monta o código da Apple a partir do código do parceiro.
 
 ## Fechamento mensal da comissão
 
-Conta como **assinante válido** quem está com PRO ativo e pagante na data de fechamento, entrou pelo link do parceiro e não está em teste grátis, com reembolso ou com pagamento em atraso.
+Conta como **assinante válido** quem, na data de fechamento, tem PRO pago e vigente, fez a primeira assinatura paga depois de aplicar o código do parceiro e não está em teste grátis, com reembolso, em carência ou com pagamento em atraso.
 
-1. **Escolha uma data fixa** e use a exportação **Transactions** do RevenueCat dessa data.
-2. **Filtre as transações:** `is_sandbox = false`, `is_trial_period = false`, `refunded_at` vazio e `effective_end_time` depois da data de fechamento.
-3. **Fique com a transação mais recente de cada cliente** e leia `partner_code` em `custom_subscriber_attributes`.
-4. **Agrupe por parceiro e por plano**, usando `product_identifier`.
-5. **Aplique a carência de 30 dias:** pague só assinaturas com mais de 30 dias, para descontar reembolsos.
-6. **Exclua autoindicações**, como a assinatura do próprio parceiro.
-7. **Confira o iPhone:** compare os resgates do relatório Subscription Offer Redemption da Apple com as compras atribuídas. Uma diferença indica resgates feitos fora do app.
-8. **Guarde a planilha do mês**, com a data e o valor pago a cada parceiro.
+1. **Escolha uma data fixa (D)** e use a exportação **Transactions** do RevenueCat gerada depois dela.
+2. **Filtre as transações:**
+   - `is_sandbox = false`, `is_trial_period = false` e `refunded_at` vazio
+   - `store` em `app_store` ou `play_store`, e `ownership_type = PURCHASED`
+   - `product_identifier` nos produtos PRO (`pro_annual`, `pro_monthly` e os planos `annual-p*` e `monthly-p*`)
+   - `start_time` até D, e `end_time` e `effective_end_time` depois de D (`effective_end_time` sozinho incluiria a carência)
+3. **Fique com a transação mais recente de cada cliente** e leia `partner_code` e `partner_applied_at` em `custom_subscriber_attributes`.
+4. **Ache a primeira cobrança da assinatura:** a transação mais antiga, fora de teste grátis, com o mesmo `original_store_transaction_id`.
+5. **Exclua quem já pagava antes do código:** a primeira cobrança precisa ser igual ou posterior a `partner_applied_at`.
+6. **Aplique a carência de 30 dias:** a primeira cobrança precisa ter pelo menos 30 dias em D. Renovações não reiniciam essa contagem.
+7. **Exclua autoindicações**, como a assinatura do próprio parceiro.
+8. **Agrupe por parceiro e por plano.**
+9. **Confira o iPhone:** compare os resgates do relatório Subscription Offer Redemption da Apple com as compras atribuídas. Uma diferença indica resgates feitos fora do app.
+10. **Guarde a planilha do mês**, com a data e o valor pago a cada parceiro.
 
 Para acompanhar ao longo do mês, crie uma **Audience** no RevenueCat por parceiro: `partner_code` igual ao código, status `Active`, produto mais recente nos produtos PRO e `Currently trialing` falso. Na primeira vez, confira o total com "Export all".
 

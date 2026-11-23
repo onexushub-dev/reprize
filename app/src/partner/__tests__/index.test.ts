@@ -13,7 +13,7 @@ const mockPayments = {
     return () => {};
   }),
 };
-const mockClient = { partners: jest.fn(), setPartner: jest.fn(), redeemOfferCode: jest.fn() };
+const mockClient = { partners: jest.fn(), setPartner: jest.fn(), redeemOfferCode: jest.fn(), getSnapshot: jest.fn(), appUserId: jest.fn() };
 const mockReferrer = jest.fn();
 
 jest.mock('../../data/mmkv', () => ({
@@ -28,7 +28,7 @@ jest.mock('../../payments', () => ({ payments: mockPayments, paymentsClient: moc
 jest.mock('expo-application', () => ({ getInstallReferrerAsync: () => mockReferrer() }));
 
 const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate('en', key, params);
-const DIR = { PROFJOAO: { name: 'Prof. João', offering: 'partner_p20' as const, discountPercent: 20 }, MARIA10: { name: 'Maria' } };
+const DIR = { PROFJOAO: { name: 'Prof. João', offering: 'partner_p20' as const, discountPercent: 20 }, MARIA10: { name: 'Maria', offering: 'partner_p10' as const, discountPercent: 10 } };
 
 function load(): typeof import('../index') {
   let mod!: typeof import('../index');
@@ -50,6 +50,8 @@ beforeEach(() => {
   mockPayments.refresh.mockResolvedValue({ proActive: false, passTransactions: [] });
   mockClient.partners.mockResolvedValue(DIR);
   mockClient.setPartner.mockResolvedValue(undefined);
+  mockClient.getSnapshot.mockImplementation(async () => mockPayments.getSnapshot());
+  mockClient.appUserId.mockResolvedValue('$RCAnonymousID:one');
   mockClient.redeemOfferCode.mockResolvedValue(true);
   mockReferrer.mockResolvedValue('utm_source=google-play&utm_medium=organic');
   appStateHandler = undefined;
@@ -68,7 +70,7 @@ describe('applyPartnerCode', () => {
     const { applyPartnerCode, partner } = load();
     expect(await applyPartnerCode('profjoao', 'typed')).toBe('applied');
     expect(partner.active()?.code).toBe('PROFJOAO');
-    expect(mockClient.setPartner).toHaveBeenCalledWith('PROFJOAO', 'typed', 'partner_p20');
+    expect(mockClient.setPartner).toHaveBeenCalledWith('PROFJOAO', 'typed', 'partner_p20', expect.any(Number));
     expect(sent()).toEqual([['partner_code_applied', { code: 'PROFJOAO', source: 'typed' }]]);
   });
 
@@ -142,7 +144,9 @@ describe('startPartner', () => {
   });
 });
 
-const PRO = { proActive: true, passTransactions: [] };
+const FUTURE = Date.now() + 3600_000;
+const PRO = { proActive: true, passTransactions: [], proPurchasedAt: FUTURE, proFirstPurchasedAt: FUTURE };
+const OLD_PRO = { proActive: true, passTransactions: [], proPurchasedAt: 1000, proFirstPurchasedAt: 1000 };
 const FREE = { proActive: false, passTransactions: [] };
 const settle = () => new Promise((r) => setImmediate(r));
 
@@ -256,7 +260,7 @@ describe('redeemPartnerOffer (iPhone)', () => {
     const mod = await redeemed();
     Date.now = () => realNow() + 49 * 3600 * 1000;
     try {
-      mockPayments.getSnapshot.mockReturnValue(PRO);
+      mockPayments.getSnapshot.mockReturnValue(OLD_PRO); // what a restore brings back: a subscription older than the code
       mockSubscriber?.();
       await settle();
       expect(sent()).toEqual([]);
@@ -283,5 +287,84 @@ describe('refreshPartner', () => {
     const mod = load();
     await mod.refreshPartner();
     expect(mockClient.partners).not.toHaveBeenCalled();
+  });
+});
+
+describe('the count stays with the customer who came through the link', () => {
+  const MOVED = { PROFJOAO: { name: 'Prof. João', offering: 'partner_p30' as const, discountPercent: 30 } };
+
+  it('a purchase made on a tier stays on it when the partner moves before the next launch', async () => {
+    const mod = load();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    await settle();
+    mockClient.setPartner.mockClear();
+    mockPayments.getSnapshot.mockReturnValue(PRO);
+    mockClient.partners.mockResolvedValue(MOVED);
+    await mod.startPartner();
+    await settle();
+    expect(mod.partner.current()).toMatchObject({ offering: 'partner_p20' });
+    expect(mod.partner.current()?.lockedAt).toBeDefined();
+    expect(mockClient.setPartner).not.toHaveBeenCalledWith('PROFJOAO', 'link', 'partner_p30', expect.any(Number));
+  });
+
+  it('an older subscription does not lock a code applied later', async () => {
+    const mod = load();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    await settle();
+    mockClient.setPartner.mockClear();
+    mockPayments.getSnapshot.mockReturnValue(OLD_PRO);
+    await mod.startPartner();
+    await settle();
+    expect(mod.partner.current()?.lockedAt).toBeUndefined();
+    expect(mockClient.setPartner).not.toHaveBeenCalled();
+  });
+
+  it('never writes the attribution onto another signed-in account', async () => {
+    mockClient.appUserId.mockResolvedValue('account-a');
+    const mod = load();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    await settle();
+    mod.partner.lock();
+    mockClient.setPartner.mockClear();
+    mockClient.appUserId.mockResolvedValue('account-b');
+    await mod.startPartner();
+    await settle();
+    expect(mockClient.setPartner).not.toHaveBeenCalled();
+  });
+
+  it('follows the anonymous customer into the account it signs in to', async () => {
+    const mod = load();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    await settle();
+    mockClient.setPartner.mockClear();
+    mockClient.appUserId.mockResolvedValue('account-a');
+    await mod.startPartner();
+    await settle();
+    expect(mockClient.setPartner).toHaveBeenCalledWith('PROFJOAO', 'link', 'partner_p20', expect.any(Number));
+  });
+
+  it('a code waiting offline is dropped when the customer turns out to have PRO', async () => {
+    mockClient.partners.mockResolvedValue(null);
+    const mod = load();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    mockClient.partners.mockResolvedValue(DIR);
+    mockPayments.getSnapshot.mockReturnValue(OLD_PRO);
+    await mod.startPartner();
+    await settle();
+    expect(mod.partner.current()).toBeNull();
+    expect(mockClient.setPartner).not.toHaveBeenCalled();
+  });
+
+  it('a cancelled redemption followed by an older PRO showing up records no purchase', async () => {
+    const mod = load();
+    await mod.startPartner();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    await mod.redeemPartnerOffer(t, 'annual');
+    mockTrack.mockClear();
+    mockPayments.getSnapshot.mockReturnValue(OLD_PRO);
+    mockSubscriber?.();
+    await settle();
+    expect(sent().filter(([e]) => e === 'purchase_completed')).toEqual([]);
+    expect(mod.partner.current()?.lockedAt).toBeUndefined();
   });
 });

@@ -40,7 +40,10 @@ export function createFakeClient() {
       if (fake.failRestore || fake.failSnapshot) throw new Error('snapshot unavailable');
       return fake.snapshot;
     },
-    async setPartner(code: string, source: string, offering: PartnerOffering): Promise<void> {
+    async appUserId(): Promise<string | null> {
+      return fake.identified ?? 'anonymous';
+    },
+    async setPartner(code: string, source: string, offering: PartnerOffering, _appliedAt: number): Promise<void> {
       fake.partnerCalls.push([code, source, offering]);
     },
     async redeemOfferCode(code: string): Promise<boolean> {

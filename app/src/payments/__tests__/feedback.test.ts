@@ -254,3 +254,8 @@ describe('openPaywall guards around the partner discount', () => {
   });
 });
 
+test('a restore ends the wait for an Apple redemption', async () => {
+  (disarmRedemption as jest.Mock).mockClear();
+  await restorePurchases(t);
+  expect(disarmRedemption).toHaveBeenCalledTimes(1);
+});

@@ -1,6 +1,12 @@
 export type PassTransaction = { id: string; productId: string; purchasedAt: number };
 
-export type Snapshot = { proActive: boolean; passTransactions: PassTransaction[] };
+export type Snapshot = {
+  proActive: boolean;
+  passTransactions: PassTransaction[];
+  /** When the active Pro was last purchased or renewed, and first purchased (ms). */
+  proPurchasedAt?: number;
+  proFirstPurchasedAt?: number;
+};
 
 export const EMPTY_SNAPSHOT: Snapshot = { proActive: false, passTransactions: [] };
 

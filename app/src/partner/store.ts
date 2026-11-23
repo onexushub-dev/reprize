@@ -67,10 +67,13 @@ export function createPartnerStore(o: {
     listeners.forEach((fn) => fn());
   }
 
-  /** The directory's name and tier for the same code. Unlike `save`, it keeps a candidate waiting beside the attribution. */
-  function refreshTier(current: Attribution, hit: PartnerDirectory[string]) {
-    if (current.name === hit.name && current.offering === hit.offering && current.discountPercent === hit.discountPercent) return;
-    state = { ...current, ...hit };
+  /**
+   * The directory's name and tier for the same code. Without an entry the code keeps its credit but offers no discount.
+   * Unlike `save`, it keeps a candidate waiting beside the attribution.
+   */
+  function refreshTier(current: Attribution, hit: PartnerDirectory[string] | undefined) {
+    if (current.name === (hit?.name ?? current.name) && current.offering === hit?.offering && current.discountPercent === hit?.discountPercent) return;
+    state = hit ? { ...current, ...hit } : { ...current, offering: undefined, discountPercent: undefined };
     write(KEY, state);
     listeners.forEach((fn) => fn());
   }
@@ -97,23 +100,35 @@ export function createPartnerStore(o: {
   }
 
   return {
-    /** Re-announces a valid code, and confirms a pending one (or a held candidate) against the directory. */
-    async start(): Promise<void> {
+    /**
+     * Re-announces a valid code, follows its tier before the first purchase, and confirms a waiting code. `pro` is what the
+     * customer has now: with PRO a code not locked by a purchase is left alone and a waiting one is dropped; `null` (purchases
+     * could not be read) changes nothing.
+     */
+    async start(opts: { pro?: boolean | null } = {}): Promise<void> {
+      const pro = opts.pro === undefined ? false : opts.pro;
+      if (pro === null) return;
       let dir: PartnerDirectory | null | undefined;
       if (state !== null && state.status === 'valid') {
-        if (state.lockedAt === undefined) {
-          const code = state.code;
+        if (state.lockedAt !== undefined) valid(state);
+        else if (!pro) {
+          const before = state;
           dir = await read();
-          const hit = dir?.[code];
-          // Before the first purchase a price change reaches this attribution; the code may have changed during the read.
-          if (hit && state?.code === code && state.status === 'valid' && state.lockedAt === undefined) refreshTier(state, hit);
+          // Only if nothing changed during the read. Offline keeps the saved offer; a loaded directory is the truth.
+          if (dir !== null && state === before) refreshTier(before, dir[before.code]);
+          if (state !== null && state.status === 'valid') valid(state);
         }
-        if (state !== null && state.status === 'valid') valid(state);
       }
       const waiting = state !== null && state.status === 'pending' ? state : candidate;
       if (waiting === null) return;
+      if (pro) {
+        if (waiting === candidate) saveCandidate(null);
+        else save(null);
+        return;
+      }
       if (dir === undefined) dir = await read();
       if (dir === null) return; // still offline: stays pending
+      if (waiting !== state && waiting !== candidate) return; // a newer code arrived during the read
       if (state?.lockedAt !== undefined) {
         saveCandidate(null); // a purchase locked the attribution meanwhile
         return;
@@ -160,9 +175,9 @@ export function createPartnerStore(o: {
       return state;
     },
 
-    /** The attribution that changes the paywall: valid and not yet locked by a purchase. */
+    /** The attribution that changes the paywall: valid, with a tier, and not yet locked by a purchase. */
     active(): Attribution | null {
-      return state !== null && state.status === 'valid' && state.lockedAt === undefined ? state : null;
+      return state !== null && state.status === 'valid' && state.lockedAt === undefined && state.offering !== undefined ? state : null;
     },
 
     /** The first purchase was observed: this code stays. */

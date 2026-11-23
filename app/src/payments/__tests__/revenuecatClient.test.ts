@@ -185,8 +185,13 @@ describe('partner attribution and offer codes', () => {
     setKeys({ test: 'test_x' });
     const c = createRevenueCatClient();
     c.configure();
-    await c.setPartner('PROFJOAO', 'link', 'partner_p20');
-    expect(Purchases.setAttributes).toHaveBeenCalledWith({ partner_code: 'PROFJOAO', partner_source: 'link', partner_offering: 'partner_p20' });
+    await c.setPartner('PROFJOAO', 'link', 'partner_p20', Date.parse('2026-11-23T12:00:00Z'));
+    expect(Purchases.setAttributes).toHaveBeenCalledWith({
+      partner_code: 'PROFJOAO',
+      partner_source: 'link',
+      partner_offering: 'partner_p20',
+      partner_applied_at: '2026-11-23T12:00:00.000Z',
+    });
     expect(Purchases.setMediaSource).toHaveBeenCalledWith('partner');
     expect(Purchases.setCampaign).toHaveBeenCalledWith('PROFJOAO');
   });
@@ -196,13 +201,13 @@ describe('partner attribution and offer codes', () => {
     const c = createRevenueCatClient();
     c.configure();
     (Purchases.setAttributes as jest.Mock).mockRejectedValueOnce(new Error('sdk'));
-    await expect(c.setPartner('PROFJOAO', 'link', 'partner_p20')).resolves.toBeUndefined();
+    await expect(c.setPartner('PROFJOAO', 'link', 'partner_p20', 1)).resolves.toBeUndefined();
 
     jest.clearAllMocks();
     setKeys({});
     const off = createRevenueCatClient();
     off.configure();
-    await expect(off.setPartner('PROFJOAO', 'link', 'partner_p20')).resolves.toBeUndefined();
+    await expect(off.setPartner('PROFJOAO', 'link', 'partner_p20', 1)).resolves.toBeUndefined();
     expect(Purchases.setAttributes).not.toHaveBeenCalled();
   });
 
@@ -211,7 +216,7 @@ describe('partner attribution and offer codes', () => {
     const c = createRevenueCatClient();
     c.configure();
     (Purchases.setAttributes as jest.Mock).mockImplementationOnce(() => new Promise((r) => setTimeout(r, 20)));
-    await Promise.all([c.setPartner('AAA', 'link', 'partner_p10'), c.setPartner('BBB', 'typed', 'partner_p20')]);
+    await Promise.all([c.setPartner('AAA', 'link', 'partner_p10', 1), c.setPartner('BBB', 'typed', 'partner_p20', 2)]);
     expect((Purchases.setAttributes as jest.Mock).mock.calls.map((a) => a[0].partner_code)).toEqual(['AAA', 'BBB']);
     expect((Purchases.setCampaign as jest.Mock).mock.calls.map((a) => a[0])).toEqual(['AAA', 'BBB']);
     expect((Purchases.setMediaSource as jest.Mock).mock.calls).toHaveLength(2);

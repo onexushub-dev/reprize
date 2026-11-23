@@ -94,11 +94,16 @@ export function createRevenueCatClient(): PaymentsClient {
       return toSnapshot(await Purchases.restorePurchases());
     },
 
-    setPartner(code, source, offering) {
+    setPartner(code, source, offering, appliedAt) {
       if (!configured) return Promise.resolve();
       partnerWrites = partnerWrites.then(async () => {
         try {
-          await Purchases.setAttributes({ partner_code: code, partner_source: source, partner_offering: offering });
+          await Purchases.setAttributes({
+            partner_code: code,
+            partner_source: source,
+            partner_offering: offering,
+            partner_applied_at: new Date(appliedAt).toISOString(),
+          });
           await Purchases.setMediaSource('partner');
           await Purchases.setCampaign(code);
         } catch (e) {
@@ -107,6 +112,15 @@ export function createRevenueCatClient(): PaymentsClient {
         }
       });
       return partnerWrites;
+    },
+
+    async appUserId() {
+      if (!configured) return null;
+      try {
+        return await Purchases.getAppUserID();
+      } catch {
+        return null;
+      }
     },
 
     async redeemOfferCode(code) {

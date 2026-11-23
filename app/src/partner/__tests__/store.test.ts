@@ -248,12 +248,70 @@ describe('a code applied offline beside a valid attribution', () => {
       expect(a.store.current()).toMatchObject({ offering: 'partner_p20', discountPercent: 20 });
     });
 
-    it('start keeps an unlocked attribution whose code left the directory', async () => {
+    it('a code that left the directory keeps its credit but no longer offers a discount', async () => {
       const a = setup();
       await a.store.apply('PROFJOAO', 'link');
       a.state.dir = {};
       await a.store.start();
-      expect(a.store.current()).toMatchObject({ code: 'PROFJOAO', offering: 'partner_p20' });
+      expect(a.store.current()?.code).toBe('PROFJOAO');
+      expect(a.store.current()?.offering).toBeUndefined();
+      expect(a.store.active()).toBeNull();
+      a.state.dir = DIR;
+      await a.store.start();
+      expect(a.store.active()?.offering).toBe('partner_p20');
+    });
+
+    it('offline, a saved offer stays', async () => {
+      const a = setup();
+      await a.store.apply('PROFJOAO', 'link');
+      a.state.dir = null;
+      await a.store.start();
+      expect(a.store.active()?.offering).toBe('partner_p20');
+    });
+
+    it('with PRO, an unlocked attribution is neither moved nor announced', async () => {
+      const a = setup();
+      await a.store.apply('PROFJOAO', 'link');
+      a.onValid.mockClear();
+      a.state.dir = MOVED;
+      await a.store.start({ pro: true });
+      expect(a.store.current()?.offering).toBe('partner_p20');
+      expect(a.onValid).not.toHaveBeenCalled();
+    });
+
+    it('with PRO, a waiting code is dropped and never confirmed', async () => {
+      const a = setup({ dir: null });
+      await a.store.apply('PROFJOAO', 'typed');
+      a.state.dir = DIR;
+      await a.store.start({ pro: true });
+      expect(a.store.current()).toBeNull();
+      expect(a.onValid).not.toHaveBeenCalled();
+    });
+
+    it('with the purchases unknown, a waiting code keeps waiting', async () => {
+      const a = setup({ dir: null });
+      await a.store.apply('PROFJOAO', 'typed');
+      a.state.dir = DIR;
+      await a.store.start({ pro: null });
+      expect(a.store.current()?.status).toBe('pending');
+      expect(a.onValid).not.toHaveBeenCalled();
+    });
+
+    it('a newer code applied during the directory read is not replaced by the older one', async () => {
+      const kv = memKv();
+      let release: (d: PartnerDirectory) => void = () => {};
+      let answer: () => Promise<PartnerDirectory | null> = async () => null;
+      const onValid = jest.fn();
+      const store = createPartnerStore({ kv, directory: () => answer(), now: () => 1, onValid });
+      await store.apply('PROFJOAO', 'link');
+      answer = () => new Promise((r) => (release = r));
+      const starting = store.start();
+      answer = async () => DIR;
+      await store.apply('MARIA10', 'typed');
+      release(DIR);
+      await starting;
+      expect(store.current()?.code).toBe('MARIA10');
+      expect(onValid).not.toHaveBeenCalledWith(expect.objectContaining({ code: 'PROFJOAO' }));
     });
 
     it('a tier refresh keeps a candidate code waiting beside the attribution', async () => {

@@ -57,6 +57,7 @@ export async function openPaywall(t: TFunction, source: PaywallSource, offering:
 
 /** Restores purchases and says what happened. */
 export async function restorePurchases(t: TFunction): Promise<void> {
+  disarmRedemption(); // what a restore brings back is not Apple's redemption
   const restored = await payments.restore();
   if (restored === true) Alert.alert(t('payments.restored'));
   else if (restored === false) Alert.alert(t('payments.nothingToRestore'));

@@ -21,3 +21,12 @@ describe('toSnapshot', () => {
     expect(toSnapshot({ ...base, entitlements: { active: { other: {} } } }).proActive).toBe(false);
   });
 });
+
+test('carries the dates of the Pro purchase', () => {
+  const s = toSnapshot({
+    entitlements: { active: { pro: { latestPurchaseDate: '2026-11-20T00:00:00Z', originalPurchaseDate: '2026-01-02T00:00:00Z' } } },
+    nonSubscriptionTransactions: [],
+  });
+  expect(s.proPurchasedAt).toBe(Date.parse('2026-11-20T00:00:00Z'));
+  expect(s.proFirstPurchasedAt).toBe(Date.parse('2026-01-02T00:00:00Z'));
+});
