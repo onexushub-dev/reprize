@@ -150,26 +150,18 @@ describe('createRevenueCatClient', () => {
 });
 
 describe('partners', () => {
-  it('reads the directory from the default offering metadata', async () => {
+  it('reads the directory from the price tier offerings', async () => {
     setKeys({ test: 'test_x' });
     const c = createRevenueCatClient();
     c.configure();
     (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({
       current: null,
-      all: { default: { metadata: { partners: { PROFJOAO: { name: 'Prof. João' } } } } },
+      all: {
+        default: { metadata: {} },
+        partner_p20: { metadata: { discountPercent: 20, partners: { PROFJOAO: { name: 'Prof. João' } } } },
+      },
     });
-    expect(await c.partners()).toEqual({ PROFJOAO: { name: 'Prof. João' } });
-  });
-
-  it('reads the current offering when there is no "default" identifier', async () => {
-    setKeys({ test: 'test_x' });
-    const c = createRevenueCatClient();
-    c.configure();
-    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({
-      current: { metadata: { partners: { ABC: { name: 'Abc' } } } },
-      all: {},
-    });
-    expect(await c.partners()).toEqual({ ABC: { name: 'Abc' } });
+    expect(await c.partners()).toEqual({ PROFJOAO: { name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 } });
   });
 
   it('is null when the offerings fail or the SDK is not configured', async () => {
@@ -193,8 +185,8 @@ describe('partner attribution and offer codes', () => {
     setKeys({ test: 'test_x' });
     const c = createRevenueCatClient();
     c.configure();
-    await c.setPartner('PROFJOAO', 'link');
-    expect(Purchases.setAttributes).toHaveBeenCalledWith({ partner_code: 'PROFJOAO', partner_source: 'link' });
+    await c.setPartner('PROFJOAO', 'link', 'partner_p20');
+    expect(Purchases.setAttributes).toHaveBeenCalledWith({ partner_code: 'PROFJOAO', partner_source: 'link', partner_offering: 'partner_p20' });
     expect(Purchases.setMediaSource).toHaveBeenCalledWith('partner');
     expect(Purchases.setCampaign).toHaveBeenCalledWith('PROFJOAO');
   });
@@ -204,13 +196,13 @@ describe('partner attribution and offer codes', () => {
     const c = createRevenueCatClient();
     c.configure();
     (Purchases.setAttributes as jest.Mock).mockRejectedValueOnce(new Error('sdk'));
-    await expect(c.setPartner('PROFJOAO', 'link')).resolves.toBeUndefined();
+    await expect(c.setPartner('PROFJOAO', 'link', 'partner_p20')).resolves.toBeUndefined();
 
     jest.clearAllMocks();
     setKeys({});
     const off = createRevenueCatClient();
     off.configure();
-    await expect(off.setPartner('PROFJOAO', 'link')).resolves.toBeUndefined();
+    await expect(off.setPartner('PROFJOAO', 'link', 'partner_p20')).resolves.toBeUndefined();
     expect(Purchases.setAttributes).not.toHaveBeenCalled();
   });
 
@@ -219,7 +211,7 @@ describe('partner attribution and offer codes', () => {
     const c = createRevenueCatClient();
     c.configure();
     (Purchases.setAttributes as jest.Mock).mockImplementationOnce(() => new Promise((r) => setTimeout(r, 20)));
-    await Promise.all([c.setPartner('AAA', 'link'), c.setPartner('BBB', 'typed')]);
+    await Promise.all([c.setPartner('AAA', 'link', 'partner_p10'), c.setPartner('BBB', 'typed', 'partner_p20')]);
     expect((Purchases.setAttributes as jest.Mock).mock.calls.map((a) => a[0].partner_code)).toEqual(['AAA', 'BBB']);
     expect((Purchases.setCampaign as jest.Mock).mock.calls.map((a) => a[0])).toEqual(['AAA', 'BBB']);
     expect((Purchases.setMediaSource as jest.Mock).mock.calls).toHaveLength(2);

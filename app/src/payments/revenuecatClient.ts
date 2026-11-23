@@ -3,7 +3,7 @@ import { Linking, Platform } from 'react-native';
 import Purchases, { type CustomerInfo, type PurchasesOffering } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
 
-import { type PartnerDirectory, parsePartners } from '../partner/directory';
+import { type PartnerDirectory, parsePartnerOfferings } from '../partner/directory';
 import type { PaymentsClient, PaywallOutcome } from './client';
 import { toSnapshot } from './snapshot';
 import { EMPTY_SNAPSHOT } from './types';
@@ -94,11 +94,11 @@ export function createRevenueCatClient(): PaymentsClient {
       return toSnapshot(await Purchases.restorePurchases());
     },
 
-    setPartner(code, source) {
+    setPartner(code, source, offering) {
       if (!configured) return Promise.resolve();
       partnerWrites = partnerWrites.then(async () => {
         try {
-          await Purchases.setAttributes({ partner_code: code, partner_source: source });
+          await Purchases.setAttributes({ partner_code: code, partner_source: source, partner_offering: offering });
           await Purchases.setMediaSource('partner');
           await Purchases.setCampaign(code);
         } catch (e) {
@@ -130,8 +130,7 @@ export function createRevenueCatClient(): PaymentsClient {
       if (!configured) return null;
       try {
         const offerings = await Purchases.getOfferings();
-        const offering = offerings.all.default ?? offerings.current;
-        return parsePartners(offering?.metadata);
+        return parsePartnerOfferings(offerings.all);
       } catch {
         return null;
       }

@@ -45,3 +45,8 @@ export function codeFromReferrer(referrer: string | null | undefined): string | 
   }
   return null;
 }
+
+/** The Apple custom code of a partner: its own code in the annual offer, and the code plus MENSAL in the monthly one. */
+export function appleOfferCode(code: string, plan: 'annual' | 'monthly'): string {
+  return plan === 'monthly' ? `${code}MENSAL` : code;
+}

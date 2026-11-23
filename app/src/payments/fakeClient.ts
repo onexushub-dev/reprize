@@ -1,6 +1,6 @@
 import type { PartnerDirectory } from '../partner/directory';
 import type { PaymentsClient, PaywallOutcome } from './client';
-import { EMPTY_SNAPSHOT, type Offering, type Snapshot } from './types';
+import { EMPTY_SNAPSHOT, type Offering, type PartnerOffering, type Snapshot } from './types';
 
 export function createFakeClient() {
   const listeners = new Set<(s: Snapshot) => void>();
@@ -16,8 +16,8 @@ export function createFakeClient() {
     paywallGate: undefined as Promise<void> | undefined,
     /** What `partners()` answers; null = could not be read. */
     directory: {} as PartnerDirectory | null,
-    /** The (code, source) of every setPartner call. */
-    partnerCalls: [] as [string, string][],
+    /** The (code, source, offering) of every setPartner call. */
+    partnerCalls: [] as [string, string, PartnerOffering][],
     /** What `redeemOfferCode` answers, and the codes it was asked for. */
     redeemResult: true,
     redeemed: [] as string[],
@@ -40,8 +40,8 @@ export function createFakeClient() {
       if (fake.failRestore || fake.failSnapshot) throw new Error('snapshot unavailable');
       return fake.snapshot;
     },
-    async setPartner(code: string, source: string): Promise<void> {
-      fake.partnerCalls.push([code, source]);
+    async setPartner(code: string, source: string, offering: PartnerOffering): Promise<void> {
+      fake.partnerCalls.push([code, source, offering]);
     },
     async redeemOfferCode(code: string): Promise<boolean> {
       fake.redeemed.push(code);

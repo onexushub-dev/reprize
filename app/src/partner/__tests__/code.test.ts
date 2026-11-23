@@ -1,4 +1,4 @@
-import { codeFromReferrer, codeFromUrl, normalizeCode } from '../code';
+import { appleOfferCode, codeFromReferrer, codeFromUrl, normalizeCode } from '../code';
 
 describe('normalizeCode', () => {
   it('uppercases, folds accents and drops separators', () => {
@@ -42,5 +42,12 @@ describe('codeFromReferrer', () => {
     expect(codeFromReferrer('utm_source=google-play&utm_medium=organic')).toBeNull();
     expect(codeFromReferrer(null)).toBeNull();
     expect(codeFromReferrer(undefined)).toBeNull();
+  });
+});
+
+describe('appleOfferCode', () => {
+  it('is the code for annual and the code plus MENSAL for monthly', () => {
+    expect(appleOfferCode('PROFJOAO', 'annual')).toBe('PROFJOAO');
+    expect(appleOfferCode('PROFJOAO', 'monthly')).toBe('PROFJOAOMENSAL');
   });
 });
