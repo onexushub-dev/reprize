@@ -91,7 +91,7 @@ describe('analytics core', () => {
     analytics.track('partner_code_rejected', { source: 'typed', reason: 'invalid' });
     analytics.track('partner_offer_opened', { code: 'PROFJOAO', via: 'offer_code' });
     analytics.track('paywall_viewed', { source: 'upgrade_card', offering: 'partner_p20', partner: 'PROFJOAO' });
-    analytics.track('purchase_completed', { offering: 'partner_p20', partner: 'PROFJOAO' });
+    analytics.track('purchase_completed', { offering: 'partner_p20', source: 'upgrade_card', partner: 'PROFJOAO' });
     expect(adapter.calls.map((c) => c.name)).toEqual([
       'partner_code_applied',
       'partner_code_rejected',

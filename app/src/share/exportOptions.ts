@@ -24,21 +24,27 @@ export type ExportOptions = {
   focus?: { path: string; aspect: 'landscape' | 'portrait'; fill?: boolean };
 };
 
-/** Legacy tier names still accepted until the export takes only a `Plan`. */
-type Tier = Plan | 'pass' | 'pro';
+/**
+ * Legacy tier names still accepted until the export takes only a `Plan`. `courtesy`: a received recording exported by
+ * someone without Pro (a courtesy spent on it): the paid export capped at Full HD, with the app mark (sharing §2.9).
+ * `legacy`: a paid export that keeps the rule of its day, without the app mark (`payments/watermarkRule.ts`).
+ */
+export type ExportTier = Plan | 'pass' | 'pro' | 'courtesy' | 'legacy';
+type Tier = ExportTier;
 
 /**
  * Free: HD (720x1280), no sound (the clip may have it: it is locked here, so a recording already made can be unlocked
  * later), no Modo Foco, and the app mark; the chosen speed goes in. Paid (a paid plan, pass, pro): Full HD (or 2K/4K for
- * a 4K clip), its sound, any speed, Modo Foco, no app mark. A landscape clip gets the same frame turned on its side, so it
+ * a 4K clip), its sound, any speed, Modo Foco, and the app mark too (`legacy` leaves without it). A landscape clip gets the same frame turned on its side, so it
  * fills the screen when the phone is held sideways, like any video in Photos. Any speed other than 1x plays without
  * sound. Modo Foco applies when on, ready, not turned and not zoomed by hand.
  */
 /**
- * true: every clip carries the Reprize mark, on every plan. false (the rule since 2026-10-27): only free recordings
- * carry it, Pro and the Single Pass never do.
+ * true (the rule since 2026-11-23): every clip carries the Reprize mark, on every plan, except a `legacy` export (what
+ * was bought or recorded before the rule, `payments/watermarkRule.ts`). false (the rule from 2026-10-27): only free
+ * recordings and courtesies carry it.
  */
-export const WATERMARK_ON_EVERY_PLAN = false as boolean;
+export const WATERMARK_ON_EVERY_PLAN = true as boolean;
 
 export function exportOptions(
   tier: Tier,
@@ -53,7 +59,7 @@ export function exportOptions(
 ): ExportOptions {
   // What the export may carry (the field test unlocks it all); the screens still label the plan as it is.
   const paid = tier !== 'free' || accessPlan('free') === 'paid';
-  const { width: frameWidth, height: frameHeight } = sideSize(paid ? side : FREE_SIDE, true);
+  const { width: frameWidth, height: frameHeight } = sideSize(paid ? (tier === 'courtesy' ? 1080 : side) : FREE_SIDE, true);
   const short = frameHeight;
   const long = frameWidth;
   const { speed: chosenSpeed, muted, zoom, rotation, focus: focusOn, framing } = readEdit(edit);
@@ -74,7 +80,7 @@ export function exportOptions(
     crop: zoom && zoom.scale > 1 ? cropRect(zoom) : undefined,
     rotation,
     // The mark follows the plan as it is, also during the field test: it is the release look, not a locked feature.
-    watermark: WATERMARK_ON_EVERY_PLAN || tier === 'free',
+    watermark: tier === 'free' || tier === 'courtesy' || (WATERMARK_ON_EVERY_PLAN && tier !== 'legacy'),
     ...(follow ? { focus: { path: focus.path, aspect: landscape ? ('landscape' as const) : ('portrait' as const) } } : {}),
     ...(ballOn && ball ? { focus: { path: ball.path, aspect: 'portrait' as const, fill: true } } : {}),
   };
@@ -93,10 +99,10 @@ export function ballActive(
 /** What this clip uses that a free export drops: shown first in the free-export notice (it always lists every loss). */
 export type FreeLosses = { focus: boolean; sound: boolean };
 
-export function freeLosses(clip: Pick<Clip, 'edit' | 'focus'> & Partial<Pick<Clip, 'ball' | 'trim'>>): FreeLosses {
+export function freeLosses(clip: Pick<Clip, 'edit' | 'focus'> & Partial<Pick<Clip, 'ball' | 'trim' | 'sharePosition'>>): FreeLosses {
   const { focus, rotation, zoom, speed, muted, framing } = readEdit(clip.edit);
   const manualZoom = zoom !== undefined && zoom.scale > 1;
-  const ballFile = clip.trim ? readyBallFile({ ball: clip.ball, trim: clip.trim }) : undefined;
+  const ballFile = clip.trim ? readyBallFile({ ball: clip.ball, trim: clip.trim, sharePosition: clip.sharePosition }) : undefined;
   return {
     // Seguir a Bola is a framing too: a free export leaves without it, as without Modo Foco.
     focus:

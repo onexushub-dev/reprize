@@ -1,4 +1,4 @@
-import { type Clip, DEFAULT_PREFS, DEFAULT_TRIM_MS, MAX_CLIP_NAME, MAX_GAME_NAME, type Prefs, type Session, type Sport } from './schema';
+import { type Clip, DEFAULT_PREFS, DEFAULT_TRIM_MS, MAX_CLIP_NAME, MAX_GAME_NAME, type Prefs, type ReceivedDownload, type ReceivedEnd, type Session, type SessionReceived, type SessionShare, type Sport } from './schema';
 
 export interface KV {
   getString(key: string): string | undefined;
@@ -131,7 +131,8 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
      */
     upgradeSession(id: string, plan: { passTransactionId?: string }): Session | undefined {
       const session = getSession(id);
-      if (!session) return undefined;
+      // A received recording is never made paid: Pro covers it while active, a courtesy otherwise (sharing §2.10).
+      if (!session || session.received) return undefined;
       const { passTransactionId } = plan;
       const next: Session = { ...session, paid: true, ...(passTransactionId ? { passTransactionId } : {}) };
       write(key.session(id), next);
@@ -145,6 +146,88 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       const session = getSession(id);
       if (!session) return;
       write(key.session(id), { ...session, ballSport });
+      changed();
+    },
+
+    /**
+     * A recording received through a link (sharing design §5.3): ended, never paid. Clips arrive later, one by one,
+     * with `addReceivedClip`.
+     */
+    startReceivedSession(input: { sport: Sport; name?: string; received: SessionReceived; now: number }): Session {
+      const ids = sessionIds();
+      spentList();
+      const session: Session = {
+        id: newId(),
+        sport: input.sport,
+        startedAt: input.now,
+        endedAt: input.now,
+        received: input.received,
+        ...(input.name ? { name: input.name.trim().slice(0, MAX_GAME_NAME) } : {}),
+      };
+      write(key.session(session.id), session);
+      write(key.sessions, [...ids, session.id]);
+      changed();
+      return session;
+    },
+
+    /** Every recording, own and received, with or without clips, in the order they were made. */
+    allSessions(): Session[] {
+      return sessionIds()
+        .map((id) => getSession(id))
+        .filter((s): s is Session => s !== undefined);
+    },
+
+    /** Every recording received through a link, with or without clips yet. */
+    receivedSessions(): Session[] {
+      return sessionIds()
+        .map((id) => getSession(id))
+        .filter((s): s is Session => s !== undefined && s.received !== undefined);
+    },
+
+    /** The received recording of this share, if this phone has it. */
+    receivedSession(shareId: string): Session | undefined {
+      return this.receivedSessions().find((s) => s.received !== undefined && s.received.shareId === shareId);
+    },
+
+    /** A clip of a received recording, stored as the sender left it (cut, bounds, number, edit). */
+    addReceivedClip(input: Omit<Clip, 'id'>): Clip {
+      const clip: Clip = { ...input, id: newId() };
+      write(key.clip(clip.id), clip);
+      write(key.clipsOf(input.sessionId), [...clipIds(input.sessionId), clip.id]);
+      changed();
+      return clip;
+    },
+
+    /** The server spent (or had already spent) a courtesy on this received recording. */
+    setReceivedCourtesy(id: string): void {
+      const session = getSession(id);
+      if (!session || !session.received || session.received.courtesy) return;
+      write(key.session(id), { ...session, received: { ...session.received, courtesy: true } });
+      changed();
+    },
+
+    /** Baixar, Pausar, Continuar or Cancelar on a received recording. */
+    setReceivedDownload(id: string, download: ReceivedDownload): void {
+      const session = getSession(id);
+      if (!session || !session.received || session.received.download === download) return;
+      write(key.session(id), { ...session, received: { ...session.received, download } });
+      changed();
+    },
+
+    /** The server said the link of this received recording is over. */
+    setReceivedEnded(id: string, ended: ReceivedEnd): void {
+      const session = getSession(id);
+      if (!session || !session.received || session.received.ended === ended) return;
+      write(key.session(id), { ...session, received: { ...session.received, ended } });
+      changed();
+    },
+
+    /** The link this recording was shared with; undefined forgets it. */
+    setShared(id: string, shared: SessionShare | undefined): void {
+      const session = getSession(id);
+      if (!session) return;
+      const { shared: _old, ...rest } = session;
+      write(key.session(id), shared === undefined ? rest : { ...rest, shared });
       changed();
     },
 
@@ -167,12 +250,28 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
         const session = getSession(id);
         if (!session || session.endedAt !== undefined) continue;
         const clips = this.listClips(id);
-        const last = clips.reduce((at, c) => Math.max(at, c.createdAt), session.startedAt);
+        // A continuation with no new clip ends when it was continued, never before its pause (2026-11-23).
+        const from = session.resumedAt !== undefined ? session.resumedAt : session.startedAt;
+        const last = clips.reduce((at, c) => Math.max(at, c.createdAt), from);
         write(key.session(id), { ...session, endedAt: last });
         closed += 1;
       }
       if (closed > 0) changed();
       return closed;
+    },
+
+    /**
+     * Continues an ended own recording (2026-11-23): it is open again, and the pause since its end is kept out of its
+     * duration. Undefined for an unknown, open or received recording.
+     */
+    resumeSession(id: string, now: number): Session | undefined {
+      const session = getSession(id);
+      if (!session || session.received || session.endedAt === undefined) return undefined;
+      const { endedAt, ...rest } = session;
+      const next: Session = { ...rest, pausedMs: (session.pausedMs !== undefined ? session.pausedMs : 0) + Math.max(0, now - endedAt), resumedAt: now };
+      write(key.session(id), next);
+      changed();
+      return next;
     },
 
     endSession(id: string, now: number): Session {
@@ -259,8 +358,12 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       return touched;
     },
 
-    /** Games with at least one existing clip, newest first. */
+    /**
+     * Games with at least one existing clip, newest first. A received recording not downloaded yet (a group link's,
+     * multi-recording share design §5.4) is listed too while its link lasts: Baixar is on its screen.
+     */
     listSessions(): { session: Session; clips: number; firstClip?: Clip }[] {
+      const now = Date.now();
       return sessionIds()
         .map((id) => getSession(id))
         .filter((s): s is Session => s !== undefined)
@@ -268,7 +371,11 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
           const clips = this.listClips(session.id);
           return { session, clips: clips.length, firstClip: clips[0] };
         })
-        .filter((g) => g.clips > 0)
+        .filter(
+          (g) =>
+            g.clips > 0 ||
+            (g.session.received !== undefined && g.session.received.expiresAt > now && g.session.received.ended === undefined),
+        )
         .sort((a, b) => b.session.startedAt - a.session.startedAt);
     },
 
@@ -354,7 +461,8 @@ export function createRepo(kv: KV, files: FileProbe, newId: () => string) {
       return {
         clips: clips.length,
         bytes: clips.reduce((sum, c) => sum + files.sizeBytes(c.path), 0),
-        recordedMs: session?.endedAt ? session.endedAt - session.startedAt : 0,
+        // Pauses between an end and a continuation are not recorded time (2026-11-23).
+        recordedMs: session !== undefined && session.endedAt !== undefined ? Math.max(0, session.endedAt - session.startedAt - (session.pausedMs !== undefined ? session.pausedMs : 0)) : 0,
       };
     },
   };

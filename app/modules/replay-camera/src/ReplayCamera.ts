@@ -6,6 +6,7 @@ import type {
   BallAnalysis,
   BluetoothConnected,
   DeviceUpright,
+  Gravity,
   ExportClipOptions,
   ExportedClip,
   FocusAnalysis,
@@ -21,6 +22,8 @@ import type {
   Quality,
   UploadEntry,
   UploadItem,
+  DownloadEntry,
+  DownloadItem,
 } from './ReplayCamera.types';
 
 // Native rejections carry `code` (a ReplayErrorCode), so callers can branch on it.
@@ -70,6 +73,12 @@ export function setGestureTrace(enabled: boolean): void {
 export function getDeviceUpright(): DeviceUpright {
   if (typeof ReplayCameraModule.getUpright === 'function') return ReplayCameraModule.getUpright();
   return 'portrait';
+}
+
+/** The accelerometer's latest reading in g; null where the platform cannot tell (Android, older builds) or before the first one. */
+export function getDeviceGravity(): Gravity | null {
+  if (typeof ReplayCameraModule.getGravity === 'function') return ReplayCameraModule.getGravity() ?? null;
+  return null;
 }
 
 /** What the camera can zoom. Without native zoom there are only the two lenses: 0.5x and 1x, picked when the camera opens. */
@@ -231,6 +240,15 @@ export function exportClip(opts: ExportClipOptions): Promise<ExportedClip> {
   return ReplayCameraModule.exportClip(opts);
 }
 
+/**
+ * Stops the export started with this `exportId` at once (2026-11-23): it rejects with `CANCELLED` and leaves no file.
+ * Its progress arrives as `onExportProgress`. Nothing happens on a build without it.
+ */
+export function cancelExport(exportId: string): void {
+  const cancel = ReplayCameraModule.cancelExport;
+  if (typeof cancel === 'function') cancel.call(ReplayCameraModule, exportId);
+}
+
 // ---- Modo Foco (iOS and Android). Without the native functions there is no analysis.
 
 /** Whether this phone records `quality` (4K needs a camera that has it); Full HD always. */
@@ -312,6 +330,39 @@ export function shareFiles(paths: string[]): Promise<'shared' | 'dismissed'> {
 }
 
 /** Joins exported videos of the same size and codec, in order, into `outPath` without re-encoding. */
+/**
+ * Runs `work` with the extra time iOS gives an app that leaves the front with work in hand (about 30 s): the work goes
+ * on while the person is already in another app. Elsewhere it simply runs.
+ */
+export async function withBackgroundTime<T>(name: string, work: () => Promise<T>): Promise<T> {
+  let key: number | undefined;
+  try {
+    if (ReplayCameraModule.beginBackgroundWork) key = await ReplayCameraModule.beginBackgroundWork(name);
+  } catch {
+    key = undefined;
+  }
+  try {
+    return await work();
+  } finally {
+    if (key !== undefined && ReplayCameraModule.endBackgroundWork) void ReplayCameraModule.endBackgroundWork(key).catch(() => {});
+  }
+}
+
+/**
+ * The part of a clip to share (the sender's cut, and no sound track when muted), copied without re-encoding. Undefined
+ * where the platform cannot (Android: sharing is iOS only for now).
+ */
+export function cutClip(
+  inPath: string,
+  outPath: string,
+  startMs: number,
+  endMs: number,
+  muted: boolean,
+): Promise<ExportedClip> | undefined {
+  if (!ReplayCameraModule.cutClip) return undefined;
+  return ReplayCameraModule.cutClip(inPath, outPath, startMs, endMs, muted);
+}
+
 export function concatVideos(paths: string[], outPath: string): Promise<ExportedClip> {
   return ReplayCameraModule.concatVideos(paths, outPath);
 }
@@ -472,7 +523,68 @@ export function uploadState(): UploadEntry[] {
   return ReplayCameraModule.uploadState();
 }
 
+/** Stops every running upload and keeps it paused (a recording started). */
+export function pauseUploads(): void {
+  if (ReplayCameraModule.uploadPause) ReplayCameraModule.uploadPause();
+}
+
+/** Starts the paused uploads again; `cellular` false keeps them on Wi-Fi. */
+export function resumeUploads(cellular: boolean): void {
+  if (ReplayCameraModule.uploadResume) ReplayCameraModule.uploadResume(cellular);
+}
+
+/** Starts again every upload left running with no transfer behind it (the app was swiped away). */
+export function restoreUploads(): void {
+  if (ReplayCameraModule.uploadRestore) ReplayCameraModule.uploadRestore();
+}
+
+/** Cancels these uploads and forgets them. */
+export function removeUploads(ids: string[]): void {
+  if (ReplayCameraModule.uploadRemove) ReplayCameraModule.uploadRemove(ids);
+}
+
 /** Cancels every upload and forgets them. */
 export function resetUploads(): void {
   if (ReplayCameraModule.uploadReset) ReplayCameraModule.uploadReset();
+}
+
+/** Whether this build downloads in the system's background session (iOS builds from 2026-11-19 on). */
+export function downloadsAvailable(): boolean {
+  return ReplayCameraModule.downloadStart !== undefined;
+}
+
+/**
+ * Starts downloading these files in the system's background session (iOS): they go on with the screen locked. With
+ * `paused` they are queued but wait for `resumeDownloads` (a recording is on). False where the build has no downloader.
+ */
+export function startDownloads(items: DownloadItem[], paused: boolean): boolean {
+  if (!ReplayCameraModule.downloadStart) return false;
+  ReplayCameraModule.downloadStart(items, paused);
+  return true;
+}
+
+/** Every file the downloader knows about; empty where the build has no downloader. */
+export function downloadState(): DownloadEntry[] {
+  if (!ReplayCameraModule.downloadState) return [];
+  return ReplayCameraModule.downloadState();
+}
+
+/** Stops every running download and keeps it paused (a recording started). */
+export function pauseDownloads(): void {
+  if (ReplayCameraModule.downloadPause) ReplayCameraModule.downloadPause();
+}
+
+/** Starts the paused downloads again. */
+export function resumeDownloads(): void {
+  if (ReplayCameraModule.downloadResume) ReplayCameraModule.downloadResume();
+}
+
+/** Cancels these downloads and forgets them. */
+export function removeDownloads(ids: string[]): void {
+  if (ReplayCameraModule.downloadRemove) ReplayCameraModule.downloadRemove(ids);
+}
+
+/** Starts again every download left running with no transfer behind it (the app was swiped away). */
+export function restoreDownloads(): void {
+  if (ReplayCameraModule.downloadRestore) ReplayCameraModule.downloadRestore();
 }

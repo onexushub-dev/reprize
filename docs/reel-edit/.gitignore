@@ -1,5 +1,6 @@
-# Midia pesada fica local: so o spec e os scripts vao para o git.
-out/
-*.mp4
-*.mp3
-*.mov
+# Reels editing: footage, music, clip packs, renders and work folders stay local (GBs).
+# Allow-list: only this file, the spec and the scripts go to git; any new folder or file is ignored by default.
+*
+!.gitignore
+!REEL-EDIT-SPEC.md
+!*.py

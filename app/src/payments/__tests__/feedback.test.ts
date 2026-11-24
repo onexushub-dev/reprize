@@ -65,7 +65,7 @@ describe('openPaywall analytics', () => {
     expect(showPaywall).toHaveBeenCalledWith('pass');
     expect(sent()).toEqual([
       ['paywall_viewed', { source: 'export_limit', offering: 'pass' }],
-      ['purchase_completed', { offering: 'pass' }],
+      ['purchase_completed', { offering: 'pass', source: expect.any(String) }],
     ]);
   });
 
@@ -139,7 +139,7 @@ describe('openPaywall with a partner attribution', () => {
     Platform.OS = 'android';
     showPaywall.mockResolvedValue('purchased');
     await openPaywall(t, 'upgrade_card');
-    expect(sent().at(-1)).toEqual(['purchase_completed', { offering: 'partner_p20', partner: 'PROFJOAO' }]);
+    expect(sent().at(-1)).toEqual(['purchase_completed', { offering: 'partner_p20', source: 'upgrade_card', partner: 'PROFJOAO' }]);
     expect(lock).toHaveBeenCalledTimes(1);
     lock.mockClear();
     showPaywall.mockResolvedValue('restored');
@@ -187,7 +187,7 @@ describe('openPaywall with a partner attribution', () => {
     expect(showPaywall).toHaveBeenCalledWith('default');
     expect(sent()).toEqual([
       ['paywall_viewed', { source: 'upgrade_card', offering: 'default', partner: 'PROFJOAO' }],
-      ['purchase_completed', { offering: 'default', partner: 'PROFJOAO' }],
+      ['purchase_completed', { offering: 'default', source: 'upgrade_card', partner: 'PROFJOAO' }],
     ]);
     expect(lock).toHaveBeenCalledTimes(1);
   });

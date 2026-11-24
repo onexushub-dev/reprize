@@ -1,8 +1,34 @@
 import { useEffect, useState } from 'react';
 
+import { File } from 'expo-file-system';
+
 import { createThumbnail } from '../../modules/replay-camera';
+import { thumbnailPath } from '../data/thumbnailPath';
 
 const cache = new Map<string, string>();
+
+/**
+ * The frame the native side already wrote next to the clip (<clip>.thumb.jpg), found with a file check on the first
+ * render: after the app opens, the grids drew empty tiles and filled them in one by one while each frame was asked for
+ * again (2026-11-21).
+ */
+function onDisk(path: string): string | undefined {
+  if (!path) return undefined;
+  try {
+    const uri = `file://${thumbnailPath(path)}`;
+    return new File(uri).exists ? uri : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function cached(key: string, path: string): string | undefined {
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
+  const found = onDisk(path);
+  if (found !== undefined) cache.set(key, found);
+  return found;
+}
 
 /**
  * A frame of a saved clip, made natively once and cached as a .jpg next to the clip.
@@ -15,7 +41,7 @@ export function useClipThumbnail(path: string, atMs: number): string | undefined
   const [made, setMade] = useState<{ key: string; uri: string } | null>(null);
 
   useEffect(() => {
-    if (!path || cache.has(key)) return;
+    if (!path || cached(key, path) !== undefined) return;
     let alive = true;
     createThumbnail(path, atMs)
       .then((thumbPath) => {
@@ -29,5 +55,5 @@ export function useClipThumbnail(path: string, atMs: number): string | undefined
     };
   }, [key, path, atMs]);
 
-  return cache.get(key) ?? (made !== null && made.key === key ? made.uri : undefined);
+  return cached(key, path) ?? (made !== null && made.key === key ? made.uri : undefined);
 }

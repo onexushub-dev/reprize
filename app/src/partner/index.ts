@@ -168,7 +168,7 @@ function settleRedemption(): void {
   const { proActive, proPurchasedAt } = payments.getSnapshot();
   if (!proActive || proPurchasedAt === undefined || proPurchasedAt < marker.at - CLOCK_SKEW_MS) return; // not this redemption
   disarmRedemption();
-  track('purchase_completed', { offering: 'default', partner: marker.code });
+  track('purchase_completed', { offering: 'default', source: 'partner', partner: marker.code });
   if (partner.current()?.code === marker.code) partner.lock();
 }
 
@@ -176,8 +176,8 @@ function settleRedemption(): void {
 function settlePurchases(): void {
   settleRedemption();
   const a = partner.active();
-  const { proActive, proFirstPurchasedAt } = payments.getSnapshot();
-  if (a && proActive && proFirstPurchasedAt !== undefined && proFirstPurchasedAt >= a.appliedAt - CLOCK_SKEW_MS) partner.lock();
+  const { proActive, proSince } = payments.getSnapshot();
+  if (a && proActive && proSince !== undefined && proSince >= a.appliedAt - CLOCK_SKEW_MS) partner.lock();
 }
 
 let listening = false;

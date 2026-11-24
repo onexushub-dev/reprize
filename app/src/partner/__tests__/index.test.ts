@@ -145,8 +145,8 @@ describe('startPartner', () => {
 });
 
 const FUTURE = Date.now() + 3600_000;
-const PRO = { proActive: true, passTransactions: [], proPurchasedAt: FUTURE, proFirstPurchasedAt: FUTURE };
-const OLD_PRO = { proActive: true, passTransactions: [], proPurchasedAt: 1000, proFirstPurchasedAt: 1000 };
+const PRO = { proActive: true, passTransactions: [], proPurchasedAt: FUTURE, proSince: FUTURE };
+const OLD_PRO = { proActive: true, passTransactions: [], proPurchasedAt: 1000, proSince: 1000 };
 const FREE = { proActive: false, passTransactions: [] };
 const settle = () => new Promise((r) => setImmediate(r));
 
@@ -180,7 +180,7 @@ describe('redeemPartnerOffer (iPhone)', () => {
     mockPayments.getSnapshot.mockReturnValue(PRO);
     mockSubscriber?.();
     await settle();
-    expect(sent()).toEqual([['purchase_completed', { offering: 'default', partner: 'PROFJOAO' }]]);
+    expect(sent()).toEqual([['purchase_completed', { offering: 'default', source: 'partner', partner: 'PROFJOAO' }]]);
     expect(mod.partner.current()?.lockedAt).toBeDefined();
   });
 
@@ -231,7 +231,7 @@ describe('redeemPartnerOffer (iPhone)', () => {
     appStateHandler?.('active'); // and the foreground return finds nothing left to record
     mockPayments.refresh.mockResolvedValue(PRO);
     await settle();
-    expect(sent()).toEqual([['purchase_completed', { offering: 'default', partner: 'PROFJOAO' }]]);
+    expect(sent()).toEqual([['purchase_completed', { offering: 'default', source: 'partner', partner: 'PROFJOAO' }]]);
     expect(mod.partner.active()).toBeNull();
     expect(mod.partner.current()?.lockedAt).toBeDefined();
   });
@@ -242,7 +242,7 @@ describe('redeemPartnerOffer (iPhone)', () => {
     mockPayments.getSnapshot.mockReturnValue(PRO);
     const next = load(); // a new launch, same storage
     await next.startPartner();
-    expect(sent()).toEqual([['purchase_completed', { offering: 'default', partner: 'PROFJOAO' }]]);
+    expect(sent()).toEqual([['purchase_completed', { offering: 'default', source: 'partner', partner: 'PROFJOAO' }]]);
     expect(next.partner.current()?.lockedAt).toBeDefined();
   });
 

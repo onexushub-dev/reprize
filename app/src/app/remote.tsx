@@ -56,7 +56,7 @@ import { cooldownLeft, IDLE, onResult, onTap, tick, type SaveFeedback } from '..
 import { VOICE_WORD, voiceLocale, type TFunction } from '../i18n';
 import { useT } from '../i18n/useT';
 import { useScreenEconomy } from '../session/useScreenEconomy';
-import { colors, fonts, radius } from '../theme/tokens';
+import { colors, fonts, footer, radius } from '../theme/tokens';
 
 const KEEP_AWAKE_TAG = 'remote';
 const TICK_MS = 250;
@@ -745,8 +745,8 @@ export default function Remote() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ground },
-  body: { flex: 1, padding: 20, gap: 16 },
-  scrollBody: { flexGrow: 1, padding: 20, gap: 16 },
+  body: { flex: 1, paddingHorizontal: footer.side, paddingTop: 20, paddingBottom: footer.bottom, gap: 16 },
+  scrollBody: { flexGrow: 1, paddingHorizontal: footer.side, paddingTop: 20, paddingBottom: footer.bottom, gap: 16 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 },
   role: { fontFamily: fonts.bodyBold, fontSize: 12, letterSpacing: 1.2, color: colors.muted },
   title: { fontFamily: fonts.display, fontSize: 32, lineHeight: 34, color: colors.text },
@@ -760,7 +760,8 @@ const styles = StyleSheet.create({
   notice: { backgroundColor: 'rgba(12,12,12,0.82)', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', gap: 2 },
   noticeTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.text, textAlign: 'center' },
   noticeBody: { fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.soft, textAlign: 'center' },
-  asleep: { alignItems: 'center', paddingTop: 96 },
+  // Dimmed here, not with the phone's brightness (2026-11-21: that leaked to the lock screen and other apps).
+  asleep: { alignItems: 'center', paddingTop: 96, backgroundColor: 'rgba(0,0,0,0.78)' },
   asleepPill: { backgroundColor: 'rgba(12,12,12,0.82)', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 16 },
   asleepText: { fontFamily: fonts.bodySemi, fontSize: 15, color: colors.soft, textAlign: 'center' },
   forgetButton: { minHeight: 44, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center' },

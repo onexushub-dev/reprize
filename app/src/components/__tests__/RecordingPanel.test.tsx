@@ -7,6 +7,7 @@ jest.mock('expo-router', () => ({ router: { replace: jest.fn(), push: jest.fn() 
 jest.mock('../../data/mmkv', () => ({
   repo: {
     listClips: jest.fn(() => [{ id: 'c1' }]),
+    getSession: jest.fn(() => ({ id: 's1', sport: 'quadra', startedAt: 0, name: 'Final' })),
     deleteSession: jest.fn(() => []),
     getPrefs: jest.fn(() => ({ screenEconomy: true, soundOnSave: true, flashOnSave: false })),
     setPrefs: jest.fn((patch: object) => ({ screenEconomy: true, ...patch })),
@@ -57,20 +58,77 @@ test('the count is shown in a small pill, not over the preview', async () => {
   expect(screen.getByText('3 clipes')).toBeTruthy();
 });
 
-test('tells the player clearly how to save', async () => {
+test('saving is one round button that says how far back it reaches; no word written over the picture (2026-11-21)', async () => {
   session({});
-  await render(<Recording />);
-  const line = screen.getByText('Toque na tela para salvar os últimos 30s');
-  // One line on every phone: it shrinks to fit instead of wrapping (2026-11-01, iPhone XR).
-  expect(line.props.numberOfLines).toBe(1);
-  expect(line.props.adjustsFontSizeToFit).toBe(true);
+  await render(<Recording clipSeconds={15} />);
+  expect(screen.getByRole('button', { name: 'Salvar os últimos 15s' })).toBeTruthy();
+  expect(screen.queryByText(/Para salvar os últimos/)).toBeNull();
+  expect(screen.queryByLabelText('Toque na tela')).toBeNull();
 });
 
-test('tapping the screen saves a clipe', async () => {
-  const s = session({});
+test('the time shows with the red dot only: no "Gravando" written (2026-11-21)', async () => {
+  session({});
   await render(<Recording />);
-  await fireEvent.press(screen.getByRole('button', { name: /Toque em qualquer lugar/ }));
+  expect(screen.queryByText('Gravando')).toBeNull();
+  expect(screen.getByLabelText('Gravando')).toBeTruthy();
+});
+
+test('a tap on the picture saves nothing; two fingers zoom it, and the zoom shows over the save button only while it changes', async () => {
+  const s = session({});
+  const onResponderMove = jest.fn();
+  const zoom = (value: number) => ({ value, onPress: jest.fn(), pinch: { onResponderMove } as never });
+  const view = await render(<Recording zoom={zoom(1)} />);
+  await fireEvent.press(screen.getByTestId('recording-root'));
+  expect(s.trigger).not.toHaveBeenCalled();
+  expect(screen.getByTestId('zoom-pinch').props.onResponderMove).toBe(onResponderMove);
+  // A note, not a button, and hidden until the zoom moves.
+  expect(screen.queryByRole('button', { name: /Zoom/ })).toBeNull();
+  expect(screen.getByTestId('zoom-info', { includeHiddenElements: true })).toHaveStyle({ opacity: 0 });
+  await view.rerender(<Recording zoom={zoom(1.5)} />);
+  expect(screen.getByText('1.5x', { includeHiddenElements: true })).toBeTruthy();
+});
+
+test('the ways are one centred line of short chips, read out whole (2026-11-20, option A)', async () => {
+  session({ paid: true });
+  await render(<Recording gesture voice />);
+  expect(screen.getByTestId('save-ways')).toHaveStyle({ flexDirection: 'row', justifyContent: 'center' });
+  for (const [short, whole] of [
+    ['“salvar”', 'Diga “salvar”'],
+    ['Aceno', 'Acene'],
+    ['Controle', 'Controle'],
+  ]) {
+    expect(screen.getByText(short)).toBeTruthy();
+    expect(screen.getByLabelText(whole)).toBeTruthy();
+  }
+});
+
+test('for 3 s after a save (from any trigger) the save button is greyed out and does nothing (2026-11-21)', async () => {
+  jest.useFakeTimers();
+  const s = session({ clipCount: 1, lastSaved: { clipId: 'c1', number: 1, source: 'gesture', at: Date.now(), cutMs: 15000 } });
+  await render(<Recording />);
+  const button = () => screen.getByRole('button', { name: /Salvar os últimos/ });
+  expect(button()).toBeDisabled();
+  await fireEvent.press(button());
+  expect(s.trigger).not.toHaveBeenCalled();
+  await act(async () => jest.advanceTimersByTime(3000));
+  expect(button()).toBeEnabled();
+  jest.useRealTimers();
+});
+
+test('the save button saves a clip, then draws its ring and shows a ✓ for a moment (2026-11-21, option C)', async () => {
+  const s = session({});
+  jest.useFakeTimers();
+  await render(<Recording />);
+  await fireEvent.press(screen.getByRole('button', { name: /Salvar os últimos/ }));
   expect(s.trigger).toHaveBeenCalledWith('screen');
+  expect(screen.queryByTestId('save-done')).toBeNull();
+  await act(async () => jest.advanceTimersByTime(600));
+  expect(screen.getByTestId('save-done')).toBeTruthy();
+  // The ✓ sits on the amber disc, the app's colour (2026-11-22; it was a white disc).
+  expect(screen.getByTestId('save-done')).toHaveStyle({ backgroundColor: '#FFB000' });
+  await act(async () => jest.advanceTimersByTime(900));
+  expect(screen.queryByTestId('save-done')).toBeNull();
+  jest.useRealTimers();
 });
 
 test('the saved card shows as the save starts, with the sound and the torch, before the file is written', async () => {
@@ -183,25 +241,24 @@ test('the saved popup tells the length the clip really has, not the length asked
 test('the hint says the clip length and shows one tag per way that is on, without a line of "ou"', async () => {
   session({ paid: true });
   await render(<Recording clipSeconds={45} gesture={false} voice />);
-  expect(screen.getByText('Toque na tela para salvar os últimos 45s')).toBeTruthy();
-  expect(screen.getByText('Diga “salvar”')).toBeTruthy();
-  expect(screen.getByText('Controle')).toBeTruthy();
-  expect(screen.queryByText('Acene')).toBeNull();
+  expect(screen.getByLabelText('Diga “salvar”')).toBeTruthy();
+  expect(screen.getByLabelText('Controle')).toBeTruthy();
+  expect(screen.queryByLabelText('Acene')).toBeNull();
   expect(screen.queryByText(/ ou /)).toBeNull();
 });
 
 test('the wave tag shows when the gesture is on', async () => {
   session({ paid: true });
   await render(<Recording clipSeconds={30} gesture voice={false} />);
-  expect(screen.getByText('Acene')).toBeTruthy();
-  expect(screen.queryByText('Diga “salvar”')).toBeNull();
+  expect(screen.getByLabelText('Acene')).toBeTruthy();
+  expect(screen.queryByLabelText('Diga “salvar”')).toBeNull();
 });
 
 test('in a free game the Bluetooth remote has its tag too: it is free', async () => {
   session({ paid: false });
   await render(<Recording clipSeconds={15} gesture voice={false} />);
-  expect(screen.getByText('Acene')).toBeTruthy();
-  expect(screen.getByText('Controle')).toBeTruthy();
+  expect(screen.getByLabelText('Acene')).toBeTruthy();
+  expect(screen.getByLabelText('Controle')).toBeTruthy();
 });
 
 test('a remote phone asking to end the recording ends it like the hold button does', async () => {
@@ -289,7 +346,7 @@ test('after saving, no payments note shows', async () => {
 });
 
 describe('a recording without any clip', () => {
-  test('ending it removes it and opens Minhas gravações', async () => {
+  test('ending it removes it and stays on the camera, ready for the next one (2026-11-22)', async () => {
     repo.listClips.mockReturnValue([]);
     const s = session({});
     await render(<Recording />);
@@ -300,19 +357,18 @@ describe('a recording without any clip', () => {
     await act(async () => {});
     expect(repo.deleteSession).toHaveBeenCalledWith('s1');
     expect(s.reset).toHaveBeenCalled();
-    expect(router.push).toHaveBeenCalledWith('/games');
-    expect(router.push).not.toHaveBeenCalledWith('/session/s1');
+    expect(router.push).not.toHaveBeenCalled();
     repo.listClips.mockReturnValue([{ id: 'c1' }]);
   });
 
-  test('stopped by an error, it offers Minhas gravações instead of an empty summary', async () => {
+  test('stopped by an error, it offers the camera again instead of an empty summary', async () => {
     repo.listClips.mockReturnValue([]);
     const s = session({ phase: 'ended', error: 'ENCODER_FAILED', clipCount: 0 });
     await render(<Recording />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Minhas gravações' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Voltar para a câmera' }));
     expect(repo.deleteSession).toHaveBeenCalledWith('s1');
     expect(s.reset).toHaveBeenCalled();
-    expect(router.push).toHaveBeenCalledWith('/games');
+    expect(router.push).not.toHaveBeenCalled();
     repo.listClips.mockReturnValue([{ id: 'c1' }]);
   });
 });
@@ -325,7 +381,10 @@ describe('screen economy', () => {
     expect(screen.queryByTestId('screen-economy')).toBeNull();
     await act(async () => jest.advanceTimersByTime(20_000));
     expect(screen.getByTestId('screen-economy')).toBeTruthy();
-    expect(screen.getByText('Tela em economia para poupar bateria. Toque para acender.')).toBeTruthy();
+    // A veil over the camera, which stays in view: not a black screen (2026-11-21).
+    expect(screen.getByTestId('screen-economy')).toHaveStyle({ backgroundColor: 'rgba(0,0,0,0.72)' });
+    expect(screen.getByText('Tela em economia para poupar bateria')).toBeTruthy();
+    expect(screen.getByText('Toque para acender')).toBeTruthy();
     expect(screen.queryByText(/Toque na tela para salvar/)).toBeNull();
     expect(setScreenEconomy).toHaveBeenLastCalledWith(true);
     jest.useRealTimers();
@@ -368,9 +427,9 @@ describe('screen economy', () => {
     jest.useFakeTimers();
     await render(<Recording />);
     await act(async () => jest.advanceTimersByTime(20_000));
-    const surface = screen.getByRole('button', { name: /Toque em qualquer lugar/ });
-    await fireEvent(surface, 'touchStart');
-    await fireEvent.press(surface);
+    // Dark: no save button to hit by mistake.
+    expect(screen.queryByRole('button', { name: /Salvar os últimos/ })).toBeNull();
+    await fireEvent(screen.getByTestId('recording-root'), 'touchStart');
     expect(s.trigger).not.toHaveBeenCalled();
     expect(screen.queryByTestId('screen-economy')).toBeNull();
     expect(setScreenEconomy).toHaveBeenLastCalledWith(false);
@@ -382,11 +441,8 @@ describe('screen economy', () => {
     jest.useFakeTimers();
     await render(<Recording />);
     await act(async () => jest.advanceTimersByTime(20_000));
-    const surface = screen.getByRole('button', { name: /Toque em qualquer lugar/ });
-    await fireEvent(surface, 'touchStart');
-    await fireEvent.press(surface);
-    await fireEvent(surface, 'touchStart');
-    await fireEvent.press(surface);
+    await fireEvent(screen.getByTestId('recording-root'), 'touchStart');
+    await fireEvent.press(screen.getByRole('button', { name: /Salvar os últimos/ }));
     expect(s.trigger).toHaveBeenCalledTimes(1);
     expect(s.trigger).toHaveBeenCalledWith('screen');
     jest.useRealTimers();
@@ -422,6 +478,11 @@ describe('screen economy', () => {
     const notice = screen.getByTestId('economy-notice');
     expect(within(notice).getByText('Economia de bateria ligada')).toBeTruthy();
     expect(within(notice).getByText('A tela escurece depois de 20 segundos sem toque. Toque para acender.')).toBeTruthy();
+    // In the dimmed screen's letters (2026-11-22): centred and larger.
+    expect(within(notice).getByText('Economia de bateria ligada')).toHaveStyle({ fontSize: 17, textAlign: 'center' });
+    expect(
+      within(notice).getByText('A tela escurece depois de 20 segundos sem toque. Toque para acender.'),
+    ).toHaveStyle({ fontSize: 15, textAlign: 'center' });
     expect(screen.getAllByText('Economia de bateria ligada')).toHaveLength(1);
     await act(async () => jest.advanceTimersByTime(5000));
     expect(screen.queryByTestId('economy-notice')).toBeNull();
@@ -486,7 +547,7 @@ describe('remote gone', () => {
     await act(async () => jest.advanceTimersByTime(30_000));
     expect(screen.getByTestId('screen-economy')).toBeTruthy();
     expect(screen.queryByTestId('remote-lost-notice')).toBeNull();
-    await fireEvent(screen.getByRole('button', { name: /Toque em qualquer lugar/ }), 'touchStart');
+    await fireEvent(screen.getByTestId('recording-root'), 'touchStart');
     expect(screen.getByTestId('remote-lost-notice')).toBeTruthy();
     jest.useRealTimers();
     useRemoteLink.mockReturnValue(undefined);
@@ -542,4 +603,27 @@ describe('heat tip (only from serious on)', () => {
     await render(<Recording />);
     expect(screen.queryByText(tip)).toBeNull();
   });
+});
+
+test('continuing a recording: the camera says so, with its name, for 5 seconds only (2026-11-23)', async () => {
+  jest.useFakeTimers();
+  try {
+    session({ clipCount: 12, continuing: true });
+    await render(<Recording />);
+    expect(screen.getByText('Continuando · Final')).toBeTruthy();
+    expect(screen.getByText('12 clipes')).toBeTruthy();
+    await act(async () => jest.advanceTimersByTime(4_900));
+    expect(screen.getByText('Continuando · Final')).toBeTruthy();
+    await act(async () => jest.advanceTimersByTime(200));
+    expect(screen.queryByText('Continuando · Final')).toBeNull();
+    expect(screen.getByText('12 clipes')).toBeTruthy();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('a new recording has no such badge', async () => {
+  session({ clipCount: 0, continuing: false });
+  await render(<Recording />);
+  expect(screen.queryByText(/Continuando/)).toBeNull();
 });

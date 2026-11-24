@@ -2,7 +2,7 @@
   "expo": {
     "name": "Reprize",
     "slug": "reprize",
-    "version": "1.0.3",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "reprize",
@@ -31,6 +31,7 @@
       },
       "appleTeamId": "R885ZD42ZG",
       "associatedDomains": [
+        "applinks:reprizeapp.com",
         "applinks:www.reprizeapp.com"
       ],
       "config": {
@@ -83,11 +84,7 @@
             ]
           }
         ]
-      },
-      "associatedDomains": [
-        "applinks:reprizeapp.com",
-        "applinks:www.reprizeapp.com"
-      ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -98,6 +95,19 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "app.reprize.mobile",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "reprizeapp.com", "pathPrefix": "/v/" },
+            { "scheme": "https", "host": "www.reprizeapp.com", "pathPrefix": "/v/" },
+            { "scheme": "https", "host": "reprizeapp.com", "pathPrefix": "/p/" },
+            { "scheme": "https", "host": "www.reprizeapp.com", "pathPrefix": "/p/" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
@@ -108,17 +118,6 @@
         "android.permission.READ_MEDIA_AUDIO",
         "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.SYSTEM_ALERT_WINDOW"
-      ],
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            { "scheme": "https", "host": "reprizeapp.com", "pathPrefix": "/p/" },
-            { "scheme": "https", "host": "www.reprizeapp.com", "pathPrefix": "/p/" }
-          ],
-          "category": ["BROWSABLE", "DEFAULT"]
-        }
       ]
     },
     "web": {

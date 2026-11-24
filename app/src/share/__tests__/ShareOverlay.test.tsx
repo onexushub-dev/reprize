@@ -16,7 +16,7 @@ test('every clip carries the Reprize R and our Instagram, so whoever sees it kno
   expect(screen.queryByText('feito com Reprize')).toBeNull();
 });
 
-test('without the watermark (paid exports) neither the R nor the handle is drawn', async () => {
+test('without the watermark (a legacy export) neither the R nor the handle is drawn', async () => {
   await render(<ShareOverlay frame={frame} layout={layout} scale={1} watermark={false} />);
   expect(screen.queryByLabelText('Reprize')).toBeNull();
   expect(screen.queryByText('@reprize.app')).toBeNull();

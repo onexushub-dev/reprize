@@ -123,3 +123,12 @@ test('saved keeps neither locked nor lastFree in lastSaved', () => {
   const s = reducer(recording(), { type: 'saved', sessionId: 's1', clipId: 'c1', source: 'screen', at: 1, cutMs: 30_000 });
   expect(s.lastSaved).toEqual({ clipId: 'c1', number: 1, source: 'screen', at: 1, cutMs: 30_000 });
 });
+
+test('a continued recording starts at its clip count and says it is continuing; a new one does not (2026-11-23)', () => {
+  const starting = reducer(initialState, { type: 'startRequested' });
+  const cont = reducer(starting, { type: 'started', sessionId: 's1', startedAt: 100, paid: false, bufferSeconds: 15, clipCount: 12, continuing: true });
+  expect(cont).toMatchObject({ clipCount: 12, continuing: true });
+  const fresh = reducer(starting, { type: 'started', sessionId: 's2', startedAt: 100, paid: false, bufferSeconds: 15 });
+  expect(fresh).toMatchObject({ clipCount: 0, continuing: false });
+  expect(reducer(cont, { type: 'stopped' }).continuing).toBe(false);
+});

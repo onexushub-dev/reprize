@@ -10,12 +10,15 @@ jest.mock('../../analytics', () => ({ track: jest.fn() }));
 const mockFocus = jest.fn(() => true);
 jest.mock('../../../modules/replay-camera', () => ({ isFocusSupported: () => mockFocus() }));
 jest.mock('..', () => ({ payments: { showPaywall: jest.fn(), unlockOption: jest.fn() } }));
-jest.mock('../../data/mmkv', () => ({ repo: { upgradeSession: jest.fn(() => ({ id: 's1', paid: true })) } }));
+jest.mock('../../data/mmkv', () => ({
+  repo: { upgradeSession: jest.fn(() => ({ id: 's1', paid: true })), getSession: jest.fn(() => ({ id: 's1' })) },
+}));
 
 const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate('pt-BR', key, params);
 const showPaywall = payments.showPaywall as jest.Mock;
 const unlockOption = payments.unlockOption as jest.Mock;
 const upgradeSession = repo.upgradeSession as jest.Mock;
+const getSession = repo.getSession as jest.Mock;
 const alert = jest.spyOn(Alert, 'alert');
 
 /** Presses the named button of the question the app just asked. */
@@ -100,4 +103,13 @@ test('a subscription bought in the paywall unlocks the recording without asking'
   await expect(unlockRecording('s1', t)).resolves.toBe(true);
   expect(upgradeSession).toHaveBeenCalledWith('s1', {});
   expect(alert).not.toHaveBeenCalled();
+});
+
+test('a received recording is never unlocked here: no paywall, no Pass, nothing spent (sharing §2.10)', async () => {
+  getSession.mockReturnValueOnce({ id: 's1', received: { shareId: 'sh1', code: 'c', receivedAt: 1, expiresAt: 2, total: 1 } });
+  unlockOption.mockReturnValue({ kind: 'credit', passTransactionId: 'tx-1' });
+  await expect(unlockRecording('s1', t)).resolves.toBe(false);
+  expect(showPaywall).not.toHaveBeenCalled();
+  expect(alert).not.toHaveBeenCalled();
+  expect(upgradeSession).not.toHaveBeenCalled();
 });

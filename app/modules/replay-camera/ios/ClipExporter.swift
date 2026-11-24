@@ -21,9 +21,44 @@ enum ClipExporter {
     let height: Int
     let overlayPngPath: String?
     let background: UIColor
+    /// Names the export for `onProgress` and `cancel` (2026-11-23); nil = neither.
+    var exportId: String? = nil
   }
 
-  enum Failure: Error { case noVideo, export(Error?) }
+  enum Failure: Error { case noVideo, export(Error?), cancelled }
+
+  /// How far each named export is (0..1), sent a few times a second while it runs.
+  static var onProgress: ((String, Double) -> Void)?
+
+  private static let lock = NSLock()
+  private static var running: [String: AVAssetExportSession] = [:]
+  /// Cancelled before its session existed (a tap right after Salvar): the session stops as soon as it is made.
+  private static var cancelledEarly: Set<String> = []
+
+  /// Stops the named export at once; remembered when it has not started yet.
+  static func cancel(_ exportId: String) {
+    lock.lock()
+    let session = running[exportId]
+    if session == nil { cancelledEarly.insert(exportId) }
+    lock.unlock()
+    session?.cancelExport()
+  }
+
+  /// Registers the session; false when it was cancelled before it began.
+  private static func register(_ exportId: String, _ session: AVAssetExportSession) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    if cancelledEarly.remove(exportId) != nil { return false }
+    running[exportId] = session
+    return true
+  }
+
+  private static func unregister(_ exportId: String) {
+    lock.lock()
+    running[exportId] = nil
+    cancelledEarly.remove(exportId)
+    lock.unlock()
+  }
 
   static var exportsDir: URL {
     FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("exports")
@@ -119,8 +154,27 @@ enum ClipExporter {
     session.outputFileType = .mp4
     session.videoComposition = videoComposition
     session.shouldOptimizeForNetworkUse = true
+    var reporter: Task<Void, Never>? = nil
+    if let id = o.exportId {
+      guard register(id, session) else { throw Failure.cancelled }
+      // Progress only while this export runs: a few local reads a second, nothing else.
+      reporter = Task {
+        while !Task.isCancelled {
+          let status = session.status
+          if status != .waiting && status != .exporting && status != .unknown { break }
+          onProgress?(id, Double(session.progress))
+          try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+      }
+    }
     await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
       session.exportAsynchronously { done.resume() }
+    }
+    reporter?.cancel()
+    if let id = o.exportId { unregister(id) }
+    if session.status == .cancelled {
+      try? FileManager.default.removeItem(at: out)
+      throw Failure.cancelled
     }
     guard session.status == .completed else {
       try? FileManager.default.removeItem(at: out) // never leave a partial file behind

@@ -8,12 +8,15 @@ type Listener = (source: TriggerSource, at: number) => void;
  */
 const PASSIVE: ReadonlySet<TriggerSource> = new Set<TriggerSource>(['remote', 'gesture', 'voice']);
 
+/** After a save, every other trigger is dropped this long (the save button shows it greyed out, 2026-11-21). */
+export const TRIGGER_DEBOUNCE_MS = 3000;
+
 /**
  * One entry point for every way of saving a lance (screen, remote, gesture, watch).
  * Triggers closer than `debounceMs` to the last accepted one are dropped, whatever their source,
  * so a gesture right after a tap doesn't save the same play twice (spec 4.4).
  */
-export function createTriggerBus({ debounceMs = 3000, now = Date.now }: { debounceMs?: number; now?: () => number } = {}) {
+export function createTriggerBus({ debounceMs = TRIGGER_DEBOUNCE_MS, now = Date.now }: { debounceMs?: number; now?: () => number } = {}) {
   const listeners = new Set<Listener>();
   let lastAccepted = -Infinity;
   let quietUntil = -Infinity;

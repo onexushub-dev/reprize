@@ -16,6 +16,15 @@ const r2 = new AwsClient({
   region: 'auto',
 });
 
+/** A presigned URL for one object (query-string signature, so a background upload can use it as is). */
+export async function presign(key: string, method: 'PUT' | 'GET' | 'HEAD', seconds: number): Promise<string> {
+  const path = key.split('/').map(encodeURIComponent).join('/');
+  const url = new URL(`${base}/${path}`);
+  url.searchParams.set('X-Amz-Expires', String(seconds));
+  const signed = await r2.sign(new Request(url, { method }), { aws: { signQuery: true } });
+  return signed.url;
+}
+
 function unescapeXml(text: string): string {
   return text
     .replaceAll('&lt;', '<')
@@ -43,6 +52,15 @@ export async function listKeys(prefix: string): Promise<string[]> {
     token = unescapeXml(next[1]);
   }
   return keys;
+}
+
+/** The size of an object in bytes, or null when it is not there. */
+export async function objectSize(key: string): Promise<number | null> {
+  const path = key.split('/').map(encodeURIComponent).join('/');
+  const response = await r2.fetch(`${base}/${path}`, { method: 'HEAD' });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`head ${key}: HTTP ${response.status}`);
+  return Number(response.headers.get('content-length') || '0');
 }
 
 export async function deleteKey(key: string): Promise<void> {

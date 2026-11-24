@@ -1,10 +1,12 @@
-import { StyleSheet, Text, View } from 'react-native';
+import * as Device from 'expo-device';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import type { TriggerSource } from '../data/schema';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import { Button } from './Button';
 import { CheckIcon } from './icons';
+import { screenCornerRadius } from './screenCorner';
 import { sourceLabel } from './sourceLabel';
 
 type Props = { number: number; source: TriggerSource; /** The length the clip actually has. */ cutMs: number; onUndo: () => void };
@@ -15,8 +17,11 @@ type Props = { number: number; source: TriggerSource; /** The length the clip ac
  */
 export function SavedOverlay({ number, source, cutMs, onUndo }: Props) {
   const { t, locale } = useT();
+  const window = useWindowDimensions();
+  // The frame follows the screen's own rounded corners (2026-11-22): square, it was cut off at each corner.
+  const corner = screenCornerRadius(Device.modelId, Math.max(window.width, window.height));
   return (
-    <View pointerEvents="box-none" style={styles.frame}>
+    <View testID="saved-frame" pointerEvents="box-none" style={[styles.frame, { borderRadius: corner }]}>
       <View style={styles.card} accessibilityLiveRegion="assertive">
         <View style={styles.row}>
           <View style={styles.badge}>

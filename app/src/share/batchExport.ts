@@ -2,9 +2,9 @@ import { File } from 'expo-file-system';
 
 import type { ExportClipOptions, ExportedClip } from '../../modules/replay-camera/src/ReplayCamera.types';
 import type { Clip } from '../data/schema';
-import type { Plan } from '../payments/types';
 import { colors } from '../theme/tokens';
 import { clipExportJob, clipShapeOf, type ClipJob, type Orientation } from './clipExport';
+import type { ExportTier } from './exportOptions';
 import { cachedExport, forgetExport, rememberExport } from './exportCache';
 
 /** How many clips are encoded at once. 2 is faster than 1 but warms the phone more; set to 1 to go back. */
@@ -21,7 +21,7 @@ type Size = { width: number; height: number };
 
 type BatchOptions = {
   clips: Clip[];
-  plan: Plan;
+  plan: ExportTier;
   /** One frame for every clip (a compilation); without it each clip keeps its own. */
   orientation?: Orientation;
   concurrency?: number;
@@ -88,6 +88,8 @@ export async function runBatch(o: BatchOptions): Promise<BatchResult> {
       perClipMs.push(Date.now() - clockStart);
       done.push({ index, clip, path: result.path });
     } catch {
+      // After Cancelar (2026-11-23) a rejection is the stop, not a failure, whatever code the bridge left on it.
+      if (o.signal.cancelled) return;
       failed.push({ index, clip, reason: 'export' });
     }
     finish();

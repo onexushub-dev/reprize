@@ -14,11 +14,19 @@ test('pro exports 1080x1920', () => {
   });
 });
 
-test('the app mark goes on free exports only, never on Pro or a Pass', () => {
-  expect(WATERMARK_ON_EVERY_PLAN).toBe(false);
+test('the app mark goes on every plan (2026-11-23), except a legacy export', () => {
+  expect(WATERMARK_ON_EVERY_PLAN).toBe(true);
   expect(exportOptions('free', undefined, trim).watermark).toBe(true);
-  expect(exportOptions('pass', undefined, trim).watermark).toBe(false);
-  expect(exportOptions('pro', undefined, trim).watermark).toBe(false);
+  expect(exportOptions('paid', undefined, trim).watermark).toBe(true);
+  expect(exportOptions('pass', undefined, trim).watermark).toBe(true);
+  expect(exportOptions('pro', undefined, trim).watermark).toBe(true);
+  expect(exportOptions('courtesy', undefined, trim).watermark).toBe(true);
+  expect(exportOptions('legacy', undefined, trim).watermark).toBe(false);
+});
+
+test('a legacy export is paid in every other way: Full HD, sound, any side', () => {
+  expect(exportOptions('legacy', { speed: 1, muted: false }, trim)).toMatchObject({ width: 1080, height: 1920, muted: false });
+  expect(exportOptions('legacy', undefined, trim, false, undefined, 2160)).toMatchObject({ width: 2160, height: 3840 });
 });
 
 test('the chosen speed goes into a free export too', () => {
@@ -147,5 +155,21 @@ describe('Seguir a Bola', () => {
     expect(freeLosses({ edit: on, focus: undefined, ball: ready, trim }).focus).toBe(true);
     // ready for another cut: nothing to lose yet
     expect(freeLosses({ edit: on, focus: undefined, ball: ready, trim: { startMs: 0, endMs: 1000 } }).focus).toBe(false);
+  });
+});
+
+describe('a courtesy (a received recording exported without Pro)', () => {
+  it('leaves in Full HD, with its sound and the app mark, even from a 4K clip', () => {
+    expect(exportOptions('courtesy', undefined, trim, false, undefined, 2160)).toMatchObject({
+      width: 1080,
+      height: 1920,
+      muted: false,
+      watermark: true,
+    });
+  });
+
+  it('keeps Modo Foco', () => {
+    const ready = { path: '/c/1.focus.json', ready: true };
+    expect(exportOptions('courtesy', { muted: false }, trim, false, ready).focus).toEqual({ path: '/c/1.focus.json', aspect: 'portrait' });
   });
 });

@@ -71,3 +71,15 @@ export function sessionLabel(session: Session, now = Date.now(), locale: AppLoca
     time: timeOfDay(session.startedAt, locale),
   });
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The day a recording started, as a section of the list: "Hoje · 20 de novembro", "Ontem · 19 de novembro", "18 de novembro". */
+export function dayTitle(at: number, now: number, locale: AppLocale, words: { today: string; yesterday: string }): string {
+  const date = new Date(at);
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  const day = new Intl.DateTimeFormat(locale, sameYear ? { day: 'numeric', month: 'long' } : { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+  if (date.toDateString() === new Date(now).toDateString()) return `${words.today} · ${day}`;
+  if (date.toDateString() === new Date(now - DAY_MS).toDateString()) return `${words.yesterday} · ${day}`;
+  return day;
+}

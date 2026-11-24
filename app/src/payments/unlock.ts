@@ -38,6 +38,9 @@ export async function unlockRecording(
   t: TFunction,
   source: PaywallSource = "export_limit",
 ): Promise<boolean> {
+  // The Single Pass never applies to a received recording (sharing §2.10): Pro or a courtesy covers it.
+  const session = repo.getSession(sessionId);
+  if (session !== undefined && session.received !== undefined) return false;
   let option = payments.unlockOption();
   let boughtHere = false;
   if (option.kind === "none") {

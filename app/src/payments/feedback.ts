@@ -19,7 +19,7 @@ async function show(t: TFunction, source: PaywallSource, offering: Offering, cod
   track('paywall_viewed', { source, offering, ...tag });
   const outcome = await payments.showPaywall(offering);
   if (outcome === 'purchased') {
-    track('purchase_completed', { offering, ...tag });
+    track('purchase_completed', { offering, source, ...tag });
     if (code) partner.lock();
   }
   if (outcome === 'restored') track('purchase_restored', { offering });

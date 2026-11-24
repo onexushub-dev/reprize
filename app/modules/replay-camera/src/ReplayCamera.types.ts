@@ -39,6 +39,9 @@ export type SessionOptions = {
 /** Which edge of the phone points up (UIDeviceOrientation naming). */
 export type DeviceUpright = 'portrait' | 'portraitUpsideDown' | 'landscapeLeft' | 'landscapeRight';
 
+/** An accelerometer reading in g, device axes: x toward the right edge, y toward the top, z out of the screen. */
+export type Gravity = { x: number; y: number; z: number };
+
 export type ZoomRange = { min: number; max: number; continuous: boolean };
 /** `at` = ms since epoch when the trigger happened. */
 export type SaveClipOptions = {
@@ -65,13 +68,41 @@ export type RemotePairing = { url: string; code: string; expiresAt: number; qrPa
 export type RemotePairFailure = 'expired' | 'locked' | 'notFound' | 'wrong' | 'denied' | 'full' | 'used' | 'closed';
 
 /** One file to upload with a presigned PUT URL (sharing design §5.4). */
-export type UploadItem = { id: string; path: string; url: string; contentType?: string };
+export type UploadItem = {
+  id: string;
+  path: string;
+  url: string;
+  contentType?: string;
+  /** Mobile data allowed (default true). */
+  cellular?: boolean;
+  /** The transfer's priority, 0 to 1 (a hint to iOS); absent: the native order (`TransferOrder`). */
+  priority?: number;
+};
+
+/** A file to download into the app (a received clip or its framing file): a presigned GET URL and where it goes. */
+export type DownloadItem = { id: string; url: string; path: string };
+
+/** What the downloader knows about one file. Times are ms since 1970; `bytes` is known once the transfer began. */
+export type DownloadEntry = {
+  id: string;
+  url: string;
+  path: string;
+  status: 'running' | 'paused' | 'done' | 'failed';
+  bytes: number;
+  received: number;
+  attempts: number;
+  queuedAt: number;
+  startedAt?: number;
+  finishedAt?: number;
+  httpStatus?: number;
+  error?: string;
+};
 
 /** What the uploader knows about one file. Times are ms since 1970. */
 export type UploadEntry = {
   id: string;
   path: string;
-  status: 'running' | 'done' | 'failed';
+  status: 'running' | 'paused' | 'done' | 'failed';
   bytes: number;
   sent: number;
   attempts: number;
@@ -86,6 +117,8 @@ export type ReplayCameraModuleEvents = {
   onUploadProgress: (e: { id: string; sent: number; total: number }) => void;
   onUploadDone: (e: UploadEntry & { ok: boolean }) => void;
   onUploadRetry: (e: { id: string; attempt: number; error: string }) => void;
+  onDownloadDone: (e: DownloadEntry & { ok: boolean }) => void;
+  onDownloadRetry: (e: { id: string; attempt: number; error: string }) => void;
   onTrigger: (e: { source: TriggerSource; at: number }) => void;
   onWatchStatus: (e: { status: WatchStatus }) => void;
   /**
@@ -146,6 +179,8 @@ export type ReplayCameraModuleEvents = {
    * for the phone to cool before starting), 'running', 'framing' (computing the 9:16 camera, almost done).
    */
   onBallProgress: (e: { clipPath: string; done: number; total: number; state: 'cooling' | 'running' | 'framing' }) => void;
+  /** How far an export with an `exportId` is (0..1), a few times a second while it runs (2026-11-23). iOS only. */
+  onExportProgress: (e: { exportId: string; progress: number }) => void;
   /** Jogadores analysis progress: `done` of `total` analysed pictures of the range (kept ones count as done). Android only. */
   onFocusProgress: (e: { clipPath: string; done: number; total: number }) => void;
   /** What the gesture detector saw lately (people, arms up, wave): the practice screen reads `raised`. */
@@ -267,6 +302,8 @@ export type ExportClipOptions = {
   overlayPngPath?: string;
   /** '#RRGGBB' behind the video where the overlay is transparent. */
   background: string;
+  /** Names this export for `onExportProgress` and `cancelExport` (2026-11-23); without it there is neither. */
+  exportId?: string;
 };
 
 export type ExportedClip = { path: string; durationMs: number };

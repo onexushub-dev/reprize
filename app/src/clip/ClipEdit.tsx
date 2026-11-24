@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, fonts } from '../theme/tokens';
 import { useT } from '../i18n/useT';
+import { INSETS } from './insets';
 
 type Props = {
   /** The video, laid out for the space between the top bar and the panel. */
@@ -21,10 +21,12 @@ type Props = {
 export function ClipEdit({ renderStage, onCancel, onDone, panel, cut, toolBar }: Props) {
   const { t } = useT();
   const window = useWindowDimensions();
-  // Until the stage is measured, about the space it gets, so the video shows at once.
+  // Until the stage is measured, about the space it gets; the video shows once it is measured, so it never jumps from
+  // the guess to its place (2026-11-22: the "blink" when Editar was tapped).
   const [area, setArea] = useState(() => ({ width: window.width, height: Math.round(window.height * 0.45) }));
+  const [measured, setMeasured] = useState(false);
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.root}>
+    <View style={[styles.root, { paddingTop: INSETS.top, paddingBottom: INSETS.bottom }]}>
       <View style={styles.top}>
         <Pressable accessibilityRole="button" accessibilityLabel={t('common.cancel')} onPress={onCancel} hitSlop={8} style={styles.cancel}>
           <Text style={styles.cancelText}>{t('common.cancel')}</Text>
@@ -36,13 +38,16 @@ export function ClipEdit({ renderStage, onCancel, onDone, panel, cut, toolBar }:
       </View>
       <View
         style={styles.stage}
-        onLayout={(e) => setArea({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}>
-        {renderStage(area)}
+        onLayout={(e) => {
+          setArea({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height });
+          setMeasured(true);
+        }}>
+        <View style={[styles.fill, !measured && styles.hidden]}>{renderStage(area)}</View>
       </View>
       <View style={styles.panel}>{panel}</View>
       <View style={styles.cut}>{cut}</View>
       <View style={styles.tools}>{toolBar}</View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -67,6 +72,8 @@ const styles = StyleSheet.create({
   },
   doneText: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.onAccent },
   stage: { flex: 1, overflow: 'hidden' },
+  fill: { flex: 1 },
+  hidden: { opacity: 0 },
   panel: { paddingHorizontal: 16, paddingTop: 12 },
   cut: { paddingHorizontal: 16, paddingTop: 12, gap: 6 },
   tools: { marginTop: 10, paddingTop: 4, borderTopWidth: 1, borderTopColor: colors.surface },

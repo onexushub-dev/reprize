@@ -24,6 +24,7 @@ import {
   SoundIcon,
 } from "./icons";
 import { useClipThumbnail } from "./useClipThumbnail";
+import { GlassButton } from "./GlassButton";
 
 /** `pro`: subscribe to PRO ("Assinar o PRO") · `pass`: the Single Pass for the whole recording ("Só para esta gravação") · `go`: export on the free plan · `cancel`: nothing. */
 export type FreeExportChoice = "pro" | "pass" | "go" | "cancel";
@@ -48,7 +49,7 @@ type Props = {
   onDismissed?: () => void;
 };
 
-type Item = { key: "sound" | "focus" | "quality" | "watermark"; used: boolean };
+type Item = { key: "sound" | "focus" | "quality"; used: boolean };
 
 /** The line under the title that names what this clip has and the free video leaves out; none when it has neither. */
 function usedLine(
@@ -70,13 +71,11 @@ const FREE_KEY = {
   sound: "freeExport.freeSound",
   focus: "freeExport.freeFocus",
   quality: "freeExport.freeQuality",
-  watermark: "freeExport.freeWatermark",
 } as const;
 const PRO_KEY = {
   sound: "freeExport.proSound",
   focus: "freeExport.proFocus",
   quality: "freeExport.proQuality",
-  watermark: "freeExport.proWatermark",
 } as const;
 
 type CardProps = {
@@ -87,8 +86,8 @@ type CardProps = {
 };
 
 /**
- * One preview of the clip: the frame as that plan exports it (free: HD, muted, with the mark; PRO: Full HD, sound
- * and the Modo Foco frame when the clip uses it) and the four things that change, side by side with the other plan.
+ * One preview of the clip: the frame as that plan exports it (free: HD, muted; PRO: Full HD, sound and the Modo Foco
+ * frame when the clip uses it; both with the app mark) and the things that change, side by side with the other plan.
  */
 function PlanCard({ pro, items, thumb, focus }: CardProps) {
   const { t } = useT();
@@ -127,7 +126,8 @@ function PlanCard({ pro, items, thumb, focus }: CardProps) {
             <MutedIcon color={colors.soft} size={14} />
           )}
         </View>
-        {!pro ? <Text style={styles.mark}>Reprize</Text> : null}
+        {/* Every plan exports with the app mark (2026-11-23): both previews show it. */}
+        <Text style={styles.mark}>Reprize</Text>
       </View>
       <Text style={[styles.cardHead, pro && { color: colors.accent }]}>
         {plan}
@@ -193,7 +193,6 @@ export function FreeExportSheet({
       ? [{ key: "focus" as const, used: losses.focus }]
       : []),
     { key: "quality", used: false },
-    { key: "watermark", used: false },
   ];
   // What this clip uses first: that is what the player cares about.
   const items = [...all.filter((i) => i.used), ...all.filter((i) => !i.used)];
@@ -216,7 +215,7 @@ export function FreeExportSheet({
         />
         <SafeAreaView edges={["bottom"]} style={styles.sheet}>
           <View style={styles.grabber} />
-          <Pressable
+          <GlassButton
             accessibilityRole="button"
             accessibilityLabel={t("common.cancel")}
             hitSlop={8}
@@ -224,7 +223,7 @@ export function FreeExportSheet({
             style={styles.close}
           >
             <CloseIcon color={colors.soft} size={18} />
-          </Pressable>
+          </GlassButton>
 
           {/* Scrolls when the phone lies down and the whole sheet does not fit; the actions stay in view. */}
           <ScrollView
@@ -380,7 +379,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.ground,
   },
   body: { flexGrow: 0 },
   bodyContent: { gap: 12, paddingTop: 10, paddingBottom: 4 },
