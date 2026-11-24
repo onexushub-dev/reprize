@@ -132,6 +132,46 @@ held-out noise (~0.9/h), the first model under the 1-per-hour goal.** M3 and M5 
 2. **Keep adding noise**, especially crowd, music and loud talk, split by file between training and test, so the false-trigger rate rests on more than an hour.
 3. Only then port to Core ML / TFLite and run it next to today's trigger in a test build.
 
+## Two more women — 2026-11-24 (afternoon, no wind)
+
+Eliane (adult) and Bel (8 years old) at 3, 5 and 10 m, voice off, in one phone clip per distance, plus 10× "salvar"
+recorded close by each, separately. No watch, so the far words were labelled from the phone audio itself (`labels3.py`).
+Eliane's are clear; Bel's at 5 and 10 m are not sure.
+
+| Model | Eliane 3 m | Eliane 5 m | Eliane 10 m | Bel 3 m | Bel 5 m | Bel 10 m |
+|---|---|---|---|---|---|---|
+| **M4 (never heard either), 0.95 ×2** | **6/6** | **6/6** | **6/6** | 4/4 | 0/6 | 0/5 |
+| M6: M4 + both close voices, 0.95 ×2 | 6/6 | 6/6 | 6/6 | 4/4 | 4/6 | 0/5 |
+
+M6 also fires more on the noise sets (other courts 2 in 55 min, championship 4 in 7.5 min, against M4's 0 and 0) and
+does not help Yasmin, so M4 stays the best model.
+
+- **An adult woman the model never heard is detected 18 of 18 up to 10 m.** A woman's voice in itself is not the problem.
+- **Children are not Reprize's audience** (decided 2026-11-24). Bel's result (a child's voice: higher and softer) is
+  kept as information only and does not count toward the release criterion.
+- What is left for the criterion: **Yasmin at 5 and 10 m**, recorded in strong wind. Repeat her on a calm day, ideally
+  with one or two more adult women, before deciding whether her voice needs more training data.
+
+## Yasmin again, no wind — 2026-11-24 (late afternoon)
+
+Clips `Yasmin 4` (3 m), `Yasmin 6` (5 m) and `Yasmin 11` (10 m), plus 10× close (`QD 5 5`, not used). M4 (never
+trained on any of this) fires on a regular ~1.6 s beat that matches her words, and nowhere else in the clips:
+
+| M4 rule | 3 m | 5 m | 10 m | Victor ≤10 m (day 2) | Eliane ≤10 m | False triggers, 67.2 min held-out noise |
+|---|---|---|---|---|---|---|
+| **0.95 ×2 (current)** | **6** | **6** | **3** | 16/18 | 18/18 | **1 (0.9/h)** |
+| 0.98 ×1 | 6 | 6 | 5 | 16/18 | 18/18 | 3 (2.7/h) |
+| 0.9 ×2 | 6 | 6 | 4 | 16/18 | 18/18 | 3 (2.7/h) |
+
+The numbers for Yasmin count firings; the clips have no labels, since Whisper reads nothing at 10 m. The 10 m clip is 13 s
+long and shows 5 clear words: one beat is missing between 5.4 and 8.7 s, or that word fell in the previous clip.
+
+- **The wind was the main cause on the first Yasmin test.** On a calm day she is heard 6/6 at 3 and 5 m.
+- **At 10 m she is heard 3 times with the current rule.** The model sees 5 words, and three of them clear the two-windows-in-a-row rule. Loosening the rule (0.98 ×1) catches all 5 but triples false triggers (2.7/h).
+- Victor confirmed she said all 6 at 10 m, softly, with a machine running near the camera. So it is **3/6 with the current rule and 5/6 with the looser one**.
+- **Sara (day 1, loud music), never in M4's training from the phone** (only her close watch words are): **5 of 6**. That is 2/3 at 3 m and **3/3 at 9 m**, with no other firing in the clip. Kept as a test, not training. M5, which trained on it, did not do better.
+- **Next:** more far-away women's words (10 m) in training, and more held-out noise to judge a looser rule. `op_point.py` prints this table.
+
 ## Reproduce
 
 ```
