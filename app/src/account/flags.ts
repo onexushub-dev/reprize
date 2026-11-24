@@ -1,7 +1,5 @@
-import { DIAGNOSTICS_ENABLED } from '../diag/diagLog';
-
 /**
- * TEMP(sharing): accounts and sharing are being built (docs/superpowers/specs/2026-11-16-recording-sharing-design.md,
- * Phase 1). Until the feature ships they exist only in diagnostics builds, so a release cut from main shows none of it.
+ * Accounts and sharing (docs/superpowers/specs/2026-11-16-recording-sharing-design.md) ship in 1.1.0 on iOS and
+ * Android, so every build shows them. Kept as a flag so a store build can still be cut without them if needed.
  */
-export const SHARING_ENABLED = DIAGNOSTICS_ENABLED;
+export const SHARING_ENABLED = true;
