@@ -22,10 +22,11 @@ const ALLOWLIST = new Set([
   'diag/energyTest.ts',
   // Gesture test report (spike screen, for the team only).
   'diag/gestureTest.ts',
-  // TEMP(sharing phase 0): field-test screens and the shared-link placeholder, diagnostics builds only.
+  // TEMP(sharing phase 0): field-test screens, diagnostics builds only.
   'app/spike-capture.tsx',
   'app/spike-upload.tsx',
-  'share/SharedLinkPlaceholder.tsx',
+  // The upload queue's lines for the Diagnóstico log (team only), not shown in the app.
+  'cloud/uploadQueue.ts',
 ]);
 const ACCENTED = /[À-ÿ]/;
 

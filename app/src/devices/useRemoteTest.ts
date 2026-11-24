@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 import { repo } from '../data/mmkv';
-import { forgetRemoteLink, learnRemoteAtPress } from './bluetoothRemote';
+import { forgetRemote, forgetRemoteLink, knownRemotes, learnRemoteAtPress } from './bluetoothRemote';
 import {
   clearRemotePress,
   hasRemotePress,
@@ -37,8 +37,9 @@ export function useRemoteTest() {
   /** A press of the remote was heard. */
   const press = useCallback(() => {
     if (!usedBefore()) repo.setPrefs({ remoteTestedAt: Date.now() });
+    // Which Bluetooth device it is, so its link can be followed without a press; first, so the sheet knows it is coming.
+    void learnRemoteAtPress();
     markRemotePress();
-    void learnRemoteAtPress(); // which Bluetooth device it is, so its link can be followed without a press
   }, []);
 
   /** Drops what the app remembers (the iOS pairing itself is removed by the player in Ajustes > Bluetooth). */
@@ -48,7 +49,16 @@ export function useRemoteTest() {
     clearRemotePress();
   }, []);
 
-  return { pressed, testedBefore, press, forget };
+  /** One remote of the list; the last one forgotten takes the sheet back to its first-time steps. */
+  const forgetOne = useCallback(
+    (id: string) => {
+      forgetRemote(id);
+      if (knownRemotes().length === 0) forget();
+    },
+    [forget],
+  );
+
+  return { pressed, testedBefore, press, forget, forgetOne };
 }
 
 /** Whether the Dispositivos sheet is open over the setup screen. */

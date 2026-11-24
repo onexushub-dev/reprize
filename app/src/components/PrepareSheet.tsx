@@ -3,7 +3,7 @@ import { Modal, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useT } from '../i18n/useT';
-import { colors, fonts, radius } from '../theme/tokens';
+import { colors, fonts, footer, radius } from '../theme/tokens';
 import { Button } from './Button';
 import { BatteryIcon, NoCaseIcon, SunIcon } from './icons';
 
@@ -78,9 +78,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
-    paddingHorizontal: 20,
+    paddingHorizontal: footer.side,
     paddingTop: 10,
-    paddingBottom: 12,
+    paddingBottom: footer.bottom,
     gap: 14,
   },
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border },

@@ -58,7 +58,7 @@ describe('openPaywall analytics', () => {
     expect(showPaywall).toHaveBeenCalledWith('pass');
     expect(sent()).toEqual([
       ['paywall_viewed', { source: 'export_limit', offering: 'pass' }],
-      ['purchase_completed', { offering: 'pass' }],
+      ['purchase_completed', { offering: 'pass', source: expect.any(String) }],
     ]);
   });
 

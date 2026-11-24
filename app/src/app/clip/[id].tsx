@@ -5,13 +5,15 @@ import { Asset } from 'expo-media-library';
 import { router, useLocalSearchParams } from 'expo-router';
 import { shareAsync } from 'expo-sharing';
 import { useVideoPlayer } from 'expo-video';
-import { type ComponentRef, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { type ComponentRef, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   Alert,
   Animated,
+  AppState,
   BackHandler,
   Easing,
   Image,
+  Keyboard,
   PixelRatio,
   Pressable,
   StyleSheet,
@@ -23,13 +25,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { createThumbnail, exportClip, findContentStart, isFocusSupported, videoShape } from '../../../modules/replay-camera';
 import { ClipEdit } from '../../clip/ClipEdit';
+import { ClipStrip } from '../../clip/ClipStrip';
 import { ClipWatch } from '../../clip/ClipWatch';
 import { beginEdit, type EditSnapshot, hasChanges, lastTool, rememberTool, restorePatch, type ToolId } from '../../clip/editSession';
 import { IconButton, SCRIM } from '../../clip/IconButton';
+import { allowedEdit, NO_LOCKS, receivedBallOf, receivedFramingHere } from '../../clip/receivedFraming';
 import { NeighbourStage } from '../../clip/NeighbourStage';
 import { BallChip, type BallChipState } from '../../clip/BallChip';
 import { BallIntroSheet } from '../../clip/BallIntroSheet';
 import { ballContent, previewBox } from '../../clip/stage';
+import { type Rect as TileRect, takeOpening, tileRect, willOpenFromTile } from '../../clip/tileFrames';
 import { ToolBar } from '../../clip/ToolBar';
 import { type BallUi, EDIT_TOOLS, type EditTool, type FocusUi, type ToolContext } from '../../clip/tools';
 import { WatchProgress } from '../../clip/WatchProgress';
@@ -38,11 +43,14 @@ import { clipNumber, seconds, timeOfDay } from '../../components/format';
 import { BackIcon, PauseIcon, PlayIcon } from '../../components/icons';
 import { Playhead } from '../../components/Playhead';
 import { useExportQualityGate } from '../../components/useExportQualityGate';
+import { useCourtesyGate } from '../../components/useCourtesyGate';
 import { useFreeExportGate } from '../../components/useFreeExportGate';
 import { TrimBar } from '../../components/TrimBar';
 import { knownShape, rememberShape } from '../../components/clipShape';
 import { useClipThumbnail } from '../../components/useClipThumbnail';
 import { useReduceMotion } from '../../components/useReduceMotion';
+import { VolumeHud } from '../../components/VolumeHud';
+import { VolumeManager } from 'react-native-volume-manager';
 import { sessionSummary, track as trackEvent } from '../../analytics';
 import { exportPlanOf } from '../../analytics/plans';
 import { askPhotos } from '../../share/askPhotos';
@@ -60,33 +68,48 @@ import type { MessageKey } from '../../i18n';
 import { useT } from '../../i18n/useT';
 import { effectiveSettings } from '../../modes/registry';
 import { captureOverlay } from '../../share/captureOverlay';
-import { applyEdit, contentFloor, nextRotation, outputMs, raiseToFloor, readEdit, storedEdit, turnedSize } from '../../share/editing';
+import { applyEdit, contentFloor, NO_ZOOM, nextRotation, outputMs, raiseToFloor, readEdit, storedEdit, turnedSize } from '../../share/editing';
+import { useZoomGesture } from '../../share/useZoomGesture';
 import { clipWindow } from '../../share/trim';
 import { unlockRecording } from '../../payments/unlock';
 import { accessPlan } from '../../payments/rules';
 import { clipExportJob } from '../../share/clipExport';
-import { useViewPlan } from '../../share/entitlement';
+import { exportTierOf, useMarkExempt, useReceivedAccess, useViewPlan } from '../../share/entitlement';
 import { cachedExport, rememberExport } from '../../share/exportCache';
+import { createExportTracker, type ExportTracker, isCancelled } from '../../share/exportTracker';
 import { exportChoices, type ShortSide } from '../../share/exportSize';
 import { labelledPaths } from '../../share/labelledFile';
 import { frameLayout } from '../../share/layout';
+import { CaptureGuard } from '../../share/CaptureGuard';
 import { ShareOverlay } from '../../share/ShareOverlay';
 import { ZoomableVideo } from '../../share/ZoomableVideo';
 import { colors, fonts } from '../../theme/tokens';
 
 const SLIDE_MS = 220;
+/** Dragged down a whole screen, the picture is this small (Photos-like), and the ground behind it gone after DOWN_FADE. */
+const DOWN_MIN_SCALE = 0.55;
+const DOWN_FADE = 300;
+/** Growing out of the tile and back into it. */
+const HERO_MS = 240;
+const HERO_SPRING = { useNativeDriver: true, damping: 24, stiffness: 260, mass: 0.9 } as const;
 /** Past the last clip the picture only gives a little, like Photos. */
 const RUBBER = 0.3;
 /** If the first frame is never reported, the still gives way after this long anyway. */
 const POSTER_MAX_MS = 1500;
 /** Which side the next clip comes in from; set just before navigating, read by the screen that mounts. */
 let enterFrom: 1 | -1 | 0 = 0;
+/** Watch mode's controls hidden by a tap stay hidden on the next clip, as in Photos. */
+let chromeShown = true;
+/** Watch mode's mute (the player's own, not the clip's sound): kept from clip to clip, as in Photos. */
+let watchMuted = false;
 
 /** Loop back this much before the end of the cut: the last time update can land just short of it. */
 const LOOP_EARLY_S = 0.15;
 const SAVED_VISIBLE_MS = 3500;
 // The share sheet is up long before `shareAsync` returns (it waits for the sheet to close), so the card leaves early.
 const SHARE_HANDOFF_MS = 1200;
+/** How long the capture message stays away after the share sheet closed: its slide-out draws a copy of the screen too. */
+const SHEET_SETTLE_MS = 700;
 const FOCUS_INTRO_MS = 3000;
 /** How long the framing takes to grow out of the whole video: the first time ever, and when it gets ready on screen. */
 const FOCUS_INTRO_EASE_MS = 700;
@@ -153,6 +176,35 @@ export default function ClipScreen() {
   );
 }
 
+/** The stage around the preview in watch mode: the same tap, swipe and hold as the picture, never a zoom. */
+function StageGestures(p: {
+  width: number;
+  height: number;
+  onTap: () => void;
+  onSwipe: (step: 1 | -1) => void;
+  onDrag: (dx: number) => void;
+  onDragCancel: () => void;
+  onDown: (dx: number, dy: number) => void;
+  onDownEnd: (close: boolean) => void;
+  onHold: (down: boolean) => void;
+}) {
+  const handlers = useZoomGesture({
+    zoom: NO_ZOOM,
+    pinch: false,
+    box: { left: 0, top: 0, width: p.width, height: p.height },
+    onChange: () => {},
+    onCommit: () => {},
+    onTap: p.onTap,
+    onSwipe: p.onSwipe,
+    onDrag: p.onDrag,
+    onDragCancel: p.onDragCancel,
+    onDown: p.onDown,
+    onDownEnd: p.onDownEnd,
+    onHold: p.onHold,
+  });
+  return <View testID="stage-gestures" style={StyleSheet.absoluteFill} {...handlers} />;
+}
+
 type EditorProps = {
   id: string;
   /** Swiped away: kept on top, still, until the next clip is on screen under it. */
@@ -181,9 +233,32 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     [clip, version],
   );
   const session = clip ? repo.getSession(clip.sessionId) : undefined;
+  const received = session !== undefined && session.received !== undefined;
+  // A received clip (2026-11-22): the sound of a clip sent without it cannot come back; everything else is the
+  // recipient's to change, as on a clip of their own. Bola starts from the sender's framing when it came with the clip.
+  const locks = clip && clip.locked ? clip.locked : NO_LOCKS;
+  // Only where this phone can show Bola: elsewhere a clip sent on Bola opens on Jogadores, which every iPhone can do
+  // (2026-11-22, iPhone XR); the sender keeps sending it on Bola.
+  const receivedBall = received && clip && ballAvailable() ? receivedBallOf(clip) : undefined;
+  // Received clips: the capture message under the video goes away while a system sheet or the screen's exit draws a copy
+  // of the screen without the video (it would flash otherwise). See `CaptureGuard`'s `quiet`.
+  const [quiet, setQuiet] = useState(false);
+  const quietTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (quietTimer.current !== null) clearTimeout(quietTimer.current);
+    },
+    [],
+  );
   const maxMs = session ? effectiveSettings(session.sport, repo.getPrefs()).bufferSeconds * 1000 : undefined;
   const plan = useViewPlan(clip?.sessionId);
+  // A received recording (sharing §2.8–10): Pro as one's own, else the courtesy look and the courtesy gate on export.
+  const access = useReceivedAccess(clip?.sessionId);
+  // Paid exports carry the app mark too, unless what paid for them predates that rule (payments/watermarkRule.ts).
+  const noMark = useMarkExempt(clip ? clip.sessionId : undefined);
+  const tier = exportTierOf(plan, access, noMark);
   const freeGate = useFreeExportGate();
+  const courtesyGate = useCourtesyGate();
   // A 4K clip leaves the app as 4K, 2K or Full HD (asked at each Salvar/Enviar); every other clip as Full HD.
   const qualityGate = useExportQualityGate();
   const [exportSide, setExportSide] = useState<ShortSide>(1080);
@@ -196,7 +271,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // the player picks Jogadores or Bola again. A finished analysis is just shown: nothing runs for it.
   const [staleAtOpen] = useState(() => {
     const c = repo.getClip(id);
-    if (!c) return { focus: false, ball: false };
+    if (!c) return { focus: false, ball: false, toPlayers: false, framing: undefined };
     const e = readEdit(c.edit);
     const f = c.focus;
     const focusDone =
@@ -204,20 +279,31 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       (f.status === 'ready' || f.status === 'none') &&
       // a result from before the 5 fps change (no `every`) is kept: only a deliberate switch analyses again
       (f.every === undefined || f.every === focusEveryMs());
+    // A clip received on Bola where this phone cannot show Bola: opens on Jogadores instead (it is analysed if it did not
+    // come with the clip).
+    const here = receivedFramingHere(e.framing, { received, ball: ballAvailable(), players: isFocusSupported() });
+    if (here !== undefined) return { focus: false, ball: false, toPlayers: true, framing: here };
     const sport = ballSportIdOf(repo.getSession(c.sessionId));
     const b = c.ball;
     const ballDone =
-      b !== undefined &&
-      sport !== undefined &&
-      ballForCut(b, c.trim, sport) &&
-      ballRulesCurrent(b) &&
-      (b.status === 'ready' || b.status === 'unsuitable');
-    return { focus: e.framing === 'focus' && !focusDone, ball: e.framing === 'ball' && !ballDone };
+      (received && receivedBallOf(c) !== undefined) ||
+      (b !== undefined &&
+        sport !== undefined &&
+        ballForCut(b, c.trim, sport) &&
+        ballRulesCurrent(b) &&
+        (b.status === 'ready' || b.status === 'unsuitable'));
+    return {
+      focus: e.framing === 'focus' && !focusDone,
+      ball: e.framing === 'ball' && !ballDone,
+      toPlayers: false,
+      framing: undefined as 'focus' | 'none' | undefined,
+    };
   });
   /** Cleared by the player's own pick (pickFraming): from then on the queues may run for this clip. */
   const blockedAuto = useRef(staleAtOpen);
   useEffect(() => {
-    if (staleAtOpen.focus || staleAtOpen.ball) setEdit({ framing: 'none' });
+    if (staleAtOpen.framing !== undefined) setEdit({ framing: staleAtOpen.framing });
+    else if (staleAtOpen.focus || staleAtOpen.ball) setEdit({ framing: 'none' });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the clip opens
   }, []);
   const soundOff = edit.muted;
@@ -229,14 +315,48 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const [zoomKey, setZoomKey] = useState(0);
   // Watch (clean, Salvar/Enviar) or edit (tool bar, Cancelar/Concluir); edit keeps what Cancelar puts back.
   const [mode, setMode] = useState<'watch' | 'edit'>('watch');
+  const [quietPlay, setQuietPlay] = useState(() => watchMuted);
+  // Muted with the player's button, a press of the phone's volume buttons gives the sound back (2026-11-21, as in Photos).
+  useEffect(() => {
+    if (!quietPlay) return;
+    let sub: { remove: () => void } | undefined;
+    try {
+      sub = VolumeManager.addVolumeListener(() => {
+        watchMuted = false;
+        setQuietPlay(false);
+      });
+    } catch {
+      // No volume module (web, tests without it): the button alone.
+    }
+    return () => {
+      if (sub !== undefined) sub.remove();
+    };
+  }, [quietPlay]);
+
   const snapshot = useRef<EditSnapshot | undefined>(undefined);
   // One report per tool per clip: flipping between tabs is browsing, not using.
   const reportedTools = useRef(new Set<string>());
   const [openTool, setOpenTool] = useState<ToolId>(lastTool);
   // A finger held on the video in watch mode: 2x while it stays down.
   const [fast, setFast] = useState(false);
+  // The clip's own sound off (an edit), or the player muted while watching (2026-11-20).
+  const silent = soundOff || (mode === 'watch' && quietPlay);
+  // Watch mode: a tap on the video hides the controls, the next brings them back (2026-11-20, like Photos).
+  const [chrome, setChromeState] = useState(() => chromeShown);
   const window = useWindowDimensions();
   const [name, setName] = useState(() => clip?.name ?? '');
+  // A name typed and left without Enter (back, swipe, next clip) is kept as well: saved when the screen goes.
+  const typedName = useRef(name);
+  useEffect(() => {
+    typedName.current = name;
+  }, [name]);
+  useEffect(
+    () => () => {
+      const saved = repo.getClip(id);
+      if (saved && typedName.current.trim() !== (saved.name ?? '')) repo.renameClip(id, typedName.current);
+    },
+    [id],
+  );
   const [playing, setPlayingState] = useState(true);
   const scrubbing = useRef(false);
   const wantsPlay = useRef(true);
@@ -281,6 +401,26 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     return () => clearTimeout(timer);
   }, [saved]);
   const exporting = useRef(false);
+  // Salvar/Enviar's export (2026-11-23): its progress fills the card's ring, and Cancelar stops it at once.
+  const tracker = useRef<ExportTracker | undefined>(undefined);
+  const cancelled = useRef(false);
+  useEffect(() => {
+    const made = createExportTracker();
+    tracker.current = made;
+    const off = made.subscribe(() => {
+      // An export that just ended drops out of the sum: the card moves on to "Salvando…" instead of going back to 0%.
+      if (!made.known() || made.running() === 0) return;
+      const progress = made.runningProgress();
+      setJob((j) => (j !== undefined && j.stage === 'preparing' ? { ...j, progress } : j));
+    });
+    return () => {
+      off();
+      // Leaving mid-export: the phone stops making a video nobody will get.
+      made.cancelAll();
+      made.dispose();
+      tracker.current = undefined;
+    };
+  }, []);
   const captureRefView = useRef<ComponentRef<typeof View>>(null);
 
   // The shape after the player's own turn; the clip's own rotation is already in the thumbnail's shape.
@@ -309,13 +449,18 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // as (its model and rules; undefined = no Bola card).
   const [, setSportTick] = useState(0);
   const recSport = recordingSportOf(session);
-  const ballSport = ballSportIdOf(session);
+  // A received recording carries the sender's sport (2026-11-22); a link from before it, the sport of the Bola that came.
+  const sessionBallSport = ballSportIdOf(session);
+  const ballSport =
+    sessionBallSport !== undefined ? sessionBallSport : receivedBall !== undefined ? receivedBall.sport || 'basquete' : undefined;
   // The framing before Bola was tapped: where the clip goes back to when Bola is cancelled or finds no ball.
   const beforeBall = useRef<'none' | 'focus'>('none');
   // Bola only for a sport with a ball model: a clip stored on Bola whose recording's sport is not known (or has no model)
   // shows as the Original it is, nothing queued, until the player says the sport (spec 2026-11-11 decision 5).
   const ballChosen = edit.framing === 'ball' && ballSport !== undefined;
-  const ballFile = clip && ballSport !== undefined ? readyBallFile(clip) : undefined;
+  // The sender's Bola while the cut stays inside it, else this phone's own analysis of the cut.
+  const ballFile =
+    receivedBall !== undefined ? receivedBall.file : clip && ballSport !== undefined ? readyBallFile(clip) : undefined;
   const ballTrack = useMemo(
     () => (ballFile && sizeKnown ? readFocusFile(ballFile, 'portrait') : undefined),
     [ballFile, sizeKnown],
@@ -326,9 +471,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const cutKey = clip ? `${clip.trim.startMs}:${clip.trim.endMs}` : '';
   // On, with the cut or the sport changed or never analysed: the queue analyses it (the frames already found are reused).
   useEffect(() => {
-    if (!ballChosen || leaving || blockedAuto.current.ball) return;
+    if (!ballChosen || leaving || blockedAuto.current.ball || receivedBall !== undefined) return;
     ballQueue.request(id);
-  }, [ballChosen, cutKey, ballSport, id, leaving]);
+  }, [ballChosen, cutKey, ballSport, id, leaving, receivedBall]);
   // Test 47a: no ball in play on this cut and sport: back to the framing before the tap (spec 2026-11-11 decision 6),
   // the chip says so for a few seconds and the Bola card is dimmed.
   const unsuitable =
@@ -421,6 +566,14 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     if (current && focusSupported) focusQueue.ensure(current);
     // the recording's sport too: on Android a beach tennis clip is framed without the next court's people
   }, [id, focusSupported, sizeKnown, playersChosen, cutKey, recSport?.sport]);
+  // TEMP(diag-sharing): what a received clip has to frame with, once its shape is known (2026-11-22: a clip sent on Bola
+  // opened on Jogadores).
+  useEffect(() => {
+    if (!received || !clip || !sizeKnown) return;
+    const ballNote = ballFile ? (ballTrack ? 'ok' : 'ilegivel') : clip.ball ? `nao cobre o corte (${clip.ball.status})` : 'nao veio';
+    diag(`clipe recebido: modo ${edit.framing}, jogadores ${focusFile ? (track ? 'ok' : 'ilegivel') : 'nao veio'}, bola ${ballNote}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per clip, when its shape is known
+  }, [id, received, sizeKnown]);
   // The introduction, once ever: the framing grows out of the whole video with a caption.
   const reduceMotion = useReduceMotion();
   const [introDue] = useState(() => !repo.getPrefs().focusIntroSeen);
@@ -442,7 +595,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // The size picked for the last export, if this clip offers it (a swipe to a Full HD clip falls back to Full HD).
   const side: ShortSide = exportChoices(clip ? clip.shortSide : undefined).includes(exportSide) ? exportSide : 1080;
   const look = clip
-    ? clipExportJob(clip, plan, videoSize, undefined, track !== undefined, side, ballTrack !== undefined)
+    ? clipExportJob(clip, tier, videoSize, undefined, track !== undefined, side, ballTrack !== undefined)
     : undefined;
   // The export reads the job of the size just picked: it waits for the screen to redraw the overlay at that size.
   const lookRef = useRef(look);
@@ -460,6 +613,81 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const layout = look ? look.layout : frameLayout(shape, frame);
   // What the screen shows: the export's frame, or Seguir a Bola's vertical one (also on a free plan).
   const shown = look ? look.preview : { frame, layout };
+
+  // Like the Photos app (2026-11-21): the clip grows out of its tile in the grid, and a drag down shrinks it back into
+  // it. The grid stays under this screen (a transparent modal); `backdrop` is this screen's own dark ground.
+  const [opensFromTile] = useState(() => willOpenFromTile(id));
+  const [heroX] = useState(() => new Animated.Value(0));
+  const [heroY] = useState(() => new Animated.Value(0));
+  const [heroScale] = useState(() => new Animated.Value(1));
+  const [downX] = useState(() => new Animated.Value(0));
+  const [downY] = useState(() => new Animated.Value(0));
+  const [backdrop] = useState(() => new Animated.Value(opensFromTile ? 0 : 1));
+  const [stageAlpha] = useState(() => new Animated.Value(opensFromTile ? 0 : 1));
+  // Growing, shrinking or dragged down: no neighbours beside the picture and no controls over it.
+  const [flying, setFlying] = useState(opensFromTile);
+  const lastDown = useRef({ dx: 0, dy: 0 });
+  const motion = useMemo(
+    () => ({
+      translateX: Animated.add(Animated.add(slide, heroX), downX),
+      translateY: Animated.add(heroY, downY),
+      scale: Animated.multiply(
+        heroScale,
+        downY.interpolate({ inputRange: [0, window.height], outputRange: [1, DOWN_MIN_SCALE], extrapolate: 'clamp' }),
+      ),
+      backdrop: Animated.multiply(
+        backdrop,
+        // The grid shows at once, dimmed, and lights up as the finger goes down (like Photos).
+        downY.interpolate({ inputRange: [0, 24, DOWN_FADE], outputRange: [1, 0.7, 0], extrapolate: 'clamp' }),
+      ),
+    }),
+    [slide, heroX, heroY, heroScale, downX, downY, backdrop, window.height],
+  );
+  /** How to move and scale the stage so the video lies over `rect` (the tile), or undefined before the first layout. */
+  const heroFor = (rect: TileRect) => {
+    const box = previewBox(shown.frame, shown.layout, window);
+    const v = box.video;
+    if (v.width <= 0 || v.height <= 0) return undefined;
+    const scale = Math.min(rect.width / v.width, rect.height / v.height);
+    const cx = v.left + v.width / 2 - box.width / 2;
+    const cy = v.top + v.height / 2 - box.height / 2;
+    return {
+      x: rect.x + rect.width / 2 - (window.width / 2 + scale * cx),
+      y: rect.y + rect.height / 2 - (window.height / 2 + scale * cy),
+      scale,
+    };
+  };
+  const heroForRef = useRef(heroFor);
+  useLayoutEffect(() => {
+    heroForRef.current = heroFor;
+  });
+  useEffect(() => {
+    if (!opensFromTile) return;
+    takeOpening(id);
+    let alive = true;
+    void tileRect(id).then((rect) => {
+      if (!alive) return;
+      const target = rect ? heroForRef.current(rect) : undefined;
+      heroX.setValue(target ? target.x : 0);
+      heroY.setValue(target ? target.y : 0);
+      heroScale.setValue(target ? target.scale : 0.92);
+      stageAlpha.setValue(1);
+      Animated.parallel([
+        Animated.spring(heroX, { toValue: 0, ...HERO_SPRING }),
+        Animated.spring(heroY, { toValue: 0, ...HERO_SPRING }),
+        Animated.spring(heroScale, { toValue: 1, ...HERO_SPRING }),
+        Animated.timing(backdrop, { toValue: 1, duration: HERO_MS, useNativeDriver: true }),
+      ]).start();
+      // The controls come in as the picture lands, not once the spring has fully settled (2026-11-21: they came late).
+      setTimeout(() => {
+        if (alive) setFlying(false);
+      }, HERO_MS * 0.6);
+    });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, when the clip opens
+  }, []);
   // The real aspect ratio (rotation applied) comes from the clip's thumbnail.
   const clipPath = clip?.path;
   const startMs = clip?.trim.startMs ?? 0;
@@ -501,6 +729,17 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     p.currentTime = trim.startMs / 1000;
     p.play();
   });
+  // Leaving the app stops the clip (iOS pauses the video anyway): it comes back paused, as it shows, so one tap on play
+  // plays it (2026-11-21: it came back showing "playing" and took two taps).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'background' || !wantsPlay.current) return;
+      wantsPlay.current = false;
+      setPlayingState(false);
+      setPlaying(player, false);
+    });
+    return () => sub.remove();
+  }, [player]);
   // Swiped away: stand still (and quiet) on top until the next clip is on screen underneath.
   useEffect(() => {
     if (!leaving) return;
@@ -547,7 +786,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   // Loop the cut; follow speed and sound live. Time updates come every 0.1 s, so the last one before the end of the file
   // can miss it: the player then stops at the end by itself, and its own "reached the end" restarts the cut.
   useEffect(() => {
-    applyPlayback(player, edit.speed, soundOff);
+    applyPlayback(player, edit.speed, silent);
     const sub = player.addListener('timeUpdate', ({ currentTime }) => {
       if (scrubbing.current) return;
       if (currentTime >= trim.endMs / 1000 - LOOP_EARLY_S || currentTime < trim.startMs / 1000 - 0.5) seek(player, trim.startMs);
@@ -560,7 +799,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       sub.remove();
       end.remove();
     };
-  }, [player, trim, edit.speed, soundOff]);
+  }, [player, trim, edit.speed, silent]);
 
   // Android back while editing works as Cancelar, asking first when something changed (iOS has no back gesture here).
   useEffect(() => {
@@ -575,7 +814,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   if (!clip || !session || !options) {
     return (
       <SafeAreaView style={styles.missingRoot}>
-        <IconButton label={t('common.back')} onPress={() => router.back()}>
+        <IconButton label={t('common.back')} onPress={leave}>
           <BackIcon />
         </IconButton>
         <Text style={styles.missing}>{t('clip.missing')}</Text>
@@ -601,7 +840,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   function goBy(step: 1 | -1) {
     const target = step === 1 ? next : previous;
     if (!target) {
-      if (step === -1 && at === 0) router.back();
+      if (step === -1 && at === 0) leave();
       else settleBack();
       return;
     }
@@ -619,7 +858,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   }
 
   function setEdit(patch: Partial<ReturnType<typeof readEdit>>) {
-    repo.updateClip(id, { edit: storedEdit(applyEdit(edit, patch)) });
+    repo.updateClip(id, { edit: storedEdit(applyEdit(edit, allowedEdit(patch, locks))) });
   }
 
   function commitZoom(z: { scale: number; cx: number; cy: number }) {
@@ -639,7 +878,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
    * Seguir a Bola's analysis at once (what it found stays for later); Bola shows its first-use sheet first.
    */
   function pickFraming(framing: 'none' | 'focus' | 'ball') {
-    blockedAuto.current = { focus: false, ball: false }; // the player's own pick: analyses may run now
+    blockedAuto.current = { focus: false, ball: false, toPlayers: false, framing: undefined }; // the player's own pick: analyses may run now
     if (framing === edit.framing) return;
     if (framing === 'ball') {
       if (ballSport === undefined) return;
@@ -724,11 +963,107 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     trackEvent('clip_edit_tool_used', { tool });
   }
 
+  /** The picture follows a finger dragging it down (watch mode), smaller and over less of the dark ground. */
+  function dragDown(dx: number, dy: number) {
+    if (!flying) setFlying(true);
+    lastDown.current = { dx, dy };
+    downX.setValue(dx);
+    downY.setValue(Math.max(0, dy));
+  }
+
+  /** Let go: far or fast enough, the clip goes back into its tile and the screen closes; else it settles back. */
+  function endDown(close: boolean) {
+    if (!close) {
+      Animated.parallel([
+        Animated.spring(downX, { toValue: 0, ...HERO_SPRING }),
+        Animated.spring(downY, { toValue: 0, ...HERO_SPRING }),
+      ]).start();
+      setFlying(false);
+      return;
+    }
+    // The drag becomes the starting point of the flight back.
+    const { dx, dy } = lastDown.current;
+    const scale = 1 - (1 - DOWN_MIN_SCALE) * Math.min(Math.max(dy, 0) / window.height, 1);
+    heroX.setValue(dx);
+    heroY.setValue(Math.max(0, dy));
+    heroScale.setValue(scale);
+    backdrop.setValue(1 - Math.min(Math.max(dy, 0) / DOWN_FADE, 1));
+    downX.setValue(0);
+    downY.setValue(0);
+    void tileRect(id).then((rect) => {
+      const target = rect ? heroFor(rect) : undefined;
+      const flights = target
+        ? [
+            Animated.timing(heroX, { toValue: target.x, duration: HERO_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+            Animated.timing(heroY, { toValue: target.y, duration: HERO_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+            Animated.timing(heroScale, { toValue: target.scale, duration: HERO_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          ]
+        : [
+            // No tile to go to (another clip of the recording, scrolled away): it drops and fades.
+            Animated.timing(heroY, { toValue: window.height * 0.6, duration: HERO_MS, useNativeDriver: true }),
+            Animated.timing(stageAlpha, { toValue: 0, duration: HERO_MS, useNativeDriver: true }),
+          ];
+      Animated.parallel([...flights, Animated.timing(backdrop, { toValue: 0, duration: HERO_MS, useNativeDriver: true })]).start(
+        () => leave(),
+      );
+    });
+  }
+
+  function toggleMute() {
+    watchMuted = !quietPlay;
+    setQuietPlay(watchMuted);
+  }
+
+  function toggleChrome() {
+    // Typing the clip's name: a tap on the video only puts the keyboard away (2026-11-21: the name kept the focus and
+    // the keyboard covered the buttons).
+    if (Keyboard.isVisible()) {
+      Keyboard.dismiss();
+      return;
+    }
+    chromeShown = !chrome;
+    setChromeState(chromeShown);
+  }
+
+  /** A tap on another clip in the strip: it opens in place, this one kept on top until its first frame is up. */
+  function jumpTo(target: { id: string }) {
+    if (target.id === id) return;
+    enterFrom = 0;
+    onSwitch();
+    router.setParams({ id: target.id });
+  }
+
   /** Watch mode, like Reels: 2x (silent) while a finger is held on the video; the clip's own speed after. */
   function holdFast(down: boolean) {
     setFast(down);
     if (down) applyPlayback(player, 2, true);
-    else applyPlayback(player, edit.speed, soundOff);
+    else applyPlayback(player, edit.speed, silent);
+  }
+
+  function quietFor(ms: number | undefined) {
+    if (quietTimer.current !== null) clearTimeout(quietTimer.current);
+    quietTimer.current = null;
+    setQuiet(true);
+    if (ms !== undefined) quietTimer.current = setTimeout(() => setQuiet(false), ms);
+  }
+
+  /** Back to the recording. A received clip first takes its capture message away, then leaves on the next frame. */
+  function leave() {
+    if (!received) {
+      router.back();
+      return;
+    }
+    quietFor(undefined);
+    requestAnimationFrame(() => router.back());
+  }
+
+  /** A screen recording of a received clip: the clip stops (the recording would carry its sound) until it ends. */
+  function pauseForCapture(capturing: boolean) {
+    if (capturing) {
+      wantsPlay.current = false;
+      setPlayingState(false);
+      setPlaying(player, false);
+    }
   }
 
   function togglePlay() {
@@ -787,7 +1122,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
             enterFrom = next ? 1 : -1;
             router.setParams({ id: after.id });
           }
-          else router.back();
+          else leave();
         },
       },
     ]);
@@ -811,7 +1146,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     const t0 = Date.now();
     const overlayPngPath = await captureOverlay(captureRefView);
     const t1 = Date.now();
-    const result = await exportClip({ clipPath: clip!.path, ...job!.options, overlayPngPath, background: colors.ground });
+    const options = { clipPath: clip!.path, ...job!.options, overlayPngPath, background: colors.ground };
+    const running = tracker.current;
+    const result = await (running !== undefined ? running.exportClip(options) : exportClip(options));
     const o = job!.options;
     diagExport({ frameMs: t1 - t0, renderMs: Date.now() - t1, lengthMs: o.endMs - o.startMs, width: o.width, height: o.height, side, focus: !!o.focus, speed: o.speed, muted: !!o.muted });
     removeQuietly(overlayPngPath);
@@ -823,8 +1160,13 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
 
   async function run(kind: ExportJob['kind'], action: (path: string) => Promise<void>) {
     if (exporting.current || !sizeKnown) return;
+    // A received recording without Pro leaves only with a courtesy (spent once, on its first Save or Send).
+    if (access === 'locked') {
+      const go = await courtesyGate.ask(clip!.sessionId);
+      if (!go || exporting.current) return;
+    }
     // The free-plan notice says what the video loses: nothing while the field test unlocks it all (accessPlan).
-    const free = accessPlan(plan) === 'free';
+    const free = access === undefined && accessPlan(plan) === 'free';
     if (free) {
       const go = await freeGate.ask(
         clip!.sessionId,
@@ -834,9 +1176,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       );
       if (!go || exporting.current) return;
     }
-    // Only a paid export picks a size: a free one is always HD.
+    // Only a paid export picks a size: a free one is always HD, a courtesy always Full HD.
     const choices = exportChoices(clip!.shortSide);
-    if (!free && choices.length > 1 && look) {
+    if (!free && tier !== 'courtesy' && choices.length > 1 && look) {
       const picked = await qualityGate.ask({
         choices,
         landscape: look.frame.width > look.frame.height,
@@ -847,6 +1189,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       await showSide(picked);
     }
     exporting.current = true;
+    cancelled.current = false;
+    if (tracker.current !== undefined) tracker.current.reset();
     // The render and the gallery write get the phone to themselves: Modo Foco analyses of other clips (they start again
     // afterwards) made a 30 s save take over a minute and froze the playback (2026-11-10 field log).
     focusQueue.setHold('all');
@@ -856,12 +1200,15 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     setJob({ kind, stage: 'preparing' });
     try {
       const path = await ensureExport();
+      if (cancelled.current) return;
       setJob({ kind, stage: 'delivering' });
       if (kind === 'share') {
         setTimeout(() => setJob((j) => (j && j.kind === 'share' ? undefined : j)), SHARE_HANDOFF_MS);
       }
       await action(path);
     } catch (error) {
+      // Cancelar is the player's choice, not a failure: the card just closes.
+      if (cancelled.current || isCancelled(error)) return;
       // A screen closed mid-export is the player leaving, not a failure.
       if (!(error instanceof Error && error.message === 'closed')) trackEvent('export_failed', { reason: 'prepare_failed' });
       setNotice('clip.prepareFailed');
@@ -873,9 +1220,16 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     }
   }
 
+  /** Cancelar on the card: the export stops at once and leaves no file. */
+  function cancelExportJob() {
+    cancelled.current = true;
+    setJob((j) => (j !== undefined && j.stage === 'preparing' ? { ...j, cancelling: true } : j));
+    if (tracker.current !== undefined) tracker.current.cancelAll();
+  }
+
   /** The export reached the player (the gallery or the share sheet): one report of its size and where it went. */
   function reportDelivered(destination: 'photos' | 'share_sheet') {
-    trackEvent('export_completed', { quality: `${side}p`, plan: exportPlanOf(plan, repo.getSession(id)) });
+    trackEvent('export_completed', { quality: `${tier === 'courtesy' ? 1080 : side}p`, plan: exportPlanOf(plan, repo.getSession(id)) });
     trackEvent('clip_shared', { destination });
     sessionSummary.note('export');
   }
@@ -896,7 +1250,12 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       // Named after the clip's label when it has one ("toco do marcao.mp4").
       const current = repo.getClip(id);
       const [named] = await labelledPaths([{ path, label: current ? current.name : undefined }]);
-      await shareAsync(`file://${named}`, { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
+      if (received) quietFor(undefined);
+      try {
+        await shareAsync(`file://${named}`, { mimeType: 'video/mp4', UTI: 'public.mpeg-4' });
+      } finally {
+        if (received) quietFor(SHEET_SETTLE_MS);
+      }
       reportDelivered('share_sheet');
       repo.updateClip(id, { sharedAt: Date.now() });
     });
@@ -920,12 +1279,14 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   if (focusChip === 'on' || focusChip === 'off' || focusChip === 'preparing') focusUi = focusChip;
   // A ready framing is read once the video's shape is known: until then it is still on its way, not impossible.
   else if (focusFile && !sizeKnown && edit.rotation === 0) focusUi = 'preparing';
-  const tools = focusSupported ? EDIT_TOOLS : EDIT_TOOLS.filter((t) => t.id !== 'focus');
+  // A received clip whose framing came with it shows the Foco tool even where this phone cannot analyse.
+  const framingSent = received && (focusFile !== undefined || ballFile !== undefined);
+  const tools = focusSupported || framingSent ? EDIT_TOOLS : EDIT_TOOLS.filter((t) => t.id !== 'focus');
   // Spec 2026-11-11 (P1): while Bola is still being tracked, Salvar and Enviar wait (with a note). Jogadores does not
   // hold them: it is ready in seconds, and older clips have it on by default.
   const tracking = ballChip !== undefined && ballChip.kind === 'working';
   let ballUi: BallUi = 'hidden';
-  if (ballAvailable() && ballSport !== undefined) {
+  if (receivedBall !== undefined || (ballAvailable() && ballSport !== undefined)) {
     if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
     else ballUi = unsuitable !== undefined ? 'unsuitable' : 'off';
   }
@@ -937,7 +1298,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       : undefined;
   const ctx: ToolContext = {
     edit,
-    plan,
+    // Watching a received recording is free on every plan, with every tool (sharing §2.7): nothing shows a lock.
+    plan: access !== undefined ? 'paid' : plan,
     unlock: () => void (clip && unlockRecording(clip.sessionId, t)),
     setEdit,
     focus: focusUi,
@@ -953,6 +1315,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       if (ballChosen) cancelBall();
       else if (edit.framing === 'focus') pickFraming('none');
     },
+    locks,
     chooseSport,
     resetZoom: () => {
       setEdit({ zoom: undefined });
@@ -971,50 +1334,78 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     // The same reckoning as the neighbours' stills, so that a swipe lands on the picture that slid in.
     const { height: previewHeight, scale, video: videoBox } = previewBox(shown.frame, shown.layout, area);
     return (
-      <Animated.View testID="clip-stage" style={[styles.stage, { transform: [{ translateX: slide }] }]}>
+      <Animated.View
+        testID="clip-stage"
+        style={[
+          styles.stage,
+          {
+            opacity: stageAlpha,
+            transform: [{ translateX: motion.translateX }, { translateY: motion.translateY }, { scale: motion.scale }],
+          },
+        ]}>
         {/* What a drag uncovers on each side: the neighbouring clips' stills, or the way back on the first clip. */}
-        {!editing ? (
+        {!editing && !flying ? (
           <>
             <View pointerEvents="none" style={[styles.neighbour, { left: -area.width, width: area.width }]}>
-              {previous ? <NeighbourStage clip={previous} tier={plan} area={area} /> : at === 0 ? <Text style={styles.backHint}>{t('clip.backToRecording')}</Text> : null}
+              {previous ? <NeighbourStage clip={previous} tier={tier} area={area} /> : at === 0 ? <Text style={styles.backHint}>{t('clip.backToRecording')}</Text> : null}
             </View>
             <View pointerEvents="none" style={[styles.neighbour, { left: area.width, width: area.width }]}>
-              {next ? <NeighbourStage clip={next} tier={plan} area={area} /> : null}
+              {next ? <NeighbourStage clip={next} tier={tier} area={area} /> : null}
             </View>
           </>
         ) : null}
-        <View style={[styles.preview, { width: shown.frame.width * scale, height: previewHeight }]}>
-          <ZoomableVideo
-            key={zoomKey}
-            player={player}
-            area={{ width: shown.frame.width * scale, height: previewHeight }}
-            box={videoBox}
-            zoom={edit.zoom}
-            rotation={edit.rotation}
-            onCommit={editing ? commitZoom : () => {}}
-            onTap={togglePlay}
-            onSwipe={editing ? undefined : goBy}
-            onDrag={editing ? undefined : drag}
-            onDragCancel={editing ? undefined : settleBack}
-            poster={framed ? undefined : poster}
-            onFirstFrame={() => setFramed(true)}
-            follow={follow}
-            content={ballOn ? ballContent(shape, videoBox) : undefined}
-            enterMs={focusEnterMs}
-            pinch={editing}
-            onHold={editing ? undefined : holdFast}
+        {/* Watching, the empty sides of a landscape clip (the black above and below it) swipe, tap and hold like the
+            picture (2026-11-21: only the picture itself changed clips). */}
+        {!editing ? (
+          <StageGestures
+            width={area.width}
+            height={area.height}
+            onTap={toggleChrome}
+            onSwipe={goBy}
+            onDrag={drag}
+            onDragCancel={settleBack}
+            onDown={dragDown}
+            onDownEnd={endDown}
+            onHold={holdFast}
           />
-          <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-            <ShareOverlay frame={shown.frame} layout={shown.layout} scale={scale} watermark={options ? options.watermark : true} />
-          </View>
+        ) : null}
+        <View style={[styles.preview, { width: shown.frame.width * scale, height: previewHeight }]}>
+          <CaptureGuard active={received} onCapturing={pauseForCapture} quiet={quiet}>
+            <ZoomableVideo
+              key={zoomKey}
+              player={player}
+              area={{ width: shown.frame.width * scale, height: previewHeight }}
+              box={videoBox}
+              zoom={edit.zoom}
+              rotation={edit.rotation}
+              onCommit={editing ? commitZoom : () => {}}
+              onTap={editing ? togglePlay : toggleChrome}
+              onSwipe={editing ? undefined : goBy}
+              onDrag={editing ? undefined : drag}
+              onDragCancel={editing ? undefined : settleBack}
+              onDown={editing ? undefined : dragDown}
+              onDownEnd={editing ? undefined : endDown}
+              poster={framed ? undefined : poster}
+              onFirstFrame={() => setFramed(true)}
+              follow={follow}
+              content={ballOn ? ballContent(shape, videoBox) : undefined}
+              enterMs={focusEnterMs}
+              pinch={editing}
+              onHold={editing ? undefined : holdFast}
+            />
+            <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+              <ShareOverlay frame={shown.frame} layout={shown.layout} scale={scale} watermark={options ? options.watermark : true} />
+            </View>
+          </CaptureGuard>
           {editing && ballChip && ballChip.kind === 'failed' ? (
             <BallChip state={ballChip} onCancel={cancelBall} onRetry={() => ballQueue.request(id)} />
           ) : null}
           {!playing ? (
-            <View pointerEvents="none" style={styles.pausedBadge}>
-              <View style={styles.pausedDisc}>
+            // The disc plays again on a tap (2026-11-20); the player's own button is the one VoiceOver reads.
+            <View pointerEvents="box-none" style={styles.pausedBadge}>
+              <Pressable testID="paused-play" accessible={false} onPress={togglePlay} hitSlop={12} style={styles.pausedDisc}>
                 <PlayIcon color={colors.text} size={36} />
-              </View>
+              </Pressable>
             </View>
           ) : null}
         </View>
@@ -1024,6 +1415,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
 
   return (
     <View style={styles.root}>
+      {/* This screen's dark ground: it fades while the clip is dragged down, showing the grid underneath. */}
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.ground, { opacity: motion.backdrop }]} />
       {editing ? (
         <ClipEdit
           renderStage={renderStage}
@@ -1048,7 +1441,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
                     trim={trim}
                     maxMs={maxMs}
                     onChange={scrub}
-                    onCommit={commitTrim}>
+                    onCommit={commitTrim}
+                    onScrub={scrubTo}
+                    onScrubEnd={endScrub}>
                     <Playhead
                       player={player}
                       durationMs={win.endMs}
@@ -1073,7 +1468,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           placeholder={t('clip.namePlaceholder', { number: ownNumber, time: timeOfDay(clip.createdAt, locale) })}
           onChangeName={setName}
           onSaveName={saveName}
-          onBack={() => router.back()}
+          onBack={leave}
           onDelete={confirmDelete}
           focusTag={edit.framing !== 'focus' ? undefined : focusChip === 'on' ? (playersFound ? 'found' : 'on') : focusChip === 'preparing' ? 'preparing' : undefined}
           focusPercent={focusChip === 'preparing' ? focusPercent : undefined}
@@ -1084,7 +1479,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           }
           onFocusTag={() => enterEdit('focus')}
           notice={tracking || busy || !notice ? undefined : t(notice)}
-          position={siblings.length > 1 ? t('clip.ofTotal', { number, total: siblings.length }) : undefined}
+          strip={<ClipStrip clips={siblings} currentId={id} onPick={jumpTo} />}
+          chrome={chrome && !flying}
           progress={
             <WatchProgress
               player={player}
@@ -1094,6 +1490,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
               onTogglePlay={togglePlay}
               onSeek={scrubTo}
               onSeekEnd={endScrub}
+              muted={silent}
+              onToggleMute={soundOff ? undefined : toggleMute}
             />
           }
           onEdit={() => enterEdit()}
@@ -1107,7 +1505,12 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
         />
       )}
 
+      <SafeAreaView edges={['top']} pointerEvents="none" style={styles.volumeLayer}>
+        <VolumeHud />
+      </SafeAreaView>
+
       {freeGate.sheet}
+      {courtesyGate.sheet}
       <BallIntroSheet
         visible={ballIntro}
         onCut={(hide) => answerBallIntro(false, hide)}
@@ -1132,14 +1535,16 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           </View>
         </Pressable>
       ) : null}
-      {job ? <ExportProgress job={job} /> : null}
+      {job ? <ExportProgress job={job} onCancel={job.stage === 'preparing' ? cancelExportJob : undefined} /> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  layers: { flex: 1, backgroundColor: colors.ground },
-  root: { flex: 1, backgroundColor: colors.ground },
+  // Transparent: the recording's grid shows under a clip dragged down (the screen's ground is its own `ground` layer).
+  layers: { flex: 1 },
+  root: { flex: 1 },
+  ground: { backgroundColor: colors.ground },
   neighbour: { position: 'absolute', top: 0, bottom: 0, backgroundColor: colors.ground, alignItems: 'center', justifyContent: 'center' },
   backHint: { color: colors.muted, fontFamily: fonts.bodySemi, fontSize: 15 },
   missingRoot: { flex: 1, backgroundColor: colors.ground, paddingHorizontal: 16, gap: 12 },
@@ -1156,6 +1561,7 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
   },
   offscreen: { position: 'absolute', left: -10000, top: 0 },
+  volumeLayer: { position: 'absolute', top: 0, left: 0, right: 0 },
   savedWrap: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
   savedCard: {
     alignItems: 'center',

@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 
 import { bluetoothConnected } from '../../modules/replay-camera';
-import { repo } from '../data/mmkv';
 import { diag } from '../diag/diagLog'; // TEMP(diag-remote)
 import { describeLinkEvent } from '../diag/remoteLinkDiag'; // TEMP(diag-remote)
-import { linkOf } from '../devices/bluetoothRemote';
+import { followedIds, knownRemotes, linkOf } from '../devices/bluetoothRemote';
 import { createLinkMonitor, type LinkMonitor } from './linkMonitor';
 import { useVolumeRemote, type VolumeRemoteOptions } from './useVolumeRemote';
 
@@ -51,11 +50,11 @@ export function useBluetoothRemote(enabled: boolean, onPress: () => void, option
     let active = true;
     let busy = false;
     const look = async () => {
-      const knownId = repo.getPrefs().remoteBleId;
-      if (knownId === undefined || busy) return;
+      const knownIds = followedIds(knownRemotes());
+      if (knownIds.length === 0 || busy) return;
       busy = true;
       try {
-        const link = linkOf(await bluetoothConnected(false), knownId);
+        const link = linkOf(await bluetoothConnected(false), knownIds);
         if (active) links.link(link === 'connected' ? true : link === 'missing' ? false : undefined);
       } catch {
         if (active) links.link(undefined);

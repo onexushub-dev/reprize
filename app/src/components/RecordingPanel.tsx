@@ -1,11 +1,12 @@
 import { router } from 'expo-router';
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Alert, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Alert, Animated, BackHandler, Platform, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { addReplayListener, getWatchStatus, setScreenEconomy, signalAction } from '../../modules/replay-camera';
 import { VOICE_WORD } from '../i18n';
 import { useT } from '../i18n/useT';
+import { formatZoom } from '../modes/zoom';
 import { removeFile, repo } from '../data/mmkv';
 import { useRemoteLink } from '../devices/bluetoothRemote';
 import { triggerAllowed } from '../payments/limits';
@@ -14,11 +15,16 @@ import { onRemoteEnd } from '../triggers/remoteCommands';
 import { useSession } from '../session/SessionContext';
 import { useScreenEconomy } from '../session/useScreenEconomy';
 import { diag } from '../diag/diagLog'; // TEMP(diag-remote)
-import { colors, fonts } from '../theme/tokens';
+import { colors, fonts, footer } from '../theme/tokens';
 import { Button } from './Button';
+import { ContinueBadge } from './ContinueBadge';
+import { sessionLabel } from './format';
 import { EconomyButton } from './EconomyButton';
 import { HoldButton } from './HoldButton';
-import { MicIcon, RemoteIcon, TapIcon, WatchIcon, WaveIcon } from './icons';
+import { MicIcon, RemoteIcon, WatchIcon, WaveIcon } from './icons';
+import { SaveClipButton } from './SaveClipButton';
+import { TRIGGER_DEBOUNCE_MS } from '../triggers/bus';
+import type { useCameraPinch } from '../camera/useCameraPinch';
 import { SavedOverlay } from './SavedOverlay';
 
 /** The watch link as the native side sees it now; read on every render, as the setup screen does. */
@@ -32,6 +38,8 @@ const OVERLAY_MS = 2000;
 export const REMOTE_END_SIGNAL_MS = 700;
 /** How long the battery-saving notice stays up: when a recording starts with it on, and after a tap on its button. */
 const ECONOMY_NOTICE_MS = 5000;
+/** How long the zoom value stays up after the fingers stop changing it, before it fades (2026-11-21). */
+const ZOOM_SHOWN_MS = 1500;
 /** How long the heat tip stays up (thermal work, item 5). */
 const HEAT_TIP_MS = 8000;
 
@@ -59,15 +67,25 @@ function clock(ms: number): string {
  * game screen and is never recreated, so starting the game is instant (and Android keeps its preview).
  */
 type Props = {
-  /** The clip length the player picked: how far back a save reaches. */
+  /** The clip length the player picked: how far back the save button reaches (its icon shows it). */
   clipSeconds?: number;
   /** Which hands-free triggers are on in this mode. */
   gesture?: boolean;
   voice?: boolean;
+  /** The camera's zoom while recording (continuous zoom only): its button over the save button, and the pinch. */
+  zoom?: { value: number; onPress: () => void; pinch?: ReturnType<typeof useCameraPinch> };
 };
 
-export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false }: Props) {
+export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false, zoom }: Props) {
   const { state, trigger, undoLast, stop, reset } = useSession();
+  // "Continuando · …" says which recording goes on, then leaves the camera clear after 5 s (2026-11-23).
+  const [badgeGoneFor, setBadgeGoneFor] = useState<number | undefined>(undefined);
+  const continuingSince = state.continuing ? state.startedAt : undefined;
+  useEffect(() => {
+    if (continuingSince === undefined) return;
+    const timer = setTimeout(() => setBadgeGoneFor(continuingSince), CONTINUE_BADGE_MS);
+    return () => clearTimeout(timer);
+  }, [continuingSince]);
   // The Bluetooth remote is paid: it saves only in a game whose plan may use it.
   const remoteOn = triggerAllowed('remote', state.paid ? 'paid' : 'free');
   // The remote gone for a while in this game (out of range and iOS gave up, or asleep): its presses are lost until it
@@ -93,9 +111,26 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   const [economyPref, setEconomyPref] = useState(() => repo.getPrefs().screenEconomy);
   const economyOn = state.phase === 'recording' && economyPref;
   const economy = useScreenEconomy(economyOn, state.thermal.level, setEconomy);
-  const wakingTap = useRef(false);
+  // The zoom shows only while a pinch changes it, over the save button, and fades a moment after (2026-11-21): no
+  // button of its own while recording.
+  const zoomValue = zoom ? zoom.value : undefined;
+  const [zoomFade] = useState(() => new Animated.Value(0));
+  const lastZoom = useRef(zoomValue);
+  // Before the frame is drawn, and at once (no fade in): it showed a beat late (2026-11-21).
+  useLayoutEffect(() => {
+    if (zoomValue === undefined || zoomValue === lastZoom.current) return;
+    lastZoom.current = zoomValue;
+    zoomFade.stopAnimation();
+    zoomFade.setValue(1);
+    const hide = setTimeout(
+      () => Animated.timing(zoomFade, { toValue: 0, duration: 300, useNativeDriver: true }).start(),
+      ZOOM_SHOWN_MS,
+    );
+    return () => clearTimeout(hide);
+  }, [zoomValue, zoomFade]);
+
+  // Any touch wakes the dark screen; the save button is hidden while it is dark, so the waking touch saves nothing.
   function onAnyTouch() {
-    wakingTap.current = economy.asleep; // decided as the touch starts, before the screen wakes
     economy.wake();
   }
 
@@ -173,6 +208,15 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   const showStep = stepKey !== undefined && stepFor === stepKey && stepGone !== stepKey;
 
   const shownAt = shown === undefined ? undefined : shown.at;
+  // For TRIGGER_DEBOUNCE_MS after a save (from any trigger) another one is dropped: the save button says so, greyed out
+  // until then (2026-11-21). `readyAfter` is the save the wait is over for.
+  const [readyAfter, setReadyAfter] = useState<number>();
+  useEffect(() => {
+    if (shownAt === undefined) return;
+    const ready = setTimeout(() => setReadyAfter(shownAt), Math.max(0, TRIGGER_DEBOUNCE_MS - (Date.now() - shownAt)));
+    return () => clearTimeout(ready);
+  }, [shownAt]);
+  const cooling = shownAt !== undefined && readyAfter !== shownAt;
   useEffect(() => {
     if (shownAt === undefined) return;
     const hide = setTimeout(() => setDismissed(shownAt), OVERLAY_MS);
@@ -192,14 +236,14 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   }
 
   /**
-   * After a game: its summary, or — with no clip to show — straight to Minhas gravações, the empty game removed. The
-   * summary goes over the setup screen, so swiping back returns to it (the summary resets the ended game as it leaves).
+   * After a game: its summary, or — with no clip to show — back on the camera, ready for the next one, the empty game
+   * removed (2026-11-22; it opened Minhas gravações). The summary goes over the setup screen, so swiping back returns to
+   * it (the summary resets the ended game as it leaves).
    */
   function leaveEnded(id: string) {
     if (repo.listClips(id).length > 0) return router.push(`/session/${id}`);
     repo.deleteSession(id).forEach((path) => removeFile(path));
-    reset();
-    router.push('/games'); // the setup screen stays under it
+    reset(); // the setup screen's controls come back and it opens the camera again
   }
 
   async function end() {
@@ -255,13 +299,14 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
     return () => sub.remove();
   });
 
+
   if (state.phase === 'ended' && state.error) {
     const reason = t(state.thermalStop ? 'recording.reasonHot' : 'recording.reasonError');
     return (
       <SafeAreaView style={styles.stopped}>
         <Text style={styles.stoppedText}>{t('recording.stopped', { reason })}</Text>
         <Button
-          label={state.sessionId && repo.listClips(state.sessionId).length > 0 ? t('recording.seeClips') : t('recording.myRecordings')}
+          label={state.sessionId && repo.listClips(state.sessionId).length > 0 ? t('recording.seeClips') : t('recording.backToCamera')}
           onPress={() => {
             if (state.sessionId) leaveEnded(state.sessionId);
           }}
@@ -271,66 +316,65 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   }
 
   const showOverlay = shown !== undefined && dismissed !== shown.at;
-  // The other ways that are on, one short tag each (2026-11-01: a line of "ou … ou … ou" was hard to read). Tapping the
-  // screen always works, so it is the main line; a way that is off is not shown at all.
-  const ways = [
-    ...(voice ? [{ key: 'voice', icon: <MicIcon color={colors.accent} size={16} />, label: t('recording.wayVoice', { word: VOICE_WORD[locale] }) }] : []),
-    ...(gesture ? [{ key: 'wave', icon: <WaveIcon color={colors.accent} size={16} />, label: t('recording.wayWave') }] : []),
-    ...(remoteOn ? [{ key: 'remote', icon: <RemoteIcon color={colors.accent} size={16} />, label: t('recording.wayRemote') }] : []),
-    ...(watchOn ? [{ key: 'watch', icon: <WatchIcon color={colors.accent} size={16} />, label: t('recording.wayWatch') }] : []),
+  // The other ways that save right now, as one line of small chips over the end button (2026-11-20, option A); a way that
+  // is off is not shown. The chip says it short; VoiceOver reads it whole. The save button itself needs no chip.
+  const ways: { key: string; icon: ReactNode; short: string; label: string }[] = [
+    ...(voice
+      ? [{ key: 'voice', icon: <MicIcon color={colors.accent} size={16} />, short: t('recording.chipVoice', { word: VOICE_WORD[locale] }), label: t('recording.wayVoice', { word: VOICE_WORD[locale] }) }]
+      : []),
+    ...(gesture ? [{ key: 'wave', icon: <WaveIcon color={colors.accent} size={16} />, short: t('recording.chipWave'), label: t('recording.wayWave') }] : []),
+    ...(remoteOn ? [{ key: 'remote', icon: <RemoteIcon color={colors.accent} size={16} />, short: t('recording.wayRemote'), label: t('recording.wayRemote') }] : []),
+    ...(watchOn ? [{ key: 'watch', icon: <WatchIcon color={colors.accent} size={16} />, short: t('recording.chipWatch'), label: t('recording.wayWatch') }] : []),
   ];
+  // Always one line (2026-11-21): with every way on, the chips get a little slimmer, and shrink further if still short.
+  const crowded = ways.length >= 5;
   const clips = t('summary.clips', { count: state.clipCount });
+  const continuingSession =
+    state.continuing && state.sessionId !== undefined && badgeGoneFor !== state.startedAt ? repo.getSession(state.sessionId) : undefined;
+  const continuingName = continuingSession !== undefined ? sessionLabel(continuingSession, undefined, locale) : undefined;
 
   return (
-    <View style={StyleSheet.absoluteFill} onTouchStart={onAnyTouch}>
+    <View testID="recording-root" style={StyleSheet.absoluteFill} onTouchStart={onAnyTouch}>
+      {/* Battery saving dims the picture, which stays in view (2026-11-21): a dark veil over the camera, never the phone's
+          own brightness (iOS does not reliably take that back when the phone is locked, so it leaked to the lock screen
+          and every other app). On the OLED iPhones a darker picture is what saves the battery. */}
       {economy.asleep ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.dark]} testID="screen-economy" /> : null}
-      {/* The whole screen is the save button; nothing covers the picture. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={t('recording.tapAnywhere')}
-        onPress={() => {
-          if (wakingTap.current) return;
-          trigger('screen');
-        }}
-        style={StyleSheet.absoluteFill}
-      />
+      {/* A tap on the picture no longer saves (2026-11-21): two fingers zoom it, as on the setup screen; saving is the
+          button at the bottom. */}
+      {zoom && zoom.pinch ? <View testID="zoom-pinch" style={StyleSheet.absoluteFill} {...zoom.pinch} /> : null}
 
       <SafeAreaView pointerEvents="box-none" style={styles.content}>
-        {/* Only the battery-saving button takes touches here: a tap on the pills still reaches the save surface. */}
+        {/* Time on the left (the red dot says it records: no word, 2026-11-21); clips and battery saving on the right, the
+            quality (when it stepped down) on a line of its own under them. */}
         <View pointerEvents="box-none" style={styles.topRow}>
-          <View pointerEvents="none" style={styles.pill}>
+          <View pointerEvents="none" accessible accessibilityLabel={t('recording.recording')} style={styles.pill}>
             <View style={styles.recDot} />
-            <Text style={styles.pillLabel}>{t('recording.recording')}</Text>
             <Text style={styles.elapsed}>{clock(now - (state.startedAt ?? now))}</Text>
           </View>
           <View pointerEvents="box-none" style={styles.topRight}>
-            {/* Hidden while dark: the tap that wakes the screen must not flip it. */}
-            {economy.asleep ? null : <EconomyButton on={economyPref} onPress={toggleEconomy} size={36} />}
-            {stepped ? (
-              <View pointerEvents="none" testID="quality-chip" style={styles.pill}>
-                <Text style={styles.qualityText}>{qualityLabel(state.thermal.quality)}</Text>
-              </View>
-            ) : null}
             <View pointerEvents="none" style={styles.pill}>
               <Text style={styles.countText}>{clips}</Text>
             </View>
+            {/* Hidden while dark: the tap that wakes the screen must not flip it. */}
+            {economy.asleep ? null : <EconomyButton on={economyPref} onPress={toggleEconomy} size={48} />}
           </View>
         </View>
+        {/* Continuing an ended recording (2026-11-23): which one, under the clock and the count. */}
+        {continuingName !== undefined ? (
+          <View pointerEvents="none" style={styles.continueRow}>
+            <ContinueBadge name={continuingName} />
+          </View>
+        ) : null}
+        {stepped ? (
+          <View pointerEvents="none" testID="quality-chip" style={[styles.pill, styles.qualityRow]}>
+            <Text style={styles.qualityText}>{qualityLabel(state.thermal.quality)}</Text>
+          </View>
+        ) : null}
 
         {showStep ? (
           <View pointerEvents="none" accessibilityRole="text" testID="heat-step" style={styles.info}>
             <Text style={styles.infoTitle}>{t('recording.stableTitle', { quality: qualityLabel(state.thermal.quality) })}</Text>
             <Text style={styles.infoBody}>{t('recording.stableBody')}</Text>
-          </View>
-        ) : null}
-        {economyNotice !== undefined ? (
-          <View pointerEvents="none" accessibilityRole="alert" testID="economy-notice" style={styles.notice}>
-            <Text style={styles.noticeTitle}>
-              {t(economyNotice === 'on' ? 'recording.economyOnTitle' : 'recording.economyOffTitle')}
-            </Text>
-            <Text style={styles.noticeBody}>
-              {t(economyNotice === 'on' ? 'recording.economyOnBody' : 'recording.economyOffBody')}
-            </Text>
           </View>
         ) : null}
         {remoteLost && !economy.asleep ? (
@@ -351,32 +395,72 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
           </View>
         ) : null}
 
+        {/* Turning battery saving on or off says so where the dimmed screen's note will be, in the same letters
+            (2026-11-22): centred, what happened in bold, then the detail. Never with the screen dark (no notice then). */}
+        {economyNotice !== undefined ? (
+          <View pointerEvents="none" style={styles.economy}>
+            <View accessibilityRole="alert" testID="economy-notice" style={styles.economyNote}>
+              <Text style={styles.economyText}>
+                {t(economyNotice === 'on' ? 'recording.economyOnTitle' : 'recording.economyOffTitle')}
+              </Text>
+              <Text style={styles.economyTap}>
+                {t(economyNotice === 'on' ? 'recording.economyOnBody' : 'recording.economyOffBody')}
+              </Text>
+            </View>
+          </View>
+        ) : null}
         {economy.asleep ? (
           <View pointerEvents="none" style={styles.economy}>
-            <Text style={styles.economyText}>{t('recording.economy')}</Text>
+            {/* Bigger, on two lines (2026-11-21): what happened, then what to do. */}
+            <View style={styles.economyNote} accessible accessibilityLabel={`${t('recording.economy')}. ${t('recording.economyTap')}`}>
+              <Text style={styles.economyText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+                {t('recording.economy')}
+              </Text>
+              <Text style={styles.economyTap}>{t('recording.economyTap')}</Text>
+            </View>
           </View>
         ) : null}
 
         <View pointerEvents="box-none" style={styles.bottom}>
           {economy.asleep ? null : (
-            <View pointerEvents="none" style={styles.hintCard}>
-              <View style={styles.hintHead}>
-                <TapIcon color={colors.accent} size={26} />
-                {/* Always one line: on a narrower phone (iPhone XR, SE) the text shrinks a little instead of wrapping. */}
-                <Text style={styles.hint} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                  {t('recording.tapToSave', { seconds: clipSeconds })}
-                </Text>
-              </View>
-              {ways.length > 0 ? (
-                <View style={styles.ways}>
-                  {ways.map((way) => (
-                    <View key={way.key} style={styles.way} accessible accessibilityLabel={way.label}>
-                      {way.icon}
-                      <Text style={styles.wayText}>{way.label}</Text>
-                    </View>
-                  ))}
-                </View>
+            <>
+              {/* The zoom where the setup screen has it, over the main button, only while a pinch changes it. */}
+              {zoom ? (
+                <Animated.View
+                  pointerEvents="none"
+                  testID="zoom-info"
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  style={[styles.center, styles.zoomInfoWrap, { opacity: zoomFade }]}>
+                  <View style={styles.zoomInfo}>
+                    <Text style={styles.zoomInfoText}>{formatZoom(zoom.value)}</Text>
+                  </View>
+                </Animated.View>
               ) : null}
+              <View pointerEvents="box-none" style={styles.center}>
+                <SaveClipButton
+                  cooling={cooling}
+                  seconds={clipSeconds}
+                  label={t('recording.saveButton', { seconds: clipSeconds })}
+                  onPress={() => trigger('screen')}
+                />
+              </View>
+            </>
+          )}
+          {economy.asleep || ways.length === 0 ? null : (
+            <View pointerEvents="none" testID="save-ways" style={styles.ways}>
+              {ways.map((way) => (
+                <View key={way.key} style={[styles.way, crowded && styles.wayCrowded]} accessible accessibilityLabel={way.label}>
+                  {way.icon}
+                  <Text
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                    style={[styles.wayText, crowded && styles.wayTextCrowded]}>
+                    {way.short}
+                  </Text>
+                </View>
+              ))}
             </View>
           )}
           <HoldButton
@@ -394,26 +478,51 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
 
 const glass = 'rgba(12,12,12,0.72)';
 
+/** How long the camera shows which recording goes on. */
+const CONTINUE_BADGE_MS = 5_000;
+
 const styles = StyleSheet.create({
-  dark: { backgroundColor: colors.screenOff },
-  economy: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
-  economyText: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.soft, textAlign: 'center' },
-  content: { flex: 1, paddingHorizontal: 16, gap: 10 },
+  continueRow: { marginTop: 8, alignItems: 'center' },
+  dark: { backgroundColor: 'rgba(0,0,0,0.72)' },
+  // A small note over the dimmed picture, not a screen of its own.
+  // Over the whole screen, not in the column (2026-11-22): the column's free middle moved with what is shown under it
+  // (the save button and the triggers are hidden while dark), so the notice and the dark screen's note sat at different
+  // heights. Both are centred on the same box now.
+  economy: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+  economyNote: {
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(12,12,12,0.6)',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  economyText: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 17,
+    lineHeight: 22,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  economyTap: { fontFamily: fonts.bodySemi, fontSize: 15, lineHeight: 20, color: colors.soft, textAlign: 'center' },
+  content: { flex: 1, paddingHorizontal: footer.side, gap: 10 },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  topRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // The quality chip is a small note under the row, not one of its buttons.
+  qualityRow: { alignSelf: 'flex-end', marginTop: -2, height: 30, paddingHorizontal: 12 },
+  // The same 48 pt height as the round buttons, here and on the setup screen (2026-11-20).
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     backgroundColor: glass,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 999,
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 24,
   },
-  recDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.rec },
-  pillLabel: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
-  elapsed: { fontFamily: fonts.display, fontSize: 18, color: colors.text, fontVariant: ['tabular-nums'] },
-  countText: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.accent },
+  recDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.rec },
+  elapsed: { fontFamily: fonts.display, fontSize: 22, color: colors.text, fontVariant: ['tabular-nums'] },
+  countText: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.accent },
   banner: {
     backgroundColor: colors.warningGround,
     borderColor: colors.warning,
@@ -437,28 +546,27 @@ const styles = StyleSheet.create({
   infoTitle: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
   infoBody: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.soft },
   qualityText: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.soft },
-  bottom: { marginTop: 'auto', gap: 8, marginBottom: 12 },
-  hintCard: {
-    gap: 10,
-    backgroundColor: glass,
-    borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-  },
-  hintHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  hint: { flex: 1, fontFamily: fonts.bodyBold, fontSize: 17, lineHeight: 22, color: colors.text },
-  ways: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  // Where every screen's bottom button sits (Gravações' "Nova gravação", 2026-11-21).
+  bottom: { marginTop: 'auto', gap: 8, marginBottom: footer.bottom },
+  center: { alignItems: 'center' },
+  // The setup screen's zoom button, as a note: more room under it than the rest of the column (2026-11-21).
+  zoomInfoWrap: { marginBottom: 12 },
+  zoomInfo: { width: 52, height: 52, borderRadius: 26, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accent },
+  zoomInfoText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.onAccent },
+  // One centred line of chips, never a second one.
+  ways: { flexDirection: 'row', flexWrap: 'nowrap', justifyContent: 'center', gap: 6 },
   way: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 999,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    gap: 5,
+    height: 32,
+    paddingHorizontal: 11,
+    borderRadius: 16,
+    backgroundColor: glass,
   },
-  wayText: { fontFamily: fonts.bodySemi, fontSize: 13, color: colors.text },
+  wayCrowded: { paddingHorizontal: 8, gap: 4, flexShrink: 1 },
+  wayText: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
+  wayTextCrowded: { fontSize: 13, flexShrink: 1 },
   stopped: { flex: 1, backgroundColor: colors.recordingGround, justifyContent: 'center', padding: 24, gap: 20 },
   stoppedText: { fontFamily: fonts.displayBold, fontSize: 36, lineHeight: 38, color: colors.text, textAlign: 'center' },
 });

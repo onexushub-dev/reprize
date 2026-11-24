@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react-native';
 
 import type { Clip } from '../../data/schema';
-import { ClipCard } from '../ClipCard';
+import { ClipCard, PendingClipTile } from '../ClipCard';
 
 jest.mock('expo-image', () => ({ Image: () => null }));
 jest.mock('../useClipThumbnail', () => ({ useClipThumbnail: () => undefined }));
@@ -11,26 +11,45 @@ const clip: Clip = {
   trim: { startMs: 0, endMs: 30000 },
 };
 
-test('a clip that was not sent anywhere has no badge', async () => {
-  await render(<ClipCard clip={clip} number={1} onPress={() => {}} />);
-  expect(screen.queryByText('Na galeria')).toBeNull();
-  expect(screen.queryByText('Compartilhado')).toBeNull();
+const card = (c: Clip) => <ClipCard clip={c} number={1} width={120} onPress={() => {}} />;
+
+test('a tile shows its number and length, and its label when it has one', async () => {
+  const { rerender } = await render(card(clip));
+  expect(screen.getByText('1')).toBeTruthy();
+  expect(screen.getByText('0:30')).toBeTruthy();
+  await rerender(card({ ...clip, name: 'Ataque' }));
+  expect(screen.getByText('Ataque')).toBeTruthy();
 });
 
-test('a saved clip says it is in the gallery', async () => {
-  await render(<ClipCard clip={{ ...clip, savedAt: 1 }} number={1} onPress={() => {}} />);
-  expect(screen.getByText('Na galeria')).toBeTruthy();
+test('a clip that was not sent anywhere says nothing about it', async () => {
+  await render(card(clip));
+  expect(screen.getByRole('button').props.accessibilityLabel).not.toMatch(/galeria|compartilhado/);
 });
 
-test('a shared clip says so, and saving wins when both happened', async () => {
-  const { rerender } = await render(<ClipCard clip={{ ...clip, sharedAt: 1 }} number={1} onPress={() => {}} />);
-  expect(screen.getByText('Compartilhado')).toBeTruthy();
-  await rerender(<ClipCard clip={{ ...clip, sharedAt: 1, savedAt: 2 }} number={1} onPress={() => {}} />);
-  expect(screen.getByText('Na galeria')).toBeTruthy();
+test('a saved clip says it is in the gallery, and saving wins when it was also shared', async () => {
+  const { rerender } = await render(card({ ...clip, sharedAt: 1 }));
+  expect(screen.getByRole('button').props.accessibilityLabel).toMatch(/, compartilhado$/);
+  await rerender(card({ ...clip, sharedAt: 1, savedAt: 2 }));
+  expect(screen.getByRole('button').props.accessibilityLabel).toMatch(/, salvo na galeria$/);
 });
 
 test('the card is never labeled or tagged as blocked', async () => {
-  await render(<ClipCard clip={clip} number={1} onPress={() => {}} />);
+  await render(card(clip));
   expect(screen.getByRole('button', { name: /^Clipe 1/ }).props.accessibilityLabel).not.toMatch(/, bloqueado$/);
   expect(screen.queryByText('BLOQUEADO')).toBeNull();
+});
+
+test('a clip still arriving says where it is', async () => {
+  const { rerender } = await render(<PendingClipTile number={4} width={120} downloading />);
+  expect(screen.getByText('Baixando')).toBeTruthy();
+  await rerender(<PendingClipTile number={5} width={120} downloading={false} />);
+  expect(screen.getByText('Na fila')).toBeTruthy();
+  expect(screen.getByLabelText('Clipe 5, ainda chegando')).toBeTruthy();
+});
+
+test('a clip not downloaded yet shows the sender\'s still and no queue word (multi-recording share design §5.4)', async () => {
+  await render(<PendingClipTile number={2} width={120} downloading={false} thumb="file:///r/2.thumb.jpg" idle />);
+  expect(screen.getByLabelText('Clipe 2, não baixado')).toBeTruthy();
+  expect(screen.queryByText('Na fila')).toBeNull();
+  expect(screen.getByText('2')).toBeTruthy();
 });

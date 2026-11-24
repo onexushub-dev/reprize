@@ -31,6 +31,7 @@
       },
       "appleTeamId": "R885ZD42ZG",
       "associatedDomains": [
+        "applinks:reprizeapp.com",
         "applinks:www.reprizeapp.com"
       ],
       "config": {
@@ -94,6 +95,17 @@
       },
       "predictiveBackGestureEnabled": false,
       "package": "app.reprize.mobile",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "reprizeapp.com", "pathPrefix": "/v/" },
+            { "scheme": "https", "host": "www.reprizeapp.com", "pathPrefix": "/v/" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"

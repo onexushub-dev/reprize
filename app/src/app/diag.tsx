@@ -1,8 +1,9 @@
 // TEMP(diag-remote): field-test diagnostics; this whole file goes with its commit.
+import * as Clipboard from 'expo-clipboard';
 import { File } from 'expo-file-system';
 import { Redirect, router } from 'expo-router';
 import { shareAsync } from 'expo-sharing';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -25,6 +26,10 @@ import { repo } from '../data/mmkv';
 import { applyLabVariants, ballMaxWidth, ballMotionTiles, scanSequential } from '../focus/appBallQueue';
 import { focusEveryMs } from '../focus/appFocusQueue';
 import { colors, fonts, radius } from '../theme/tokens';
+import { SHARING_ENABLED } from '../account/flags';
+import { clearAllGroups } from '../cloud/shareGroup';
+import { clearAllShares } from '../cloud/shareRecording';
+import { QrScanner } from '../components/QrScanner';
 
 /** What the log shows: everything, only warnings, or one area (2026-11-08 spec §6). */
 type Filter = 'TODOS' | 'ALERTAS' | DiagArea;
@@ -115,6 +120,22 @@ function LabSwitches() {
         },
       ],
     );
+  // TEMP(diag-sharing): every recording back to never shared, to test the share flow again on the same recordings.
+  const clearShares = () =>
+    Alert.alert(
+      'Limpar os compartilhamentos?',
+      'Os links ativos são desligados (os vídeos saem da nuvem), os envios param e as gravações voltam a nunca compartilhadas. As gravações e os clipes ficam.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Limpar',
+          style: 'destructive',
+          onPress: () => {
+            void clearAllGroups().then(() => clearAllShares()).then((count) => diag(`envio: compartilhamentos limpos em ${count} gravações`));
+          },
+        },
+      ],
+    );
   return (
     <View style={styles.lab}>
       {row('Bola', [[0, 'Quadro nativo (antes)'], [1920, 'Reduzido a 1920 (padrão)']], ball, pickBall)}
@@ -124,7 +145,57 @@ function LabSwitches() {
       <Pressable accessibilityRole="button" onPress={resetAll} hitSlop={8} style={styles.labReset}>
         <Text style={styles.linkSoft}>Zerar análises de todos os clipes</Text>
       </Pressable>
+      {SHARING_ENABLED ? (
+        <Pressable accessibilityRole="button" onPress={clearShares} hitSlop={8} style={styles.labReset}>
+          <Text style={styles.linkSoft}>Limpar compartilhamentos das gravações</Text>
+        </Pressable>
+      ) : null}
+      {SHARING_ENABLED ? <OpenLinkTest /> : null}
       {Platform.OS === 'android' ? <AndroidEval /> : null}
+    </View>
+  );
+}
+
+/**
+ * TEMP(diag-sharing): opens a shared link in this very app, from the clipboard or its QR code. With several test builds
+ * installed (develop, TestFlight), iOS may hand a tapped link to another one; this skips the choice.
+ */
+function OpenLinkTest() {
+  const [scanning, setScanning] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const opening = useRef(false);
+
+  function open(text: string): boolean {
+    const match = /(?:^|\/v\/)([0-9A-Za-z]{22})(?=$|[?#/\s])/.exec(text.trim());
+    if (match === null || opening.current) return false;
+    opening.current = true;
+    setScanning(false);
+    setNote(null);
+    router.push(`/v/${match[1]}`);
+    setTimeout(() => {
+      opening.current = false;
+    }, 1500);
+    return true;
+  }
+
+  async function paste() {
+    const text = await Clipboard.getStringAsync();
+    if (!open(text)) setNote('O que está copiado não é um link do Reprize.');
+  }
+
+  return (
+    <View style={styles.openLink}>
+      <Text style={styles.linkSoft}>Abrir link neste app (teste)</Text>
+      <View style={styles.labRow}>
+        <Pressable accessibilityRole="button" onPress={() => void paste()} hitSlop={8} style={styles.labReset}>
+          <Text style={styles.link}>Colar link</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={() => setScanning((on) => !on)} hitSlop={8} style={styles.labReset}>
+          <Text style={styles.link}>{scanning ? 'Fechar câmera' : 'Ler QR code'}</Text>
+        </Pressable>
+      </View>
+      {scanning ? <QrScanner onCode={(text) => void open(text)} /> : null}
+      {note !== null ? <Text style={styles.linkSoft}>{note}</Text> : null}
     </View>
   );
 }
@@ -286,6 +357,7 @@ const styles = StyleSheet.create({
   labRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   labLabel: { width: 72, fontFamily: fonts.bodySemi, fontSize: 12, color: colors.text },
   labReset: { minHeight: 32, justifyContent: 'center' },
+  openLink: { gap: 6, paddingTop: 6 },
   energyText: { fontFamily: 'Menlo', fontSize: 10.5, lineHeight: 15, color: colors.text },
   log: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.card },
   logBody: { padding: 10 },

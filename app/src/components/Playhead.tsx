@@ -43,6 +43,8 @@ export function Playhead({ player, durationMs, floorMs = 0, trim, speed, scrubMs
     let origin = 0;
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      // Kept to the end of the drag, as the trim handles are.
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
         origin = latest.current.at;
         latest.current.onScrub?.(origin);
@@ -94,12 +96,15 @@ const styles = StyleSheet.create({
     marginLeft: -HIT / 2,
     alignItems: 'center',
   },
+  // A little thicker than before (2026-11-20), with a dark edge so it stands out on any frame.
   line: {
     position: 'absolute',
     top: 0,
     bottom: 0,
-    width: 4,
-    borderRadius: 2,
+    width: 6,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.35)',
     backgroundColor: colors.text,
   },
   pill: {

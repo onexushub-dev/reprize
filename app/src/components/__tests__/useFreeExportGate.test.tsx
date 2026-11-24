@@ -54,11 +54,11 @@ test('the first export of a recording opens the full sheet: the clip as free and
   await act(async () => void gate.ask('s1', { focus: false, sound: true }, 'save').then((g) => (go = g)));
   expect(screen.getByText('Salve seus clipes com qualidade PRO')).toBeTruthy();
   expect(screen.getByText('Seu clipe tem som')).toBeTruthy();
-  expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD, Com marca d’água')).toBeTruthy();
+  expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD')).toBeTruthy();
   // The free plan never has Modo Foco: "Sem Modo Foco" is crossed out even when this clip does not use it.
   expect(screen.getByText('Sem Modo Foco')).toBeTruthy();
   expect(screen.getByText('Com Modo Foco')).toBeTruthy();
-  expect(screen.getByLabelText('PRO: Com som, Com Modo Foco, Full HD, Sem marca d’água')).toBeTruthy();
+  expect(screen.getByLabelText('PRO: Com som, Com Modo Foco, Full HD')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Assinar o PRO' })).toBeTruthy();
   expect(screen.getByText('Todas as gravações · mensal ou anual')).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Só para esta gravação' })).toBeTruthy();
@@ -76,8 +76,8 @@ test('where the phone has no Modo Foco (Android) the sheet does not sell it', as
   try {
     await render(<Harness />);
     await act(async () => void gate.ask('s1', { focus: false, sound: true }, 'save'));
-    expect(screen.getByLabelText('GRÁTIS: Sem som, HD, Com marca d’água')).toBeTruthy();
-    expect(screen.getByLabelText('PRO: Com som, Full HD, Sem marca d’água')).toBeTruthy();
+    expect(screen.getByLabelText('GRÁTIS: Sem som, HD')).toBeTruthy();
+    expect(screen.getByLabelText('PRO: Com som, Full HD')).toBeTruthy();
     expect(screen.queryByText(/Modo Foco/)).toBeNull();
   } finally {
     mockFocus.mockReturnValue(true);

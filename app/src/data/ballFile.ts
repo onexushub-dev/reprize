@@ -48,8 +48,20 @@ export function ballRulesCurrent(ball: NonNullable<Clip['ball']>): boolean {
   return ball.rules === ballRules(ball.sport || 'basquete');
 }
 
-/** The framing file of the clip's current cut, when it is ready. */
-export function readyBallFile(clip: Pick<Clip, 'ball' | 'trim'>): string | undefined {
+/** A millisecond or two of rounding between a received clip's cut and its framing's range is the same cut. */
+const RECEIVED_SLACK_MS = 2;
+
+/**
+ * The framing file of the clip's current cut, when it is ready. On a received clip (`sharePosition`) the sender's
+ * framing serves any cut inside the range it covers (2026-11-22: the recipient may cut inside what came; a clip sent on
+ * Bola showed the Bola card without its framing, because the editor, the preview and the export each checked the exact
+ * cut). The recipient's own analysis of a cut is that cut's, as on a clip of their own.
+ */
+export function readyBallFile(clip: Pick<Clip, 'ball' | 'trim'> & { sharePosition?: number }): string | undefined {
   const { ball } = clip;
-  return ball && ball.status === 'ready' && ball.file && ballForCut(ball, clip.trim) ? ball.file : undefined;
+  if (!ball || ball.status !== 'ready' || !ball.file) return undefined;
+  if (ballForCut(ball, clip.trim)) return ball.file;
+  const received = clip.sharePosition !== undefined;
+  const covers = ball.startMs <= clip.trim.startMs + RECEIVED_SLACK_MS && ball.endMs >= clip.trim.endMs - RECEIVED_SLACK_MS;
+  return received && covers ? ball.file : undefined;
 }

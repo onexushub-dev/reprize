@@ -484,6 +484,30 @@ describe('upgradeSession', () => {
   it('does nothing for a recording that is gone', () => {
     expect(setup().upgradeSession('nope', {})).toBeUndefined();
   });
+
+  it('never makes a received recording paid (Pro or a courtesy covers it)', () => {
+    const repo = setup();
+    const received = { shareId: 'sh1', code: 'c', receivedAt: 1, expiresAt: 2, total: 1 };
+    const s = repo.startReceivedSession({ sport: 'quadra', received, now: 1 });
+    expect(repo.upgradeSession(s.id, { passTransactionId: 'tx-1' })).toBeUndefined();
+    expect(repo.getSession(s.id)?.paid).toBeUndefined();
+    expect(repo.spentPasses().has('tx-1')).toBe(false);
+  });
+});
+
+test('setReceivedCourtesy marks a received recording once, and ignores one made here', () => {
+  const repo = setup();
+  const received = { shareId: 'sh1', code: 'c', receivedAt: 1, expiresAt: 2, total: 1 };
+  const s = repo.startReceivedSession({ sport: 'quadra', received, now: 1 });
+  const own = repo.startSession('quadra', 1, { paid: false });
+  const fn = jest.fn();
+  repo.subscribe(fn);
+  repo.setReceivedCourtesy(s.id);
+  repo.setReceivedCourtesy(s.id);
+  repo.setReceivedCourtesy(own.id);
+  expect(repo.getSession(s.id)?.received?.courtesy).toBe(true);
+  expect(repo.getSession(own.id)?.received).toBeUndefined();
+  expect(fn).toHaveBeenCalledTimes(1);
 });
 
 test('closeOpenSessions ends a recording a closed app left open, at its last clip, or at its start without clips', () => {
@@ -501,4 +525,74 @@ test('closeOpenSessions ends a recording a closed app left open, at its last cli
   expect(repo.getSession(empty.id)!.endedAt).toBe(20000);
   expect(repo.getSession(ended.id)!.endedAt).toBe(40000);
   expect(repo.closeOpenSessions()).toBe(0);
+});
+
+test('setShared keeps the link on the recording and undefined forgets it', () => {
+  const repo = setup();
+  const session = repo.startSession('quadra', 1000, { paid: true });
+  const shared = { shareId: 's1', url: 'https://www.reprizeapp.com/v/abc', createdAt: 2000, expiresAt: 90000, clips: 3, state: 'active' as const };
+  repo.setShared(session.id, shared);
+  expect(repo.getSession(session.id)!.shared).toEqual(shared);
+  repo.setShared(session.id, undefined);
+  expect(repo.getSession(session.id)).not.toHaveProperty('shared');
+});
+
+describe('continuing a recording (2026-11-23)', () => {
+  test('resumeSession reopens an ended recording and counts the pause out of its duration', () => {
+    const repo = setup();
+    const s = repo.startSession('beachTennis', 1_000, { paid: false });
+    repo.endSession(s.id, 10_000);
+    const resumed = repo.resumeSession(s.id, 25_000)!;
+    expect(resumed.endedAt).toBeUndefined();
+    expect(resumed).toMatchObject({ pausedMs: 15_000, resumedAt: 25_000 });
+    repo.endSession(s.id, 40_000);
+    expect(repo.sessionStats(s.id).recordedMs).toBe(40_000 - 1_000 - 15_000);
+  });
+
+  test('two pauses add up', () => {
+    const repo = setup();
+    const s = repo.startSession('beachTennis', 0, { paid: false });
+    repo.endSession(s.id, 10_000);
+    repo.resumeSession(s.id, 25_000);
+    repo.endSession(s.id, 40_000);
+    repo.resumeSession(s.id, 50_000);
+    repo.endSession(s.id, 60_000);
+    expect(repo.getSession(s.id)!.pausedMs).toBe(25_000);
+    expect(repo.sessionStats(s.id).recordedMs).toBe(35_000);
+  });
+
+  test('only an ended own recording can be reopened', () => {
+    const repo = setup();
+    const open = repo.startSession('beachTennis', 0, { paid: false });
+    expect(repo.resumeSession(open.id, 5_000)).toBeUndefined();
+    expect(repo.resumeSession('nope', 5_000)).toBeUndefined();
+    const received = repo.startReceivedSession({ sport: 'beachTennis', now: 0, received: { shareId: 'sh', code: 'c', receivedAt: 0, expiresAt: 1, total: 1 } });
+    expect(repo.resumeSession(received.id, 5_000)).toBeUndefined();
+    expect(repo.getSession(received.id)!.endedAt).toBe(0);
+  });
+
+  test('app closed during a continuation with no new clip: it ends when it was resumed, never before the pause', () => {
+    const repo = setup({ '/a.mp4': 1 });
+    const s = repo.startSession('beachTennis', 0, { paid: false });
+    repo.addClip({ sessionId: s.id, createdAt: 5_000, source: 'screen', path: '/a.mp4', durationMs: 1 });
+    repo.endSession(s.id, 10_000);
+    repo.resumeSession(s.id, 30_000);
+    repo.closeOpenSessions();
+    expect(repo.getSession(s.id)!.endedAt).toBe(30_000);
+    expect(repo.sessionStats(s.id).recordedMs).toBe(10_000);
+  });
+
+  test('a recording never continued keeps its duration', () => {
+    const repo = setup();
+    const s = repo.startSession('beachTennis', 0, { paid: false });
+    repo.endSession(s.id, 60_000);
+    expect(repo.sessionStats(s.id).recordedMs).toBe(60_000);
+  });
+
+  test('allSessions lists every recording, with or without clips, own and received', () => {
+    const repo = setup();
+    const a = repo.startSession('beachTennis', 0, { paid: false });
+    const b = repo.startReceivedSession({ sport: 'beachTennis', now: 0, received: { shareId: 'sh', code: 'c', receivedAt: 0, expiresAt: 1, total: 1 } });
+    expect(repo.allSessions().map((s) => s.id)).toEqual([a.id, b.id]);
+  });
 });

@@ -53,6 +53,8 @@ export type ToolContext = {
   chooseSport(sport: RecordingSportId): void;
   resetZoom(): void;
   turn(): void;
+  /** What the sender fixed on a received clip (2026-11-22): the sound of a clip sent without it. */
+  locks: { sound?: true };
 };
 
 export type EditTool = {

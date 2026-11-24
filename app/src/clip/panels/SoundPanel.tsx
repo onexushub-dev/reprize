@@ -6,7 +6,9 @@ import { Choice, PanelHead, panelStyles } from './PanelParts';
 
 export function SoundPanel({ ctx }: { ctx: ToolContext }) {
   const { t } = useT();
-  const locked = ctx.edit.speed !== 1;
+  // Sent without sound (2026-11-22): the file has none, so it cannot be turned on.
+  const sent = ctx.locks.sound === true;
+  const locked = sent || ctx.edit.speed !== 1;
   const on = !ctx.edit.muted && !locked;
   return (
     <View style={{ gap: 10 }}>
@@ -22,7 +24,7 @@ export function SoundPanel({ ctx }: { ctx: ToolContext }) {
           onPress={locked ? undefined : () => ctx.setEdit({ muted: !ctx.edit.muted })}
         />
       </View>
-      {locked ? <Text style={panelStyles.note}>{t('clip.soundLocked')}</Text> : null}
+      {sent ? <Text style={panelStyles.note}>{t('clip.soundSentOff')}</Text> : locked ? <Text style={panelStyles.note}>{t('clip.soundLocked')}</Text> : null}
     </View>
   );
 }

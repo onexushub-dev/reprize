@@ -23,7 +23,7 @@ import { ShareMedia } from "../onboarding/ShareMedia";
 import { slidesFor, splitHighlight, waysOf } from "../onboarding/slides";
 import { StoryBars } from "../onboarding/StoryBars";
 import { useStories } from "../onboarding/useStories";
-import { colors, fonts, radius } from "../theme/tokens";
+import { colors, fonts, footer, radius } from "../theme/tokens";
 
 /** Whether this phone can listen for the save command (Android: from Android 12). Read once, like the slides. */
 const VOICE = Platform.OS !== "android" || isVoiceSupported("pt-BR");
@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
   zones: { ...StyleSheet.absoluteFill, flexDirection: "row" },
   zoneBack: { flex: 3 },
   zoneNext: { flex: 7 },
-  content: { flex: 1, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
+  content: { flex: 1, paddingHorizontal: footer.side, paddingTop: 8, paddingBottom: footer.bottom },
   bars: { marginHorizontal: -4 },
   // Only Skip up here: the logo is on the splash screen just before.
   header: {
