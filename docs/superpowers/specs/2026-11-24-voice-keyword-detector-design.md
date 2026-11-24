@@ -51,9 +51,39 @@ fires on its own.
 
 | | What | Trade-off |
 |---|---|---|
-| **A — direct swap (chosen, Victor 2026-11-24)** | In `pt-BR`, the detector replaces dictation outright | Fastest. Going back needs a store release. |
+| **A — direct swap (chosen, Victor 2026-11-24)** | In `pt-BR`, the detector replaces dictation outright, after it wins in VoiceBench (Phase 1) | Fastest in the app. Going back needs a store release. |
 | B — side-by-side phase | A test build runs both engines and logs both; then the detector becomes the default | Field numbers before shipping, more work |
 | C — server-controlled | Like B, with engine and threshold switched from the backend | No release to switch, but new infrastructure and more ways to fail |
+
+## Phase 1: VoiceBench, before the app (Victor, 2026-11-24)
+
+The detector goes into Reprize only after it beats today's trigger in a test app, as FocusBench did for Modo Foco.
+**VoiceBench** is a throwaway iPhone app in `docs/voice-lab/lab/ios-bench/`, separate from Reprize and never shipped.
+
+- **Same microphone path as Reprize:** an audio-only `AVCaptureSession` with `AVCaptureAudioDataOutput`.
+- **Two engines on the same buffers.** "Atual" is a copy of today's `VoiceTrigger` dictation path (`SFSpeechRecognizer`
+  on-device pt-BR, `VoiceCommand` matching, restart every 50 s, 2 s cooldown). "Novo" is the keyword detector below,
+  built from the same model files and the same `ReplayCore` math the app will use.
+- **Accuracy mode** (both engines on):
+  - distance sessions: pick 3, 5, 10 or 12 m and type the speaker's name; the speaker says "salvar" 6 times (3
+    normal, 3 loud); stop. Two big counters ("Atual N", "Novo N") show while it runs.
+  - noise session: a normal game with nobody saying "salvar"; it counts each engine's false triggers.
+- **Consumption mode** (one engine at a time): microphone only (baseline), only Atual, only Novo, **15 min each**,
+  same place, off the charger, same screen brightness, cooling down between runs. Every minute it logs:
+  - battery level (iOS reports 1% steps, so a 15 min run separates the engines only roughly);
+  - iOS thermal state (nominal/fair/serious/critical, the same one Reprize uses);
+  - the app's CPU time;
+  - for Novo, the average processing time per 80 ms step.
+
+  Dictation does part of its work in an iOS process outside the app, so in-app CPU understates Atual; battery and
+  heat are the fair comparison.
+- **Every session saves its audio** with a JSON of events and readings, reachable from the Mac's Finder. Words can
+  then be checked by ear and future models scored on the same recordings.
+- `voice_bench.py prepare` copies the model files into the bench; `voice_bench.py results` builds one table per
+  speaker and distance, plus false triggers per hour, battery per hour, time in each thermal state and CPU.
+
+Phase 2, the integration into Reprize below (iOS, Android, app), starts only after Victor approves the VoiceBench
+numbers.
 
 ## How it works
 
