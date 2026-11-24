@@ -10,14 +10,15 @@ type Props = {
   visible: boolean;
   /** "Cortar o lance primeiro": the switch stays off and the cut is there to drag. */
   onCut: (hideNextTime: boolean) => void;
-  /** "Seguir o clipe todo": Seguir a Bola goes on for the cut as it is. */
+  /** "Usar o tamanho atual": Modo Foco: Bola goes on for the cut as it is. */
   onGo: (hideNextTime: boolean) => void;
   onClose: () => void;
 };
 
 /**
- * Seguir a Bola's first-use sheet (spec 2026-11-09 §4.1, layout B1): what it does and why to cut first. Shown on every
- * first tap of the switch until "Não mostrar de novo" is kept on (it starts on), as `PrepareSheet`.
+ * Modo Foco: Bola's first-use sheet (spec 2026-11-09 §4.1, layout B1; copy approved 2026-11-24): what it does and why
+ * to cut first. Shown on every first tap of the switch until "Não mostrar de novo" is kept on (it starts on), as
+ * `PrepareSheet`.
  */
 export function BallIntroSheet({ visible, onCut, onGo, onClose }: Props) {
   const { t } = useT();

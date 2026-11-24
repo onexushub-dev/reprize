@@ -1355,13 +1355,13 @@ describe('Seguir a Bola', () => {
     expect(screen.queryByText('· identificado')).toBeNull();
   });
 
-  test('the first tap shows what it does; "Seguir o clipe todo" turns it on and remembers the answer', async () => {
+  test('the first tap shows what it does; "Usar o tamanho atual" turns it on and remembers the answer', async () => {
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
     await pick(ballCard());
     expect(repo.updateClip).not.toHaveBeenCalledWith('c1', expect.objectContaining({ edit: expect.anything() }));
     expect(screen.getByText('Corte o lance antes')).toBeTruthy();
-    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Seguir o clipe todo' })));
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Usar o tamanho atual' })));
     expect(repo.setPrefs).toHaveBeenCalledWith({ ballIntroSeen: true });
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'ball' } });
     expect(balls.ballQueue.request).toHaveBeenCalledWith('c1');

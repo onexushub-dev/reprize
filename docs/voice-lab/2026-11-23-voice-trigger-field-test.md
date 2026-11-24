@@ -9,6 +9,7 @@ Apple Watch on the player's wrist recording with Voice Memos. Two more people (S
 - **Up to 9 m the player's voice still reaches the camera phone 7–13 dB above the court noise.** At this range the limit is the recognizer, not the physics.
 - **Dictation is the wrong tool for one word.** Even Whisper (a stronger dictation model than Apple's on-device one) read "salvar" in only 6 of 31 phone recordings, and 19 of 31 on the watch, with the word right next to the mic. Said fast on court, "salvar" comes out as "salvá", and dictation turns it into "Salve!", "Sao Bair", "Tao Bar", "Sauber". Also accepting "salve" is not a fix: "salve!" is a common greeting on court.
 - **A first dedicated detector prototype heard 31 of 31 on the camera phone at 3, 5 and 9 m, with 0 false triggers in 6.3 min of held-out audio.** On the watch it heard 30 of 31.
+- **Day 2 (2026-11-24, a held-out day with strong wind):** for Victor, the best model (M4) heard 16 of 18 up to 10 m and 6 of 6 at 12 m; the app heard 9 of 15 and 2 of 5. M4 fired once in 67.6 min of held-out noise (other courts, a championship with crowd and music, a tennis lesson with loud coaches). **What's left: women's voices.** Yasmin was heard at 3 m but not at 5 and 10 m, though her words are audible there. The model learned Victor's voice and needs more women's voices (see Day 2).
 - **Recommendation for the watch: path A (dedicated detector on the device).** Path B (send watch audio to the phone's dictation) inherits dictation's misreadings even on clean audio. The same detector serves the camera phone (iOS and Android) and the watch.
 
 These numbers come from one evening, one main speaker and few minutes of noise. They show the direction. They are not a production estimate yet (see Caveats).
@@ -83,6 +84,54 @@ Threshold sweep (phone, held-out): at 0.9 or 0.95 with two windows in a row it s
 3. **Port the prototype.** Core ML (iOS + watchOS 11) and TFLite (Android), measure CPU/battery on device, and run it alongside today's trigger in a test build, comparing events in the Diagnóstico.
 4. **Watch.** Listen only while the screen is lit and the camera phone is recording (decided 2026-11-23). It sends the same "save" event as the button.
 
+## Day 2 — 2026-11-24 (held-out day)
+
+Open court, **strong wind, no music**, little talk. Victor at 3, 5, 10 and 12 m and Yasmin at 3, 5 and 10 m, with the voice
+trigger OFF and each clip saved through the remote (Yasmin's 12 m exists only on the watch). Then Victor with the trigger ON,
+5 tries per distance. The close-voice recordings (`QD 5*`) and one watch (`Gravação 4`) heard both speakers.
+
+Labels: `labels2.py`. The seven phone clips sit end to end on the watch timeline (no-overlap rule). The chain is anchored on
+"Yasmin 3m" and two words Whisper reads in both, so expect up to ~1 s of error. A word counts as heard from 1 s before it
+to 1.5 s after it.
+
+False triggers are measured on audio never used in training:
+- **other courts:** 111 app clips from `docs/focus-refs` (basketball, beach tennis, volleyball, Oct–Nov), 54.9 min;
+- **championship:** every other clip of `ruido/` (a beach tennis championship with a crowd and music), 7.5 min.
+
+The other half of the championship is training noise. None of the noise contains "salvar" (checked with Whisper).
+
+| Model | Victor ≤10 m | Victor 12 m | Yasmin 3 m | Yasmin 5 m | Yasmin 10 m | False: other courts | False: championship |
+|---|---|---|---|---|---|---|---|
+| App today (Victor, trigger ON) | 9/15 | 2/5 | — | — | — | 0 seen | — |
+| M1: day 1 only, 0.9 ×2 | 15/18 | 6/6 | 6/6 | 0/6 | 2/6 | 0 in 55 min | 5 in 7.5 min |
+| **M2: + day-1 phone words, day-2 close voices, half championship, 0.95 ×2** | **17/18** | **6/6** | **6/6** | **0/6** | **2/6** | **2 in 55 min (2.2/h)** | **1 in 7.5 min** |
+| M3: M2 + pitched-up voices, synthetic wind, hard negatives | 17/18 | 6/6 | 6/6 | 0/6 | 2/6 | 7 in 55 min | 3 in 7.5 min |
+| **M4: M2 + half of the tennis lesson (loud coaches nearby) + its hard negatives, 0.95 ×2** | **16/18** | **6/6** | **6/6** | **0/6** | **2/6** | **0 in 55 min** | **0 in 7.5 min** |
+| M5: M4 + day-1 phone words of Sara/Yasmin + women's close words ×3, 0.95 ×2 | 17/18 | 6/6 | 6/6 | 1/6 | 2/6 | 6 in 55 min | 3 in 7.5 min |
+
+Tennis lesson (`ruido-tenis/`, 31 clips, 11.1 min, 84 speech segments, no "salvar"): the other half is a third false-trigger
+test set. On it (5.2 min at 0.95 ×2), M2 fired 1 time, M4 1 time and M5 3 times. **M4 totals 1 false trigger in 67.6 min of
+held-out noise (~0.9/h), the first model under the 1-per-hour goal.** M3 and M5 are discarded.
+
+"0.95 ×2" means two windows in a row scoring at least 0.95. The app also got 0/5 at 15 m. M3 is discarded.
+
+### Reading
+
+- **Victor's voice: target met and passed.** With the wind and a model that never heard that day, M2 hears 17 of 18 up to 10 m and 6 of 6 at 12 m. The app heard 9 of 15 and 2 of 5.
+- **Yasmin: fine at 3 m, missed at 5 and 10 m by every model.** Victor listened: about 5 of 6 are audible at 5 m and 6 of 6 clearly at 10 m. So **it is the model, not the physics, and not a threshold.** Her words score near 0, so no threshold or firing rule picks them up.
+  - The model learned "Victor's salvar": he gives most of the positives and **all** the real far-away ones from day 1.
+  - Adding the few women's samples we have (M5) moved her from 2 to 3 of 12, and false triggers went up.
+  - The fix is data: many women's voices, close (augmented to sound far) and some truly far.
+- **False triggers: under the goal with M4.** It fired once in 67.6 min of held-out noise (other courts, championship, tennis lesson), ~0.9 per hour, against a goal of ≤1 per hour. The samples are still short, so the rate is rough.
+
+### What this changes in the next steps
+
+1. **More voices, women first** (agreed 2026-11-24: women and higher voices must reach Victor's level up to 10 m before the detector goes into the app).
+   - Close recordings of 10× "salvar" from 6–10 women, plus a few men other than Victor.
+   - Far recordings of 3+ women at 3, 5 and 10 m, voice off, saved through the remote, on a calm day.
+2. **Keep adding noise**, especially crowd, music and loud talk, split by file between training and test, so the false-trigger rate rests on more than an hour.
+3. Only then port to Core ML / TFLite and run it next to today's trigger in a test build.
+
 ## Reproduce
 
 ```
@@ -95,4 +144,10 @@ python3 align.py "../wav16/Gravação 2.wav" ../wav16/3m*.wav ../wav16/5m*.wav .
 python3 eval_dist.py                         # SNR + dictation per word -> results/dist.csv
 python3 detector_v1.py                       # trains the leave-one-distance-out models (variants A/B) -> clf_*.pkl
 python3 eval_saved.py                        # scores variant B on phone and watch
+# day 2 (wav16/2026-11-24, wav16/noise = focus-refs app clips, wav16/ruido = championship; marks in marks2/, marks_noise/, marks_ruido/)
+python3 mark.py marks2 ../wav16/2026-11-24/*.wav; python3 mark.py marks_noise ../wav16/noise/*.wav; python3 mark.py marks_ruido ../wav16/ruido/*.wav
+python3 detector_v2.py                       # M1/M2 on day 2 + false triggers
+python3 detector_v3.py                       # M3 (discarded)
+python3 mark.py marks_tenis ../wav16/tenis/*.wav; python3 detector_v4.py   # M4 (best so far) + tennis noise
+python3 detector_v5.py                       # M5 (discarded)
 ```

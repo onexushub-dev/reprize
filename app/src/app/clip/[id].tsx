@@ -898,7 +898,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     setZoomKey((k) => k + 1);
   }
 
-  /** The first-use sheet answered: "Não mostrar de novo" is kept; "Seguir o clipe todo" turns it on. */
+  /** The first-use sheet answered: "Não mostrar de novo" is kept; "Usar o tamanho atual" turns it on. */
   function answerBallIntro(go: boolean, hide: boolean) {
     setBallIntro(false);
     if (hide) repo.setPrefs({ ballIntroSeen: true });
