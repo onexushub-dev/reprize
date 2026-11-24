@@ -1427,8 +1427,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
             <>
               <View style={styles.trimLabels}>
                 <Text style={styles.small}>{`-${seconds(win.endMs - win.startMs)}`}</Text>
-                <Text style={styles.cut}>{`Corte: ${seconds(outputMs(trim, edit.speed))}`}</Text>
-                <Text style={styles.small}>gatilho</Text>
+                <Text style={styles.cut}>{t('clip.cut', { time: seconds(outputMs(trim, edit.speed)) })}</Text>
+                <Text style={styles.small}>{t('clip.trigger')}</Text>
               </View>
               <View style={styles.trimRow}>
                 <IconButton label={playing ? 'Pausar' : 'Reproduzir'} onPress={togglePlay}>
