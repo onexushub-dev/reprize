@@ -98,7 +98,7 @@
   - `testResamplerStereo48kMatches16kMono`: golden audio up-sampled to 48 kHz stereo → resampled mel within 0.05 of golden on 95% of values.
   - `testSilenceAndClippingAreFinite`: zeros and a full-scale square wave produce only finite mel values.
 - [ ] **Step 2:** `cd app/modules/replay-camera/ios/Core && swift test --filter VoiceKeywordTests` → FAIL (types missing).
-- [ ] **Step 3: Implement** with vDSP's real FFT (`vDSP.FFT`, log2n 9) and the Hann(400) window centred in 512. Power = re² + im²; then the filterbank matmul (`vDSP_mmul`).
+- [ ] **Step 3: Implement** in plain Swift (no Accelerate, so ReplayCore stays platform-free and the Kotlin port is line-for-line): a radix-2 FFT of 512, the Hann(400) window centred in 512, power = re² + im², then the filterbank product. About 100 frames/s is cheap.
 - [ ] **Step 4:** the same command → PASS.
 - [ ] **Commit point** (Victor).
 

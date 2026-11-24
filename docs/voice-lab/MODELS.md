@@ -15,7 +15,7 @@ Built by `lab/tools/export_detector.py` (`fetch` → `build` → `mac`). Lab res
 
 **Not used:** openWakeWord's pretrained wake-word models, which are CC BY-NC-SA 4.0 (non-commercial).
 
-**Open point for approval:** openWakeWord states that Google's speech embedding is Apache-2.0. Their re-implementation
+**Approved by Victor on 2026-11-24, as is (the openWakeWord version of the embedding).** Earlier open point: openWakeWord states that Google's speech embedding is Apache-2.0. Their re-implementation
 of it carries no separate license statement, beyond the repository's Apache-2.0. If Victor wants zero doubt, the
 alternative is to convert Google's original TF Hub model ourselves (same architecture, same license) and re-check
 parity. The app's open-source licenses list must name the Apache-2.0 notice for the embedding either way.
