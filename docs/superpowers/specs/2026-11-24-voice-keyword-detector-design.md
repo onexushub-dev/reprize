@@ -92,7 +92,7 @@ numbers.
 1. **Audio in:** whatever the source gives (the capture session's buffers, the remote's microphone), mixed to mono.
 2. **Resample to 16 kHz** with a proper low-pass first. Today's Android code interpolates without one, which folds court
    noise above 8 kHz into the voice band; the new resampler also serves the English ML Kit path.
-3. **Mel frames:** 32 mel bins, every 10 ms, then `mel / 10 + 2`. Same as openWakeWord's melspectrogram.
+3. **Mel frames:** 32 mel bins, every 10 ms, then `mel / 10 + 2`. Same as openWakeWord's melspectrogram, minus its top-dB floor, which depends on how much audio is processed at once. Removing it changes no word count on the lab clips; in a quiet room a firing can move by up to 0.5 s.
 4. **Speech embedding:** a 96-number embedding every 80 ms, each from the last 76 mel frames (~0.76 s).
 5. **Classifier:** the last 16 embeddings (~1.3 s of audio) → a score from 0 to 1. Today it is one hidden layer of 128
    (ReLU) and a sigmoid, the `M4` weights.
