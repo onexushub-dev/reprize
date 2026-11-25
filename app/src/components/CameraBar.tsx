@@ -1,6 +1,6 @@
-import { type ComponentRef, type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ComponentRef, type ReactNode, useContext, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaInsetsContext, SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
 import { useT } from '../i18n/useT';
@@ -57,7 +57,10 @@ const TARGET_KINDS = ['clip', 'quality', 'triggers', 'record'] as const;
 /** Between the three settings and the black under them; the panels keep the same distance above the settings. */
 export const BAR_GAP = 16;
 
-/** How far the row of Gravar sits into the bottom safe area (points): more = lower, more camera. */
+/**
+ * How far the row of Gravar sits into the bottom safe area (points): more = lower, more camera. Never more than the
+ * area itself: an Android with on-screen buttons has none (the window ends above them), and the row went under them.
+ */
 const DOCK_LOWER = 12;
 
 /** Until the buttons are measured, a slot as long as the longest of them can be. */
@@ -72,6 +75,7 @@ export function CameraBar(props: Props) {
   const { clipSeconds, quality, qualityFixed, triggers, panel, onPanel, busy, onRecord, onRecordings, onSettings, onLayout, spin, turned = false, reversed = false, onTargets } = props;
   const waiting = props.waiting ?? busy;
   const { t, locale } = useT();
+  const bottomInset = useContext(SafeAreaInsetsContext)?.bottom ?? 0;
   const active = (kind: 'clip' | 'quality' | 'triggers') => panel === kind || (kind === 'triggers' && (panel === 'test' || panel === 'phone'));
   const tint = (kind: 'clip' | 'quality' | 'triggers') => (active(kind) ? colors.onAccent : colors.text);
   const triggerItems = triggers.map((key) => sourceLabel(TRIGGER_SOURCE[key], locale));
@@ -198,7 +202,7 @@ export function CameraBar(props: Props) {
       <View testID="camera-settings" style={[styles.pills, reversed && styles.pillsReversed, waiting && styles.busy]}>
         {pills}
       </View>
-      <SafeAreaView edges={['bottom']} style={styles.ground}>
+      <SafeAreaView edges={['bottom']} testID="camera-dock" style={[styles.ground, { marginBottom: -Math.min(DOCK_LOWER, bottomInset) }]}>
         <View style={styles.row}>{buttons}</View>
       </SafeAreaView>
     </View>
@@ -271,7 +275,7 @@ const styles = StyleSheet.create({
   bar: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: BAR_GAP },
   // Lower into the home bar's area (2026-11-22, tuning it): the black band is shorter and the camera shows more. The
   // safe area still applies; DOCK_LOWER of it goes under the buttons' band.
-  ground: { backgroundColor: colors.ground, paddingTop: 10, marginBottom: -DOCK_LOWER },
+  ground: { backgroundColor: colors.ground, paddingTop: 10 },
   pills: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
   pill: {
     height: 44,
