@@ -3,7 +3,6 @@ import { useSyncExternalStore } from 'react';
 import { repo } from '../data/mmkv';
 import { payments } from '../payments';
 import { sessionPlan } from '../payments/rules';
-import { markExempt } from '../payments/watermarkRule';
 import type { Plan } from '../payments/types';
 
 import type { ExportTier } from './exportOptions';
@@ -88,29 +87,10 @@ export function useReceivedAccess(sessionId: string | undefined): ReceivedAccess
 /**
  * The tier a clip is previewed and exported with. A received recording without Pro shows and leaves as a courtesy (the
  * paid look, Full HD, with the mark), whether or not one is spent yet: watching is free, the gate is on Save and Send.
- * `noMark` (`useMarkExempt`): a paid export under the rule of its day leaves without the app mark (`legacy`).
+ * Every plan leaves with the app mark (2026-11-25: no exception for earlier buyers, there were no real subscribers).
  */
-export function exportTierOf(plan: Plan, access: ReceivedAccess | undefined, noMark = false): ExportTier {
+export function exportTierOf(plan: Plan, access: ReceivedAccess | undefined): ExportTier {
   if (access !== undefined && access !== 'pro') return 'courtesy';
-  return plan === 'paid' && noMark ? 'legacy' : plan;
+  return plan;
 }
 
-/** Whether this recording's paid exports keep the old rule (no app mark); any read failure keeps the mark. */
-function markExemptNow(sessionId: string | undefined): boolean {
-  try {
-    const session = sessionId === undefined ? undefined : repo.getSession(sessionId);
-    return markExempt(payments.getSnapshot(), session);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * True when a paid export of this recording keeps the rule of its day and leaves without the app mark: a Pro bought
- * before the mark went on every plan, or the recording's own Pass or paid start from before it
- * (`payments/watermarkRule.ts`). Re-renders on the payments store and on the repo.
- */
-export function useMarkExempt(sessionId: string | undefined): boolean {
-  useSyncExternalStore(payments.subscribe, () => markExemptNow(sessionId));
-  return useSyncExternalStore(repo.subscribe, () => markExemptNow(sessionId));
-}

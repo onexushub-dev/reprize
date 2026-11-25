@@ -7,7 +7,7 @@ export type Snapshot = {
   proPurchasedAt?: number;
   /**
    * When the active Pro was first bought (RevenueCat's original purchase date of the entitlement, kept across renewals),
-   * in ms. Decides whether the subscription keeps the rule of its day for the app mark (`payments/watermarkRule.ts`).
+   * in ms. A partner code is locked when this comes after it (partner/index.ts).
    * Absent when Pro is not active or the store did not say.
    */
   proSince?: number;

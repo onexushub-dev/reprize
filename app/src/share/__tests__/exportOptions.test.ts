@@ -14,19 +14,13 @@ test('pro exports 1080x1920', () => {
   });
 });
 
-test('the app mark goes on every plan (2026-11-23), except a legacy export', () => {
+test('the app mark goes on every plan, with no exception for earlier buyers (2026-11-25)', () => {
   expect(WATERMARK_ON_EVERY_PLAN).toBe(true);
   expect(exportOptions('free', undefined, trim).watermark).toBe(true);
   expect(exportOptions('paid', undefined, trim).watermark).toBe(true);
   expect(exportOptions('pass', undefined, trim).watermark).toBe(true);
   expect(exportOptions('pro', undefined, trim).watermark).toBe(true);
   expect(exportOptions('courtesy', undefined, trim).watermark).toBe(true);
-  expect(exportOptions('legacy', undefined, trim).watermark).toBe(false);
-});
-
-test('a legacy export is paid in every other way: Full HD, sound, any side', () => {
-  expect(exportOptions('legacy', { speed: 1, muted: false }, trim)).toMatchObject({ width: 1080, height: 1920, muted: false });
-  expect(exportOptions('legacy', undefined, trim, false, undefined, 2160)).toMatchObject({ width: 2160, height: 3840 });
 });
 
 test('the chosen speed goes into a free export too', () => {

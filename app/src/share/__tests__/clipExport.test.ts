@@ -34,7 +34,6 @@ test('clipExportJob matches what the clip screen exports', () => {
   expect(job.options).toMatchObject({ width: 1080, height: 1920, startMs: 30000, endMs: 60000, speed: 2, rotation: 0 });
   expect(job.options.crop).toBeUndefined();
   expect(job.watermark).toBe(true); // every plan leaves with the app mark (2026-11-23)
-  expect(clipExportJob(clip, 'legacy', vertical).watermark).toBe(false); // bought under the old rule
   expect(job.frame).toEqual({ width: 1080, height: 1920 });
   // The free plan: an HD frame, the chosen speed, the app mark kept.
   const free = clipExportJob(clip, 'free', vertical);
