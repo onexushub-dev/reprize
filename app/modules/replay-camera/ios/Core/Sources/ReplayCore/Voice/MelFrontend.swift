@@ -33,6 +33,12 @@ public final class MelFrontend {
     fft = RealFFT(size: nFft)
   }
 
+  /// Drops buffered samples (a new session).
+  public func reset() {
+    pending = []
+    pendingStart = 0
+  }
+
   /// Samples in [-1, 1]. Returns the mel frames (each `nMels` values) completed by this push, oldest first.
   public func push(_ samples16k: [Float]) -> [[Float]] {
     pending.append(contentsOf: samples16k)

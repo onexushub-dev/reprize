@@ -232,4 +232,25 @@ final class VoiceKeywordTests: XCTestCase {
       XCTAssertTrue(s >= 0 && s <= 1)
     }
   }
+
+  // MARK: Backlog guard (used by KeywordDetector)
+
+  func testDropCounterBoundsBacklog() {
+    var c = DropCounter(capacitySeconds: 2)
+    XCTAssertTrue(c.offer(1.5))
+    XCTAssertFalse(c.offer(0.6))
+    XCTAssertEqual(c.droppedSeconds, 0.6, accuracy: 1e-9)
+    c.release(1.5)
+    XCTAssertTrue(c.offer(2))
+    XCTAssertEqual(c.pendingSeconds, 2, accuracy: 1e-9)
+  }
+
+  func testMelResetStartsOver() throws {
+    let samples = try goldenPCM(try golden())
+    let fresh = try makeMel().push(Array(samples[0..<16000]))
+    let used = try makeMel()
+    _ = used.push(Array(samples[20000..<20777]))
+    used.reset()
+    XCTAssertEqual(used.push(Array(samples[0..<16000])), fresh)
+  }
 }
