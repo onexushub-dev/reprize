@@ -120,27 +120,27 @@ describe('openPaywall with a partner attribution', () => {
     Platform.OS = 'ios';
   });
 
-  it('Android: routes the default paywall to the partner offering and tags the events', async () => {
+  it('the partner flow routes the PRO paywall to the partner offering and tags the events', async () => {
     Platform.OS = 'android';
     showPaywall.mockResolvedValue('cancelled');
-    await openPaywall(t, 'upgrade_card');
+    await openPaywall(t, 'partner');
     expect(showPaywall).toHaveBeenCalledWith('partner_p20');
     expect(sent()).toEqual([
       ['partner_offer_opened', { code: 'PROFJOAO', via: 'paywall', offering: 'partner_p20' }],
-      ['paywall_viewed', { source: 'upgrade_card', offering: 'partner_p20', partner: 'PROFJOAO' }],
+      ['paywall_viewed', { source: 'partner', offering: 'partner_p20', partner: 'PROFJOAO' }],
     ]);
     expect(lock).not.toHaveBeenCalled();
   });
 
-  it('Android: locks the attribution on a purchase, not on a restore', async () => {
+  it('the partner flow locks the attribution on a purchase, not on a restore', async () => {
     Platform.OS = 'android';
     showPaywall.mockResolvedValue('purchased');
-    await openPaywall(t, 'upgrade_card');
-    expect(sent().at(-1)).toEqual(['purchase_completed', { offering: 'partner_p20', source: 'upgrade_card', partner: 'PROFJOAO' }]);
+    await openPaywall(t, 'partner');
+    expect(sent().at(-1)).toEqual(['purchase_completed', { offering: 'partner_p20', source: 'partner', partner: 'PROFJOAO' }]);
     expect(lock).toHaveBeenCalledTimes(1);
     lock.mockClear();
     showPaywall.mockResolvedValue('restored');
-    await openPaywall(t, 'upgrade_card');
+    await openPaywall(t, 'partner');
     expect(lock).not.toHaveBeenCalled();
   });
 
@@ -152,21 +152,32 @@ describe('openPaywall with a partner attribution', () => {
     expect(sent()).toEqual([['paywall_viewed', { source: 'export_limit', offering: 'pass' }]]);
   });
 
-  it('without an active attribution the default paywall is untouched', async () => {
+  it('without an active attribution the partner flow opens the normal paywall', async () => {
     active.mockReturnValue(null);
     Platform.OS = 'android';
     showPaywall.mockResolvedValue('cancelled');
-    await openPaywall(t, 'upgrade_card');
+    await openPaywall(t, 'partner');
     expect(showPaywall).toHaveBeenCalledWith('default');
   });
 
   it.each(['ios', 'android'] as const)('%s: the partner paywall opens with no plan choice before it', async (os) => {
     Platform.OS = os;
     showPaywall.mockResolvedValue('cancelled');
-    await openPaywall(t, 'upgrade_card');
+    await openPaywall(t, 'partner');
     expect(Alert.alert).not.toHaveBeenCalled();
     expect(showPaywall).toHaveBeenCalledWith('partner_p20');
   });
+
+  it.each(['settings', 'upgrade_card', 'locked_feature', 'export_limit', 'onboarding', 'received_export'] as const)(
+    'any other way into PRO (%s) keeps the normal price, untagged, even with a code applied',
+    async (source) => {
+      Platform.OS = 'ios';
+      showPaywall.mockResolvedValue('cancelled');
+      await openPaywall(t, source);
+      expect(showPaywall).toHaveBeenCalledWith('default');
+      expect(sent()).toEqual([['paywall_viewed', { source, offering: 'default' }]]);
+    },
+  );
 });
 
 describe('openPaywall guards around the partner discount', () => {
@@ -187,14 +198,15 @@ describe('openPaywall guards around the partner discount', () => {
 
   it('a PRO customer never gets the partner paywall', async () => {
     getSnapshot.mockReturnValue({ proActive: true });
-    await openPaywall(t, 'upgrade_card');
+    await openPaywall(t, 'partner');
     expect(showPaywall).toHaveBeenCalledWith('default');
   });
 
-  it('asks the directory again for a code waiting offline before deciding, for the PRO paywall only', async () => {
-    await openPaywall(t, 'upgrade_card');
+  it('asks the directory again for a code waiting offline before deciding, from the partner flow only', async () => {
+    await openPaywall(t, 'partner');
     expect(refreshPartner).toHaveBeenCalledTimes(1);
     (refreshPartner as jest.Mock).mockClear();
+    await openPaywall(t, 'upgrade_card');
     await openPaywall(t, 'export_limit', 'pass');
     expect(refreshPartner).not.toHaveBeenCalled();
   });

@@ -30,13 +30,15 @@ async function show(t: TFunction, source: PaywallSource, offering: Offering, cod
  * Opens the paywall: Pro (`default`) or the Single Pass (`pass`). A cancel is silent; a failure (no key, load error,
  * unreadable purchases) gets a short notice. Returns the outcome. `source` says which screen asked, for the metrics.
  *
- * With a partner discount active, the Pro paywall becomes the paywall of the partner's price tier, on both stores. The
- * Single Pass is never touched.
+ * The partner discount shows only in the partner flow (`source` `partner`: "Ativar desconto" after a valid code, typed or
+ * from a link): there the Pro paywall becomes the paywall of the partner's price tier, on both stores. Every other way into
+ * Pro keeps the normal price; the code still records who referred the customer. The Single Pass is never touched.
  */
 export async function openPaywall(t: TFunction, source: PaywallSource, offering: Offering = 'default'): Promise<PaywallOutcome> {
-  if (offering === 'default') await refreshPartner(); // a code applied offline may be valid by now
+  const partnerFlow = source === 'partner' && offering === 'default';
+  if (partnerFlow) await refreshPartner(); // a code applied offline may be valid by now
   // A PRO customer never sees the discount: the code may have been applied before their purchases had loaded.
-  const attribution = offering === 'default' ? partner.active() : null;
+  const attribution = partnerFlow ? partner.active() : null;
   const offer = attribution !== null && !payments.getSnapshot().proActive ? attribution : null;
   if (offer === null) return show(t, source, offering);
   track('partner_offer_opened', { code: offer.code, via: 'paywall', offering: offer.offering });

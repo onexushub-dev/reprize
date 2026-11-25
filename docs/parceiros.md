@@ -21,7 +21,8 @@ Preço normal nas duas lojas: R$ 119,90/ano e R$ 14,90/mês (o Play foi igualado
 
 - **Android:** o código segue do link da Play Store até o app (install referrer).
 - **iPhone:** a pessoa instala o app e abre o link de novo ou digita o código em Ajustes → Plano.
-- **Nas duas lojas,** o PRO passa a abrir o paywall da faixa do parceiro, com o preço com desconto e a compra dentro do app. Por isso toda compra com desconto fica com o parceiro.
+- **Nas duas lojas,** o desconto aparece **só no fluxo do parceiro**: código válido (digitado ou vindo do link) → "Ativar desconto" → paywall da faixa, com a compra dentro do app. Qualquer outra entrada do PRO (Ajustes → Assinar o PRO, função bloqueada, limite de exportação) mostra o preço normal. Para ver o desconto de novo, a pessoa abre o link outra vez ou digita o código em Ajustes → Plano.
+- **O código continua registrado** até a primeira compra: quem assina depois pelo preço normal também conta para o parceiro (regra de 24/11).
 
 ## Configuração (feita em 25/11/2026 para P5 e P10)
 
