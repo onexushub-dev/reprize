@@ -68,9 +68,9 @@ The detector goes into Reprize only after it beats today's trigger in a test app
   - distance sessions: pick 3, 5, 10 or 12 m and type the speaker's name; the speaker says "salvar" 6 times (3
     normal, 3 loud); stop. Two big counters ("Atual N", "Novo N") show while it runs.
   - noise session: a normal game with nobody saying "salvar"; it counts each engine's false triggers.
-- **Consumption mode** (one engine at a time): microphone only (baseline), only Atual, only Novo, **15 min each**,
+- **Consumption mode** (one engine at a time): microphone only (baseline), only Atual, only Novo, **10 min each** (Victor, 2026-11-24: 15 → 10),
   same place, off the charger, same screen brightness, cooling down between runs. Every minute it logs:
-  - battery level (iOS reports 1% steps, so a 15 min run separates the engines only roughly);
+  - battery level (iOS gives apps 5% steps, so a 10 min run rarely moves it: CPU above the microphone-only run and heat are the main readings, and an Xcode Power Profiler trace is the full energy picture);
   - iOS thermal state (nominal/fair/serious/critical, the same one Reprize uses);
   - the app's CPU time;
   - for Novo, the average processing time per 80 ms step.

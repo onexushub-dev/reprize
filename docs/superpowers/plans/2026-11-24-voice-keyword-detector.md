@@ -141,7 +141,7 @@
 - UI (one screen):
   - mode picker: Acerto / Ruído / Consumo;
   - Acerto: distance 3/5/10/12, speaker text field, expected (default 6);
-  - Consumo: engine picker (Só microfone / Só atual / Só novo); it stops by itself at 15:00;
+  - Consumo: engine picker (Só microfone / Só atual / Só novo); it stops by itself at 10:00;
   - Iniciar/Parar, and two large counters "Atual N" / "Novo N", each with a short flash and a distinct sound on its own events;
   - list of saved sessions.
 
@@ -179,7 +179,7 @@
 - [ ] **Step 5: `bench-protocol.md`** (in Portuguese for whoever runs the test):
   - Acerto: per person, 3, 5, 10 and 12 m, 6 "salvar" each (3 normal, 3 loud), calm day; at least Victor plus 2 adult women; one session per person and distance.
   - Ruído: at least 15 min of a normal game.
-  - Consumo: 15 min per engine, same place and screen, off the charger, starting from similar battery and a cool phone, rest between runs, in the order microfone → atual → novo.
+  - Consumo: 10 min per engine, same place and screen, off the charger, starting from similar battery and a cool phone, rest between runs, in the order microfone → atual → novo.
 - [ ] **Step 6: Field run and verdict.** Victor runs the protocol. `voice_bench.py results` → tables appended to `docs/voice-lab/2026-11-23-voice-trigger-field-test.md` ("VoiceBench" section). Victor decides whether Phase 2 starts.
 - [ ] **Commit point** (Victor).
 
@@ -285,7 +285,7 @@ Config field names are identical to `detector.json`.
 **Files:**
 - Modify: `docs/voice-lab/2026-11-23-voice-trigger-field-test.md` (new section "In the app")
 
-- [ ] **Step 1: Battery and heat.** 15 min recording with voice on vs. 15 min with voice off, same phone and place, on one iPhone and one Android. Record battery %, thermal state from Diagnóstico, and the share of `voz: N trechos descartados`. Pass when the difference does not move the app to a hotter step and nothing was dropped at normal temperature.
+- [ ] **Step 1: Battery and heat.** 10 min recording with voice on vs. 10 min with voice off, same phone and place, on one iPhone and one Android. Record battery %, thermal state from Diagnóstico, and the share of `voz: N trechos descartados`. Pass when the difference does not move the app to a hotter step and nothing was dropped at normal temperature.
 - [ ] **Step 2: Field session** with the voice checklist (3/5/10 m with voice ON, then a normal game). Log hits per distance and unwanted saves. Pass when it matches the lab table in the spec within a word or two per distance and shows no unwanted save in the game.
 - [ ] **Step 3: Write it up** in the report: numbers, phones, conditions.
 - [ ] **Commit point** (Victor); then the PR `feat/voice-keyword-detector` is ready for review.
