@@ -1,5 +1,7 @@
 package expo.modules.replaycamera
 
+import expo.modules.replaycamera.transfer.TransferEngine
+import expo.modules.replaycamera.transfer.Transfers
 import android.Manifest
 import expo.modules.replaycamera.focus.FocusAnalyzer
 import expo.modules.replaycamera.remote.DeviceIdentity
@@ -14,6 +16,23 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
+
+/** One file to upload with a presigned PUT URL (sharing design §5.4), as on the iPhone (BackgroundUpload.swift). */
+class UploadItem : Record {
+  @Field val id: String = ""
+  @Field val path: String = ""
+  @Field val url: String = ""
+  @Field val contentType: String = "video/mp4"
+  @Field val cellular: Boolean = true
+  @Field val priority: Double = -1.0
+}
+
+/** One file to download into the app with a presigned GET URL (sharing design §5.5), as on the iPhone. */
+class DownloadItem : Record {
+  @Field val id: String = ""
+  @Field val url: String = ""
+  @Field val path: String = ""
+}
 
 class SessionOptions : Record {
   @Field val lens: String = "ultraWide"
@@ -118,11 +137,15 @@ class ReplayCameraModule : Module() {
     permissions.askForPermissions({ _ -> work(); remote().permissionsChanged() }, *RemoteBle.permissions())
   }
 
+  private fun uploads() = Transfers.uploads(context)
+  private fun downloads() = Transfers.downloads(context)
+
   override fun definition() = ModuleDefinition {
     Name("ReplayCamera")
 
     Events("onTrigger", "onThermalChange", "onInterrupted", "onResumed", "onError", "onGestureDebug", "onWatchStatus", "onDiag",
-      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton", "onBallProgress", "onFocusProgress")
+      "onRemoteStatus", "onRemoteState", "onRemoteResult", "onRemotePairing", "onRemoteVoice", "onRemoteStop", "onRemoteStart", "onRemoteCheck", "onCaptureButton", "onBallProgress", "onFocusProgress",
+      "onUploadProgress", "onUploadDone", "onUploadRetry", "onDownloadDone", "onDownloadRetry")
 
     OnCreate {
       expo.modules.replaycamera.ball.BallAnalyzer.emit = { clipPath, done, total, state ->
@@ -136,7 +159,38 @@ class ReplayCameraModule : Module() {
       host().emit = { name, body -> sendEvent(name, body) }
       RemoteVoice.emit = { name, body -> sendEvent(name, body) }
       CaptureKeys.emit = { name, body -> sendEvent(name, body) }
+      // Sharing's transfers: the same contract as the iPhone's background uploader and downloader.
+      uploads().emit = { name, body -> sendEvent(name, body) }
+      uploads().restore()
+      downloads().emit = { name, body -> sendEvent(name, body) }
+      downloads().restore()
     }
+
+    OnDestroy {
+      uploads().emit = null
+      downloads().emit = null
+    }
+
+    // ---- Sharing: uploads and downloads that go on in the background (transfer/Transfers.kt).
+    Function("uploadStart") { items: List<UploadItem> ->
+      uploads().start(items.map { TransferEngine.Item(it.id, it.path, it.url, it.contentType, it.cellular, it.priority) }, paused = false)
+    }
+    Function("uploadState") { uploads().state() }
+    Function("uploadReset") { uploads().reset() }
+    Function("uploadPause") { uploads().pause() }
+    Function("uploadResume") { cellular: Boolean -> uploads().resume(cellular) }
+    Function("uploadRemove") { ids: List<String> -> uploads().remove(ids) }
+    Function("uploadRestore") { uploads().restore() }
+
+    Function("downloadStart") { items: List<DownloadItem>, paused: Boolean ->
+      downloads().start(items.map { TransferEngine.Item(it.id, it.path, it.url) }, paused)
+    }
+    Function("downloadState") { downloads().state() }
+    Function("downloadPause") { downloads().pause() }
+    Function("downloadResume") { downloads().resume(cellular = true) }
+    Function("downloadRemove") { ids: List<String> -> downloads().remove(ids) }
+    Function("downloadRestore") { downloads().restore() }
+    Function("downloadReset") { downloads().reset() }
 
     // ---- This phone as the remote of a camera phone (an iPhone or an Android), over Bluetooth LE. The camera side
     // (remoteHost*) is not on Android yet, so the app offers only "use as remote" here (isRemoteSupported is false).
