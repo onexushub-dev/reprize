@@ -18,9 +18,6 @@ export function createFakeClient() {
     directory: {} as PartnerDirectory | null,
     /** The (code, source, offering) of every setPartner call. */
     partnerCalls: [] as [string, string, PartnerOffering][],
-    /** What `redeemOfferCode` answers, and the codes it was asked for. */
-    redeemResult: true,
-    redeemed: [] as string[],
     configure() {},
     async getSnapshot(): Promise<Snapshot> {
       if (fake.failSnapshot) throw new Error('snapshot unavailable');
@@ -45,10 +42,6 @@ export function createFakeClient() {
     },
     async setPartner(code: string, source: string, offering: PartnerOffering, _appliedAt: number): Promise<void> {
       fake.partnerCalls.push([code, source, offering]);
-    },
-    async redeemOfferCode(code: string): Promise<boolean> {
-      fake.redeemed.push(code);
-      return fake.redeemResult;
     },
     async partners(): Promise<PartnerDirectory | null> {
       return fake.directory;

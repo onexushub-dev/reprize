@@ -8,7 +8,6 @@ const Purchases = {
   setAttributes: jest.fn(async () => {}),
   setMediaSource: jest.fn(async () => {}),
   setCampaign: jest.fn(async () => {}),
-  presentCodeRedemptionSheet: jest.fn(async () => {}),
   restorePurchases: jest.fn(async () => ({ entitlements: { active: {} }, nonSubscriptionTransactions: [] })),
 };
 

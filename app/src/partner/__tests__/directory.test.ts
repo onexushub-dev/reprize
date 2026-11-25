@@ -6,7 +6,7 @@ describe('parsePartnerOfferings', () => {
   it('reads partners from valid tiers only, the first tier by sorted id winning a repeated code', () => {
     const all = {
       default: { metadata: { partners: { IGNORED: { name: 'No' } } } },
-      partner_p20: tier(20, { profjoao: { name: 'Prof. João' }, ANAMENSAL: { name: 'Ana' } }),
+      partner_p20: tier(20, { profjoao: { name: 'Prof. João' } }),
       partner_p10: tier(10, { PROFJOAO: { name: 'Dup' }, BIA: {} }),
       partner_bad: tier(95, { NOPE: { name: 'No' } }),
     };

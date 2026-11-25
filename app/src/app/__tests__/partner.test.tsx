@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert, Platform } from 'react-native';
 
 import { setLocale } from '../../i18n';
-import { applyPartnerCode, partner, redeemPartnerOffer } from '../../partner';
+import { applyPartnerCode, partner } from '../../partner';
 import { openPaywall } from '../../payments/feedback';
 import PartnerCode from '../p/[code]';
 import PartnerTyped from '../partner';
@@ -21,7 +21,6 @@ jest.mock('expo-router', () => ({
 }));
 jest.mock('../../partner', () => ({
   applyPartnerCode: jest.fn(),
-  redeemPartnerOffer: jest.fn(async () => {}),
   partner: {
     current: jest.fn(() => ({ code: 'PROFJOAO', name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 })),
     active: jest.fn(() => ({ code: 'PROFJOAO', name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 })),
@@ -38,9 +37,7 @@ beforeEach(() => {
   mockParams = {};
   (partner.current as jest.Mock).mockReturnValue({ code: 'PROFJOAO', name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 });
   (partner.active as jest.Mock).mockReturnValue({ code: 'PROFJOAO', name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 });
-  jest.spyOn(Alert, 'alert').mockImplementation(((_t: string, _m: unknown, buttons: { text: string; onPress?: () => void }[]) => {
-    buttons.find((b) => b.text === 'Monthly with 20% off')?.onPress?.();
-  }) as never);
+  jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 
 describe('/p/[code]', () => {
@@ -50,26 +47,17 @@ describe('/p/[code]', () => {
     await render(<PartnerCode />);
     expect(apply).toHaveBeenCalledWith('profjoao', 'link');
     expect(apply).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText('You have 20% off the first period of PRO, referred by Prof. João.')).toBeTruthy();
+    expect(await screen.findByText('You have 20% off PRO, referred by Prof. João.')).toBeTruthy();
   });
 
-  it('"Get the discount" opens Apple\'s redemption on iOS', async () => {
-    mockParams = { code: 'PROFJOAO' };
-    apply.mockResolvedValue('applied');
-    await render(<PartnerCode />);
-    await fireEvent.press(await screen.findByText('Get the discount'));
-    expect(redeemPartnerOffer).toHaveBeenCalledWith(expect.any(Function), 'monthly');
-    expect(openPaywall).not.toHaveBeenCalled();
-  });
-
-  it('"Get the discount" opens the partner paywall on Android', async () => {
-    Platform.OS = 'android';
+  it.each(['ios', 'android'] as const)('"Get the discount" opens the partner paywall on %s', async (os) => {
+    Platform.OS = os;
     mockParams = { code: 'PROFJOAO' };
     apply.mockResolvedValue('applied');
     await render(<PartnerCode />);
     await fireEvent.press(await screen.findByText('Get the discount'));
     expect(openPaywall).toHaveBeenCalledWith(expect.any(Function), 'partner');
-    expect(redeemPartnerOffer).not.toHaveBeenCalled();
+    expect(Alert.alert).not.toHaveBeenCalled();
   });
 
   it.each([

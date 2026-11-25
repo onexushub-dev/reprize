@@ -1,10 +1,9 @@
-import { Alert, Platform } from 'react-native';
+import { Alert } from 'react-native';
 
 import { track } from '../analytics';
 import type { PaywallSource } from '../analytics/events';
 import type { TFunction } from '../i18n';
-import { disarmRedemption, partner, redeemPartnerOffer, refreshPartner } from '../partner';
-import { choosePartnerPlan } from '../partner/choosePlan';
+import { partner, refreshPartner } from '../partner';
 import type { PaywallOutcome } from './client';
 import type { Offering } from './types';
 import { payments } from '.';
@@ -14,7 +13,6 @@ import { payments } from '.';
  * locks the attribution.
  */
 async function show(t: TFunction, source: PaywallSource, offering: Offering, code?: string): Promise<PaywallOutcome> {
-  disarmRedemption(); // what is bought next is this paywall's purchase, not Apple's redemption
   const tag = code ? { partner: code } : {};
   track('paywall_viewed', { source, offering, ...tag });
   const outcome = await payments.showPaywall(offering);
@@ -32,8 +30,8 @@ async function show(t: TFunction, source: PaywallSource, offering: Offering, cod
  * Opens the paywall: Pro (`default`) or the Single Pass (`pass`). A cancel is silent; a failure (no key, load error,
  * unreadable purchases) gets a short notice. Returns the outcome. `source` says which screen asked, for the metrics.
  *
- * With a partner discount active, the Pro paywall becomes the partner's price tier on Android and a choice of plan on
- * iPhone (the discount there is an Apple offer code). The Single Pass is never touched.
+ * With a partner discount active, the Pro paywall becomes the paywall of the partner's price tier, on both stores. The
+ * Single Pass is never touched.
  */
 export async function openPaywall(t: TFunction, source: PaywallSource, offering: Offering = 'default'): Promise<PaywallOutcome> {
   if (offering === 'default') await refreshPartner(); // a code applied offline may be valid by now
@@ -41,23 +39,12 @@ export async function openPaywall(t: TFunction, source: PaywallSource, offering:
   const attribution = offering === 'default' ? partner.active() : null;
   const offer = attribution !== null && !payments.getSnapshot().proActive ? attribution : null;
   if (offer === null) return show(t, source, offering);
-  if (Platform.OS === 'android') {
-    const tier = offer.offering ?? 'default';
-    track('partner_offer_opened', { code: offer.code, via: 'paywall', offering: offer.offering });
-    return show(t, source, tier, offer.code);
-  }
-  if (Platform.OS === 'ios') {
-    const choice = await choosePartnerPlan(t, offer, { showAll: true });
-    if (choice === 'all') return show(t, source, 'default', offer.code);
-    if (choice === 'annual' || choice === 'monthly') await redeemPartnerOffer(t, choice);
-    return 'cancelled';
-  }
-  return show(t, source, offering);
+  track('partner_offer_opened', { code: offer.code, via: 'paywall', offering: offer.offering });
+  return show(t, source, offer.offering ?? 'default', offer.code);
 }
 
 /** Restores purchases and says what happened. */
 export async function restorePurchases(t: TFunction): Promise<void> {
-  disarmRedemption(); // what a restore brings back is not Apple's redemption
   const restored = await payments.restore();
   if (restored === true) Alert.alert(t('payments.restored'));
   else if (restored === false) Alert.alert(t('payments.nothingToRestore'));

@@ -24,7 +24,7 @@ export type Plan = 'free' | 'paid';
 export type StartDecision = { kind: 'pro' } | { kind: 'free' };
 
 /**
- * A partner price tier: a RevenueCat offering such as `partner_p20`, selling Pro with a discount on the first period.
+ * A partner price tier: a RevenueCat offering such as `partner_p20`, selling Pro at the tier's discounted price.
  */
 export type PartnerOffering = `partner_${string}`;
 

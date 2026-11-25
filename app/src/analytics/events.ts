@@ -131,8 +131,8 @@ export type AnalyticsEvents = {
   partner_code_applied: { code: string; source: PartnerSource };
   /** Never carries what was typed. */
   partner_code_rejected: { source: PartnerSource; reason: 'invalid' | 'locked' };
-  /** The player went for the discount: through the partner paywall (Android) or Apple's offer code redemption (iPhone). */
-  partner_offer_opened: { code: string; via: 'paywall' | 'offer_code'; offering?: PartnerOffering; plan?: 'annual' | 'monthly' };
+  /** The player went for the discount: the paywall of the partner's price tier opened. */
+  partner_offer_opened: { code: string; via: 'paywall'; offering?: PartnerOffering };
   free_export_choice: { choice: 'pro' | 'pass' | 'go' | 'cancel'; kind: 'save' | 'share' | 'unlock' };
 };
 

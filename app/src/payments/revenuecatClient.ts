@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Linking, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import Purchases, { type CustomerInfo, type PurchasesOffering } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
 
@@ -7,9 +7,6 @@ import { type PartnerDirectory, parsePartnerOfferings } from '../partner/directo
 import type { PaymentsClient, PaywallOutcome } from './client';
 import { toSnapshot } from './snapshot';
 import { EMPTY_SNAPSHOT } from './types';
-
-/** The Reprize app in App Store Connect: the offer code redemption page is per app. */
-const APP_STORE_ID = '6833159162';
 
 export type RevenueCatKeys = { ios?: string; android?: string; test?: string };
 
@@ -120,23 +117,6 @@ export function createRevenueCatClient(): PaymentsClient {
         return await Purchases.getAppUserID();
       } catch {
         return null;
-      }
-    },
-
-    async redeemOfferCode(code) {
-      if (Platform.OS !== 'ios') return false;
-      try {
-        await Linking.openURL(`https://apps.apple.com/redeem?ctx=offercodes&id=${APP_STORE_ID}&code=${encodeURIComponent(code)}`);
-        return true;
-      } catch {
-        // the page could not be opened: try StoreKit's own sheet, where the player types the code
-      }
-      try {
-        if (!configured) return false;
-        await Purchases.presentCodeRedemptionSheet();
-        return true;
-      } catch {
-        return false;
       }
     },
 

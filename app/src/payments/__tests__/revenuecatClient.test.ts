@@ -1,5 +1,5 @@
 import Constants from 'expo-constants';
-import { Linking, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import Purchases from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
 
@@ -178,8 +178,7 @@ describe('partners', () => {
   });
 });
 
-describe('partner attribution and offer codes', () => {
-  const REDEEM = 'https://apps.apple.com/redeem?ctx=offercodes&id=6833159162&code=PROFJOAO';
+describe('partner attribution', () => {
 
   it('writes the partner attributes', async () => {
     setKeys({ test: 'test_x' });
@@ -226,48 +225,6 @@ describe('partner attribution and offer codes', () => {
       ...(Purchases.setCampaign as jest.Mock).mock.invocationCallOrder,
     ];
     expect(Math.max(...order.slice(0, 1), ...order.slice(2, 3))).toBeLessThan(Math.min(order[1], order[3]));
-  });
-
-  it('opens the redemption URL with the code on iOS', async () => {
-    Platform.OS = 'ios';
-    setKeys({ test: 'test_x' });
-    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
-    const c = createRevenueCatClient();
-    c.configure();
-    expect(await c.redeemOfferCode('PROFJOAO')).toBe(true);
-    expect(open).toHaveBeenCalledWith(REDEEM);
-    expect(Purchases.presentCodeRedemptionSheet).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the StoreKit sheet when the URL cannot be opened', async () => {
-    Platform.OS = 'ios';
-    setKeys({ test: 'test_x' });
-    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('cannot open'));
-    const c = createRevenueCatClient();
-    c.configure();
-    expect(await c.redeemOfferCode('PROFJOAO')).toBe(true);
-    expect(Purchases.presentCodeRedemptionSheet).toHaveBeenCalledTimes(1);
-  });
-
-  it('is false when neither way works', async () => {
-    Platform.OS = 'ios';
-    setKeys({ test: 'test_x' });
-    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('cannot open'));
-    (Purchases.presentCodeRedemptionSheet as jest.Mock).mockRejectedValueOnce(new Error('no sheet'));
-    const c = createRevenueCatClient();
-    c.configure();
-    expect(await c.redeemOfferCode('PROFJOAO')).toBe(false);
-  });
-
-  it('does not redeem on Android', async () => {
-    Platform.OS = 'android';
-    setKeys({ test: 'test_x' });
-    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
-    const c = createRevenueCatClient();
-    c.configure();
-    expect(await c.redeemOfferCode('PROFJOAO')).toBe(false);
-    expect(open).not.toHaveBeenCalled();
-    Platform.OS = 'ios';
   });
 
   it('shows the partner offering by its identifier, falling back to the current one', async () => {

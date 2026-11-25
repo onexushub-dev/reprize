@@ -227,7 +227,7 @@ export function createPaymentsStore(
       }
     },
 
-    /** Re-reads the purchases (after something outside the paywall may have bought: Apple's offer code redemption). */
+    /** Re-reads the purchases (something outside the paywall may have bought: a purchase on another device, a renewal). */
     async refresh(): Promise<Snapshot> {
       const fresh = await read(() => client.getSnapshot());
       if (fresh) apply(fresh);

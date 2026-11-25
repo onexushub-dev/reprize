@@ -89,7 +89,7 @@ describe('analytics core', () => {
     const { adapter, analytics } = setup();
     analytics.track('partner_code_applied', { code: 'PROFJOAO', source: 'link' });
     analytics.track('partner_code_rejected', { source: 'typed', reason: 'invalid' });
-    analytics.track('partner_offer_opened', { code: 'PROFJOAO', via: 'offer_code' });
+    analytics.track('partner_offer_opened', { code: 'PROFJOAO', via: 'paywall' });
     analytics.track('paywall_viewed', { source: 'upgrade_card', offering: 'partner_p20', partner: 'PROFJOAO' });
     analytics.track('purchase_completed', { offering: 'partner_p20', source: 'upgrade_card', partner: 'PROFJOAO' });
     expect(adapter.calls.map((c) => c.name)).toEqual([

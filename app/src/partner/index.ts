@@ -1,11 +1,10 @@
 import * as Application from 'expo-application';
-import { Alert, AppState, Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { track } from '../analytics';
 import { kv } from '../data/mmkv';
-import type { TFunction } from '../i18n';
 import { payments, paymentsClient } from '../payments';
-import { appleOfferCode, codeFromReferrer } from './code';
+import { codeFromReferrer } from './code';
 import { type ApplyResult, type Attribution, createPartnerStore, type PartnerSource } from './store';
 
 export type { ApplyResult, Attribution, PartnerSource } from './store';
@@ -131,50 +130,8 @@ export async function refreshPartner(): Promise<void> {
   }
 }
 
-const REDEMPTION_KEY = 'partner.redemption';
-const REDEMPTION_TTL_MS = 48 * 3600 * 1000;
-
-function armRedemption(code: string): void {
-  try {
-    kv.set(REDEMPTION_KEY, JSON.stringify({ code, at: Date.now() }));
-  } catch {
-    // without the marker the purchase is simply not recorded as the partner's
-  }
-}
-
-/** Any paywall opening ends the wait for Apple's redemption: what is bought next is that paywall's purchase, not the redemption's. */
-export function disarmRedemption(): void {
-  try {
-    kv.delete(REDEMPTION_KEY);
-  } catch {
-    // an expired marker is ignored anyway
-  }
-}
-
-/**
- * After Apple's redemption the first PRO that shows up is the purchase, whichever of the SDK listener, the return to the
- * app or the next launch sees it first. The marker is deleted before anything is recorded, so it is recorded once.
- */
-function settleRedemption(): void {
-  let marker: { code: string; at: number } | null = null;
-  try {
-    const raw = kv.getString(REDEMPTION_KEY);
-    marker = raw === undefined ? null : (JSON.parse(raw) as { code: string; at: number });
-  } catch {
-    return;
-  }
-  if (marker === null) return;
-  if (Date.now() - marker.at > REDEMPTION_TTL_MS) return disarmRedemption(); // a later restore is not this purchase
-  const { proActive, proPurchasedAt } = payments.getSnapshot();
-  if (!proActive || proPurchasedAt === undefined || proPurchasedAt < marker.at - CLOCK_SKEW_MS) return; // not this redemption
-  disarmRedemption();
-  track('purchase_completed', { offering: 'default', source: 'partner', partner: marker.code });
-  if (partner.current()?.code === marker.code) partner.lock();
-}
-
-/** Settles a redemption, and locks a code when the customer's first PRO purchase came after it (even with no marker left). */
+/** Locks a code when the customer's first PRO purchase came after it: from then on the attribution cannot move. */
 function settlePurchases(): void {
-  settleRedemption();
   const a = partner.active();
   const { proActive, proSince } = payments.getSnapshot();
   if (a && proActive && proSince !== undefined && proSince >= a.appliedAt - CLOCK_SKEW_MS) partner.lock();
@@ -182,7 +139,7 @@ function settlePurchases(): void {
 
 let listening = false;
 
-/** Once: PRO arriving from the SDK, and the app coming back to the front, both settle a waiting redemption and retry a waiting code. */
+/** Once: PRO arriving from the SDK, and the app coming back to the front, both lock a code after a purchase and retry a waiting code. */
 function listen(): void {
   if (listening) return;
   listening = true;
@@ -201,7 +158,7 @@ function listen(): void {
   });
 }
 
-/** Once per launch, from the root layout: confirms a waiting code, settles a redemption, reads the install referrer. Never throws. */
+/** Once per launch, from the root layout: locks a code after a purchase, confirms a waiting code, reads the install referrer. Never throws. */
 export async function startPartner(): Promise<void> {
   try {
     listen();
@@ -213,17 +170,4 @@ export async function startPartner(): Promise<void> {
   } catch {
     // the partner discount is an extra: it never stops the app
   }
-}
-
-/** iPhone: opens Apple's offer code redemption with the active partner's code for `plan` filled in. */
-export async function redeemPartnerOffer(t: TFunction, plan: 'annual' | 'monthly'): Promise<void> {
-  const a = partner.active();
-  if (!a || payments.getSnapshot().proActive) return;
-  track('partner_offer_opened', { code: a.code, via: 'offer_code', offering: a.offering, plan });
-  const opened = await paymentsClient.redeemOfferCode(appleOfferCode(a.code, plan));
-  if (!opened) {
-    Alert.alert(t('partner.redeemError'));
-    return;
-  }
-  armRedemption(a.code);
 }

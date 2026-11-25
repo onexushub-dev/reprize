@@ -5,8 +5,6 @@ import { normalizeCode } from './code';
 export type PartnerDirectory = Record<string, { name: string; offering: PartnerOffering; discountPercent: number }>;
 
 const TIER_ID = /^partner_[a-z0-9]+$/;
-/** On iPhone the monthly Apple code is the partner code plus this suffix, so a partner code cannot end with it. */
-const RESERVED_SUFFIX = 'MENSAL';
 
 function validPercent(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 90;
@@ -26,7 +24,7 @@ export function parsePartnerOfferings(all: Record<string, { metadata?: unknown }
     if (!validPercent(discountPercent) || typeof partners !== 'object' || partners === null) continue;
     for (const [raw, value] of Object.entries(partners)) {
       const code = normalizeCode(raw);
-      if (code === null || code.endsWith(RESERVED_SUFFIX) || out[code]) continue;
+      if (code === null || out[code]) continue;
       const name = typeof value === 'object' && value !== null ? (value as { name?: unknown }).name : undefined;
       out[code] = {
         name: typeof name === 'string' && name.trim() !== '' ? name.trim() : code,

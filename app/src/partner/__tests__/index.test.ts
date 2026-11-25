@@ -13,7 +13,7 @@ const mockPayments = {
     return () => {};
   }),
 };
-const mockClient = { partners: jest.fn(), setPartner: jest.fn(), redeemOfferCode: jest.fn(), getSnapshot: jest.fn(), appUserId: jest.fn() };
+const mockClient = { partners: jest.fn(), setPartner: jest.fn(), getSnapshot: jest.fn(), appUserId: jest.fn() };
 const mockReferrer = jest.fn();
 
 jest.mock('../../data/mmkv', () => ({
@@ -52,7 +52,6 @@ beforeEach(() => {
   mockClient.setPartner.mockResolvedValue(undefined);
   mockClient.getSnapshot.mockImplementation(async () => mockPayments.getSnapshot());
   mockClient.appUserId.mockResolvedValue('$RCAnonymousID:one');
-  mockClient.redeemOfferCode.mockResolvedValue(true);
   mockReferrer.mockResolvedValue('utm_source=google-play&utm_medium=organic');
   appStateHandler = undefined;
   mockSubscriber = undefined;
@@ -150,124 +149,27 @@ const OLD_PRO = { proActive: true, passTransactions: [], proPurchasedAt: 1000, p
 const FREE = { proActive: false, passTransactions: [] };
 const settle = () => new Promise((r) => setImmediate(r));
 
-describe('redeemPartnerOffer (iPhone)', () => {
-  async function redeemed() {
+describe('locking after a purchase', () => {
+  it('a PRO that shows up after the code locks the attribution and records nothing here (the paywall records it)', async () => {
     const mod = load();
     await mod.startPartner(); // registers the listeners
     await mod.applyPartnerCode('PROFJOAO', 'link');
     mockTrack.mockClear();
-    await mod.redeemPartnerOffer(t, 'annual');
-    mockTrack.mockClear();
-    return mod;
-  }
-
-  it('opens the redemption for the active code and reports it', async () => {
-    const { applyPartnerCode, redeemPartnerOffer } = load();
-    await applyPartnerCode('PROFJOAO', 'link');
-    mockTrack.mockClear();
-    await redeemPartnerOffer(t, 'annual');
-    expect(mockClient.redeemOfferCode).toHaveBeenCalledWith('PROFJOAO');
-    expect(sent()).toEqual([['partner_offer_opened', { code: 'PROFJOAO', via: 'offer_code', offering: 'partner_p20', plan: 'annual' }]]);
-  });
-
-  it('monthly opens the monthly Apple code and the purchase stays with the partner code', async () => {
-    const mod = load();
-    await mod.startPartner();
-    await mod.applyPartnerCode('PROFJOAO', 'link');
-    await mod.redeemPartnerOffer(t, 'monthly');
-    expect(mockClient.redeemOfferCode).toHaveBeenCalledWith('PROFJOAOMENSAL');
-    mockTrack.mockClear();
     mockPayments.getSnapshot.mockReturnValue(PRO);
-    mockSubscriber?.();
-    await settle();
-    expect(sent()).toEqual([['purchase_completed', { offering: 'default', source: 'partner', partner: 'PROFJOAO' }]]);
-    expect(mod.partner.current()?.lockedAt).toBeDefined();
-  });
-
-  it('a monthly redemption that fails records nothing and keeps the attribution active', async () => {
-    mockClient.redeemOfferCode.mockResolvedValue(false);
-    const mod = load();
-    await mod.applyPartnerCode('PROFJOAO', 'link');
-    mockTrack.mockClear();
-    await mod.redeemPartnerOffer(t, 'monthly');
-    expect(Alert.alert).toHaveBeenCalledWith(t('partner.redeemError'));
-    expect(sent().filter(([e]) => e === 'purchase_completed')).toEqual([]);
-    expect(mod.partner.active()?.code).toBe('PROFJOAO');
-  });
-
-  it('tells the player when the redemption cannot be opened, and arms nothing', async () => {
-    mockClient.redeemOfferCode.mockResolvedValue(false);
-    const mod = load();
-    await mod.applyPartnerCode('PROFJOAO', 'link');
-    await mod.redeemPartnerOffer(t, 'annual');
-    expect(Alert.alert).toHaveBeenCalledWith(t('partner.redeemError'));
-    mockPayments.getSnapshot.mockReturnValue(PRO);
-    mockTrack.mockClear();
     mockSubscriber?.();
     await settle();
     expect(sent()).toEqual([]);
-  });
-
-  it('does nothing for a customer who already has PRO', async () => {
-    const mod = load();
-    await mod.applyPartnerCode('PROFJOAO', 'link');
-    mockPayments.getSnapshot.mockReturnValue(PRO);
-    await mod.redeemPartnerOffer(t, 'annual');
-    expect(mockClient.redeemOfferCode).not.toHaveBeenCalled();
-  });
-
-  it('coming back without PRO records no purchase and leaves the attribution open', async () => {
-    const mod = await redeemed();
-    appStateHandler?.('active');
-    await settle();
-    expect(sent()).toEqual([]);
-    expect(mod.partner.active()?.code).toBe('PROFJOAO');
-  });
-
-  it('PRO delivered by the SDK listener before the app is back is still the purchase: recorded once, attribution locked', async () => {
-    const mod = await redeemed();
-    mockPayments.getSnapshot.mockReturnValue(PRO); // the listener got there first
-    mockSubscriber?.();
-    appStateHandler?.('active'); // and the foreground return finds nothing left to record
-    mockPayments.refresh.mockResolvedValue(PRO);
-    await settle();
-    expect(sent()).toEqual([['purchase_completed', { offering: 'default', source: 'partner', partner: 'PROFJOAO' }]]);
     expect(mod.partner.active()).toBeNull();
     expect(mod.partner.current()?.lockedAt).toBeDefined();
   });
 
-  it('survives the app being killed while the App Store is in front', async () => {
-    await redeemed();
-    mockPayments.refresh.mockResolvedValue(PRO);
-    mockPayments.getSnapshot.mockReturnValue(PRO);
-    const next = load(); // a new launch, same storage
-    await next.startPartner();
-    expect(sent()).toEqual([['purchase_completed', { offering: 'default', source: 'partner', partner: 'PROFJOAO' }]]);
-    expect(next.partner.current()?.lockedAt).toBeDefined();
-  });
-
-  it('a purchase made through a paywall instead disarms the redemption: no second record', async () => {
-    const mod = await redeemed();
-    mod.disarmRedemption(); // openPaywall calls this when any paywall opens
-    mockPayments.getSnapshot.mockReturnValue(PRO);
-    mockSubscriber?.();
+  it('coming back without PRO leaves the attribution open', async () => {
+    const mod = load();
+    await mod.startPartner();
+    await mod.applyPartnerCode('PROFJOAO', 'link');
+    appStateHandler?.('active');
     await settle();
-    expect(sent()).toEqual([]);
-  });
-
-  it('a redemption left unfinished for two days no longer counts (a later restore is not a partner purchase)', async () => {
-    const realNow = Date.now;
-    const mod = await redeemed();
-    Date.now = () => realNow() + 49 * 3600 * 1000;
-    try {
-      mockPayments.getSnapshot.mockReturnValue(OLD_PRO); // what a restore brings back: a subscription older than the code
-      mockSubscriber?.();
-      await settle();
-      expect(sent()).toEqual([]);
-    } finally {
-      Date.now = realNow;
-    }
-    expect(mod.partner.current()?.lockedAt).toBeUndefined();
+    expect(mod.partner.active()?.code).toBe('PROFJOAO');
   });
 });
 
@@ -355,16 +257,14 @@ describe('the count stays with the customer who came through the link', () => {
     expect(mockClient.setPartner).not.toHaveBeenCalled();
   });
 
-  it('a cancelled redemption followed by an older PRO showing up records no purchase', async () => {
+  it('an older PRO showing up does not lock the attribution', async () => {
     const mod = load();
     await mod.startPartner();
     await mod.applyPartnerCode('PROFJOAO', 'link');
-    await mod.redeemPartnerOffer(t, 'annual');
-    mockTrack.mockClear();
     mockPayments.getSnapshot.mockReturnValue(OLD_PRO);
     mockSubscriber?.();
     await settle();
-    expect(sent().filter(([e]) => e === 'purchase_completed')).toEqual([]);
     expect(mod.partner.current()?.lockedAt).toBeUndefined();
   });
+
 });
