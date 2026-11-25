@@ -10,13 +10,15 @@ Cada parceiro fica em uma **faixa de preço**. A faixa define o desconto no **pr
 
 | Faixa | Oferta no RevenueCat | Desconto | Anual, 1º ano | Mensal, 1º mês |
 |---|---|---|---|---|
-| P10 | `partner_p10` | 10% | R$ 107,90 | R$ 13,40 |
+| P10 | `partner_p10` | 10% | R$ 107,90 | R$ 13,00 |
 | P20 | `partner_p20` | 20% | R$ 95,90 | R$ 11,90 |
 | P30 | `partner_p30` | 30% | R$ 83,90 | R$ 10,40 |
 
 **No lançamento (1.1.0) só a P10 existe.** P20 e P30 são criadas quando um parceiro precisar, com o mesmo passo a passo.
 
-Se a loja não tiver exatamente esse preço, use o **valor imediatamente abaixo**, para o desconto real nunca ser menor que o anunciado no app. Em outros países, aplique o mesmo critério sobre o preço local.
+A Apple só aceita preços da lista dela. Se não houver exatamente o valor, use o **valor imediatamente abaixo**, para o desconto real nunca ser menor que o anunciado no app (o mensal da P10 ficou em R$ 13,00 porque não existe R$ 13,40). Use o mesmo valor no Google Play.
+
+**As ofertas valem só no Brasil.** A conversão automática da Apple não mantém o percentual nos outros países (nos EUA, R$ 107,90 viraria $17,99 contra $49,99). Para abrir outro país, defina o preço dele à mão na oferta.
 
 - **Android:** o código segue do link da Play Store até o app (install referrer), e o paywall abre a oferta da faixa do parceiro.
 - **iPhone:** a pessoa instala o app, abre o link de novo ou informa o código, escolhe anual ou mensal, e o app abre o resgate da Apple com o código preenchido.
@@ -27,8 +29,8 @@ Se a loja não tiver exatamente esse preço, use o **valor imediatamente abaixo*
 
 Repita os três primeiros itens para cada faixa. Os exemplos usam P10, a faixa do lançamento.
 
-- [ ] **App Store Connect:** em `pro_annual`, oferta `P10_ANUAL` (pagar adiantado, 1 ano). Em `pro_monthly`, oferta `P10_MENSAL` (pagar adiantado, 1 mês). Ambas para assinantes novos e expirados.
-- [ ] **Play Console:** na assinatura PRO, planos base `annual-p10` e `monthly-p10`, no preço normal, cada um com uma oferta de fase única para o primeiro período e elegibilidade "definida pelo desenvolvedor".
+- [x] **App Store Connect** (feito em 24/11/2026 para a P10): em `pro_annual` → Preços da assinatura → **+** → Criar códigos de oferta, oferta `P10_ANUAL` (pré-pagamento, 1 ano, R$ 107,90). Em `pro_monthly`, `P10_MENSAL` (pré-pagamento, 1 mês, R$ 13,00). Ambas para assinantes novos e expirados, só no Brasil, com renovação automática.
+- [ ] **Play Console:** na assinatura `pro_annual`, plano base `annual-p10`, e na `pro_monthly`, plano base `monthly-p10` (produtos `pro_annual:annual-p10` e `pro_monthly:monthly-p10` no RevenueCat), no preço normal, cada um com uma oferta de fase única para o primeiro período e elegibilidade "definida pelo desenvolvedor".
 - [ ] **RevenueCat:** importar os produtos do Play e ligá-los ao entitlement `pro`. Criar a oferta `partner_p10` com o paywall do PRO, a linha "Desconto por indicação" e os pacotes anual (iOS `pro_annual`, Android `annual-p10`) e mensal (iOS `pro_monthly`, Android `monthly-p10`). Metadados:
   ```json
   { "discountPercent": 10, "partners": {} }
@@ -48,7 +50,7 @@ As três faixas usam 12 dos 50 planos e ofertas ativos do Play e 3 das 10 oferta
    { "discountPercent": 10, "partners": { "PROFJOAO": { "name": "Prof. João" } } }
    ```
    O `name` aparece para quem recebeu o link. O app lê a lista na próxima abertura. Cada oferta aceita até 4.000 caracteres de metadados, cerca de 100 parceiros.
-3. **App Store Connect:** crie dois **códigos personalizados**: `PROFJOAO` na oferta `P10_ANUAL` e `PROFJOAOMENSAL` na oferta `P10_MENSAL`. Anote a validade, se a Apple exigir uma.
+3. **App Store Connect:** crie dois **códigos personalizados**: `PROFJOAO` na oferta `P10_ANUAL` e `PROFJOAOMENSAL` na oferta `P10_MENSAL`. Limite de 500 usos (aumente quando precisar, até 25.000) e **sem data de fim**. Códigos personalizados só funcionam em produção. Para testar em sandbox, gere "Códigos de Sandbox" na mesma oferta e resgate em Ajustes → Desenvolvedor → Conta Sandbox.
 4. **Mande ao parceiro** o link e um texto pronto, por exemplo:
    > Gravo meus lances de beach tennis com o Reprize. Com meu link você tem desconto no PRO: https://reprizeapp.com/p/PROFJOAO (ou use o código PROFJOAO dentro do app).
 5. **Teste** abrindo o link em um iPhone e em um Android sem o app.
@@ -58,7 +60,7 @@ As três faixas usam 12 dos 50 planos e ofertas ativos do Play e 3 das 10 oferta
 - **Mudar de faixa:** na Apple, desative os dois códigos atuais, porque um código precisa ser desativado antes de ser usado em outra oferta. Crie os mesmos códigos nas ofertas da nova faixa e **espere até poderem ser resgatados** (pode levar até 1 hora). Só então mova o parceiro para os metadados da nova faixa. Quem ainda não comprou passa a ver a nova faixa na próxima abertura. Quem já comprou não muda.
 - **Mudar o preço de uma faixa:** crie uma faixa nova e mova os parceiros, para o percentual exibido continuar igual ao preço das lojas.
 - **Remover:** tire o parceiro dos metadados e desative os códigos na Apple. Quem já foi atribuído continua atribuído, e ninguém novo entra.
-- **Renovar:** se a Apple exigir validade (no máximo 6 meses) ou o lote chegar perto do limite de 25.000 resgates, crie um novo lote **com o mesmo código**. Um código diferente não funciona, porque o app monta o código da Apple a partir do código do parceiro.
+- **Renovar:** se o código chegar perto do limite de usos, crie um novo lote **com o mesmo código** (os códigos são criados sem data de fim). Um código diferente não funciona, porque o app monta o código da Apple a partir do código do parceiro.
 
 ## Fechamento mensal da comissão
 
