@@ -80,6 +80,8 @@ Purchase → attribution locked → reports per partner
 9. **Entry points in the app.** Route `/p/[code]` (links), a first-launch read of the Android install referrer, and a "Tenho um código de indicação" row in Ajustes, under Plano, shown only without PRO (2026-11-24: release 1.1.0 turned the preparation screen into a full camera and moved the legal links to Ajustes, so the one-time prompt on that screen was dropped). Nothing in the onboarding stories. The site page tells iPhone users to open the link again after installing.
 10. **Universal links.** `reprizeapp.com` and `www.reprizeapp.com`, path `/p/*`, on both platforms. The custom scheme `reprize://p/CODE` keeps working.
 
+11. **Launch and commission rules (decided 2026-11-24).** Release 1.1.0 opens with tier P10 only; P20 and P30 are created when a partner needs them. A valid subscriber for the monthly payout has paid, current PRO on the close date and had no paid PRO before applying the code. Grace period and billing retry do not count; a former subscriber who returns with a code does not count; any paid PRO plan bought after the code counts, with or without the discount (iPhone "Ver todos os planos"). The steps are in `docs/parceiros.md`.
+
 ### Components
 
 | Unit | Responsibility | Depends on |

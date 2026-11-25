@@ -14,6 +14,8 @@ Cada parceiro fica em uma **faixa de preço**. A faixa define o desconto no **pr
 | P20 | `partner_p20` | 20% | R$ 95,90 | R$ 11,90 |
 | P30 | `partner_p30` | 30% | R$ 83,90 | R$ 10,40 |
 
+**No lançamento (1.1.0) só a P10 existe.** P20 e P30 são criadas quando um parceiro precisar, com o mesmo passo a passo.
+
 Se a loja não tiver exatamente esse preço, use o **valor imediatamente abaixo**, para o desconto real nunca ser menor que o anunciado no app. Em outros países, aplique o mesmo critério sobre o preço local.
 
 - **Android:** o código segue do link da Play Store até o app (install referrer), e o paywall abre a oferta da faixa do parceiro.
@@ -23,13 +25,13 @@ Se a loja não tiver exatamente esse preço, use o **valor imediatamente abaixo*
 
 ## Configuração única (antes do primeiro parceiro)
 
-Repita os três primeiros itens para cada faixa. Os exemplos usam P20.
+Repita os três primeiros itens para cada faixa. Os exemplos usam P10, a faixa do lançamento.
 
-- [ ] **App Store Connect:** em `pro_annual`, oferta `P20_ANUAL` (pagar adiantado, 1 ano). Em `pro_monthly`, oferta `P20_MENSAL` (pagar adiantado, 1 mês). Ambas para assinantes novos e expirados.
-- [ ] **Play Console:** na assinatura PRO, planos base `annual-p20` e `monthly-p20`, no preço normal, cada um com uma oferta de fase única para o primeiro período e elegibilidade "definida pelo desenvolvedor".
-- [ ] **RevenueCat:** importar os produtos do Play e ligá-los ao entitlement `pro`. Criar a oferta `partner_p20` com o paywall do PRO, a linha "Desconto por indicação" e os pacotes anual (iOS `pro_annual`, Android `annual-p20`) e mensal (iOS `pro_monthly`, Android `monthly-p20`). Metadados:
+- [ ] **App Store Connect:** em `pro_annual`, oferta `P10_ANUAL` (pagar adiantado, 1 ano). Em `pro_monthly`, oferta `P10_MENSAL` (pagar adiantado, 1 mês). Ambas para assinantes novos e expirados.
+- [ ] **Play Console:** na assinatura PRO, planos base `annual-p10` e `monthly-p10`, no preço normal, cada um com uma oferta de fase única para o primeiro período e elegibilidade "definida pelo desenvolvedor".
+- [ ] **RevenueCat:** importar os produtos do Play e ligá-los ao entitlement `pro`. Criar a oferta `partner_p10` com o paywall do PRO, a linha "Desconto por indicação" e os pacotes anual (iOS `pro_annual`, Android `annual-p10`) e mensal (iOS `pro_monthly`, Android `monthly-p10`). Metadados:
   ```json
-  { "discountPercent": 20, "partners": {} }
+  { "discountPercent": 10, "partners": {} }
   ```
   Numa compra de teste, conferir que o paywall do Android mostra o preço da faixa. Se o RevenueCat escolher outra opção do plano, ajustar conforme a página de ofertas do Google Play deles.
 - [ ] **Site (reprize-lp):** publicar a branch `feat/partner-links`, com as variáveis `PUBLIC_APP_STORE_PROVIDER_TOKEN` (token do gerador de links de campanha do App Store Connect) e `PUBLIC_PLAY_STORE_URL`.
@@ -41,12 +43,12 @@ As três faixas usam 12 dos 50 planos e ofertas ativos do Play e 3 das 10 oferta
 ## Criar um parceiro (sem build)
 
 1. **Escolha o código e a faixa.** Só letras e números, sem acento, fácil de falar. Confira que o código não existe em nenhuma faixa.
-2. **RevenueCat:** Offerings → `partner_p20` → Metadata. Acrescente o parceiro e salve:
+2. **RevenueCat:** Offerings → `partner_p10` → Metadata. Acrescente o parceiro e salve:
    ```json
-   { "discountPercent": 20, "partners": { "PROFJOAO": { "name": "Prof. João" } } }
+   { "discountPercent": 10, "partners": { "PROFJOAO": { "name": "Prof. João" } } }
    ```
    O `name` aparece para quem recebeu o link. O app lê a lista na próxima abertura. Cada oferta aceita até 4.000 caracteres de metadados, cerca de 100 parceiros.
-3. **App Store Connect:** crie dois **códigos personalizados**: `PROFJOAO` na oferta `P20_ANUAL` e `PROFJOAOMENSAL` na oferta `P20_MENSAL`. Anote a validade, se a Apple exigir uma.
+3. **App Store Connect:** crie dois **códigos personalizados**: `PROFJOAO` na oferta `P10_ANUAL` e `PROFJOAOMENSAL` na oferta `P10_MENSAL`. Anote a validade, se a Apple exigir uma.
 4. **Mande ao parceiro** o link e um texto pronto, por exemplo:
    > Gravo meus lances de beach tennis com o Reprize. Com meu link você tem desconto no PRO: https://reprizeapp.com/p/PROFJOAO (ou use o código PROFJOAO dentro do app).
 5. **Teste** abrindo o link em um iPhone e em um Android sem o app.
@@ -60,7 +62,12 @@ As três faixas usam 12 dos 50 planos e ofertas ativos do Play e 3 das 10 oferta
 
 ## Fechamento mensal da comissão
 
-Conta como **assinante válido** quem, na data de fechamento, tem PRO pago e vigente, fez a primeira assinatura paga depois de aplicar o código do parceiro e não está em teste grátis, com reembolso, em carência ou com pagamento em atraso.
+Conta como **assinante válido** quem, na data de fechamento, tem PRO pago e vigente, nunca tinha pago o PRO antes de aplicar o código do parceiro e não está em teste grátis, com reembolso, em carência ou com pagamento em atraso.
+
+Regras decididas em 24/11/2026:
+- **Carência e pagamento em atraso não contam.** O assinante volta a contar no mês em que a loja confirmar o pagamento.
+- **Quem já foi assinante não conta**, mesmo que tenha cancelado e voltado com o código de um parceiro.
+- **Conta qualquer plano PRO pago depois do código, com ou sem desconto.** Por exemplo, quem tocou em "Ver todos os planos" no iPhone e assinou no preço normal.
 
 1. **Escolha uma data fixa (D)** e use a exportação **Transactions** do RevenueCat gerada depois dela.
 2. **Filtre as transações:**
@@ -70,8 +77,8 @@ Conta como **assinante válido** quem, na data de fechamento, tem PRO pago e vig
    - `start_time` até D, e `end_time` e `effective_end_time` depois de D (`effective_end_time` sozinho incluiria a carência)
 3. **Fique com a transação mais recente de cada cliente** e leia `partner_code` e `partner_applied_at` em `custom_subscriber_attributes`.
 4. **Ache a primeira cobrança da assinatura:** a transação mais antiga, fora de teste grátis, com o mesmo `original_store_transaction_id`.
-5. **Exclua quem já pagava antes do código:** a primeira cobrança precisa ser igual ou posterior a `partner_applied_at`.
-6. **Aplique a carência de 30 dias:** a primeira cobrança precisa ter pelo menos 30 dias em D. Renovações não reiniciam essa contagem.
+5. **Exclua quem já pagou o PRO antes do código:** a primeira cobrança precisa ser igual ou posterior a `partner_applied_at`, e o cliente não pode ter **nenhuma** transação paga do PRO (de qualquer `original_store_transaction_id`) antes de `partner_applied_at`. No Google Play, quem assina de novo depois de cancelar recebe uma assinatura nova, então só o passo anterior não basta.
+6. **Aplique a espera de 30 dias:** a primeira cobrança precisa ter pelo menos 30 dias em D. Renovações não reiniciam essa contagem.
 7. **Exclua autoindicações**, como a assinatura do próprio parceiro.
 8. **Agrupe por parceiro e por plano.**
 9. **Confira o iPhone:** compare os resgates do relatório Subscription Offer Redemption da Apple com as compras atribuídas. Uma diferença indica resgates feitos fora do app.
