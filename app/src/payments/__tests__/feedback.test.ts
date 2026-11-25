@@ -1,12 +1,17 @@
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 import { track } from '../../analytics';
 import { translate } from '../../i18n';
+import { partner, refreshPartner } from '../../partner';
 import { openPaywall, restorePurchases } from '../feedback';
 import { payments } from '..';
 
 jest.mock('../../analytics', () => ({ track: jest.fn() }));
-jest.mock('..', () => ({ payments: { showPaywall: jest.fn(), restore: jest.fn() } }));
+jest.mock('..', () => ({ payments: { showPaywall: jest.fn(), restore: jest.fn(), getSnapshot: jest.fn(() => ({ proActive: false })) } }));
+jest.mock('../../partner', () => ({
+  partner: { active: jest.fn(() => null), lock: jest.fn() },
+  refreshPartner: jest.fn(async () => {}),
+}));
 
 const t = (key: Parameters<typeof translate>[1], params?: Parameters<typeof translate>[2]) => translate('en', key, params);
 const showPaywall = payments.showPaywall as jest.Mock;
@@ -97,5 +102,112 @@ describe('restorePurchases', () => {
     restore.mockResolvedValue(false);
     await restorePurchases(t);
     expect(Alert.alert).toHaveBeenCalledWith(t('payments.nothingToRestore'));
+  });
+});
+
+describe('openPaywall with a partner attribution', () => {
+  const sent = () => (track as jest.Mock).mock.calls;
+  const active = partner.active as jest.Mock;
+  const lock = partner.lock as jest.Mock;
+  const attribution = { code: 'PROFJOAO', name: 'Prof. João', source: 'link', appliedAt: 1, status: 'valid', offering: 'partner_p20', discountPercent: 20 };
+
+  beforeEach(() => {
+    active.mockReturnValue(attribution);
+    (track as jest.Mock).mockReset();
+  });
+  afterEach(() => {
+    active.mockReturnValue(null);
+    Platform.OS = 'ios';
+  });
+
+  it('the partner flow routes the PRO paywall to the partner offering and tags the events', async () => {
+    Platform.OS = 'android';
+    showPaywall.mockResolvedValue('cancelled');
+    await openPaywall(t, 'partner');
+    expect(showPaywall).toHaveBeenCalledWith('partner_p20');
+    expect(sent()).toEqual([
+      ['partner_offer_opened', { code: 'PROFJOAO', via: 'paywall', offering: 'partner_p20' }],
+      ['paywall_viewed', { source: 'partner', offering: 'partner_p20', partner: 'PROFJOAO' }],
+    ]);
+    expect(lock).not.toHaveBeenCalled();
+  });
+
+  it('the partner flow locks the attribution on a purchase, not on a restore', async () => {
+    Platform.OS = 'android';
+    showPaywall.mockResolvedValue('purchased');
+    await openPaywall(t, 'partner');
+    expect(sent().at(-1)).toEqual(['purchase_completed', { offering: 'partner_p20', source: 'partner', partner: 'PROFJOAO' }]);
+    expect(lock).toHaveBeenCalledTimes(1);
+    lock.mockClear();
+    showPaywall.mockResolvedValue('restored');
+    await openPaywall(t, 'partner');
+    expect(lock).not.toHaveBeenCalled();
+  });
+
+  it('never reroutes the pass paywall and tags nothing', async () => {
+    Platform.OS = 'android';
+    showPaywall.mockResolvedValue('cancelled');
+    await openPaywall(t, 'export_limit', 'pass');
+    expect(showPaywall).toHaveBeenCalledWith('pass');
+    expect(sent()).toEqual([['paywall_viewed', { source: 'export_limit', offering: 'pass' }]]);
+  });
+
+  it('without an active attribution the partner flow opens the normal paywall', async () => {
+    active.mockReturnValue(null);
+    Platform.OS = 'android';
+    showPaywall.mockResolvedValue('cancelled');
+    await openPaywall(t, 'partner');
+    expect(showPaywall).toHaveBeenCalledWith('default');
+  });
+
+  it.each(['ios', 'android'] as const)('%s: the partner paywall opens with no plan choice before it', async (os) => {
+    Platform.OS = os;
+    showPaywall.mockResolvedValue('cancelled');
+    await openPaywall(t, 'partner');
+    expect(Alert.alert).not.toHaveBeenCalled();
+    expect(showPaywall).toHaveBeenCalledWith('partner_p20');
+  });
+
+  it.each(['settings', 'upgrade_card', 'locked_feature', 'export_limit', 'onboarding', 'received_export'] as const)(
+    'any other way into PRO (%s) keeps the normal price, untagged, even with a code applied',
+    async (source) => {
+      Platform.OS = 'ios';
+      showPaywall.mockResolvedValue('cancelled');
+      await openPaywall(t, source);
+      expect(showPaywall).toHaveBeenCalledWith('default');
+      expect(sent()).toEqual([['paywall_viewed', { source, offering: 'default' }]]);
+    },
+  );
+});
+
+describe('openPaywall guards around the partner discount', () => {
+  const active = partner.active as jest.Mock;
+  const getSnapshot = payments.getSnapshot as jest.Mock;
+  const attribution = { code: 'PROFJOAO', name: 'Prof. João', source: 'link', appliedAt: 1, status: 'valid', offering: 'partner_p20', discountPercent: 20 };
+
+  beforeEach(() => {
+    active.mockReturnValue(attribution);
+    getSnapshot.mockReturnValue({ proActive: false });
+    Platform.OS = 'android';
+    showPaywall.mockResolvedValue('cancelled');
+  });
+  afterEach(() => {
+    active.mockReturnValue(null);
+    Platform.OS = 'ios';
+  });
+
+  it('a PRO customer never gets the partner paywall', async () => {
+    getSnapshot.mockReturnValue({ proActive: true });
+    await openPaywall(t, 'partner');
+    expect(showPaywall).toHaveBeenCalledWith('default');
+  });
+
+  it('asks the directory again for a code waiting offline before deciding, from the partner flow only', async () => {
+    await openPaywall(t, 'partner');
+    expect(refreshPartner).toHaveBeenCalledTimes(1);
+    (refreshPartner as jest.Mock).mockClear();
+    await openPaywall(t, 'upgrade_card');
+    await openPaywall(t, 'export_limit', 'pass');
+    expect(refreshPartner).not.toHaveBeenCalled();
   });
 });

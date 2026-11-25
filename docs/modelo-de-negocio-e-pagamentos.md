@@ -118,6 +118,10 @@ O momento da regra é `MARK_ON_EVERY_PLAN_SINCE`, em `payments/watermarkRule.ts`
 - **Paywall** (RevenueCat): a oferta `default` tem só Anual (pré-selecionado, com preço mensal equivalente e selo de economia calculado pelo painel) e Mensal. O Passe fica numa oferta própria (`pass`), aberta por "Só para esta gravação", com o mesmo visual. Textos e prompts do painel: `docs/brand/paywall-reprize.md`.
 - Preço e moeda vêm sempre da loja; nenhum valor no código.
 
+## Códigos de indicação
+
+Parceiros (professores, donos de quadra) compartilham um link ou código ligado a uma **faixa de preço** (10%, 20% ou 30% no início), com desconto no **primeiro período** do PRO mensal e anual; depois a assinatura renova no preço normal. As assinaturas são atribuídas ao parceiro, e a comissão é apurada por mês sobre assinantes ativos e pagantes. O desconto não vale para quem já tem PRO, não se soma ao teste grátis e não toca no Passe Avulso. No iPhone o desconto é um offer code da Apple; no Android é a oferta `partner_<faixa>` do RevenueCat. Rotina, relatórios e configuração: `docs/parceiros.md`; desenho: `docs/superpowers/specs/2026-11-15-partner-codes-design.md`.
+
 ## Como o app decide
 
 - **Ao começar uma gravação** (`startPlan`): PRO ativo → gravação paga; senão → gravação grátis. O plano nunca impede de começar.
@@ -167,6 +171,7 @@ Tudo é teste até a publicação. Depois de publicar, os números (conversão p
 | Aviso antes de exportar no grátis | `components/FreeExportSheet.tsx` + `components/useFreeExportGate.tsx`, chamados por `app/clip/[id].tsx` e pelas ações em lote em `app/session/[id].tsx` |
 | Compilar pago | `share/useBatchActions.ts` (`compile`) e `canCompile` em `payments/limits.ts` |
 | Liberar recursos PRO numa gravação (Passe) | `payments/unlock.ts` |
+| Código de indicação (validar, atribuir, travar na compra) e rota do paywall com desconto | `partner/store.ts`, `partner/index.ts`, `payments/feedback.ts` (`openPaywall`) |
 | Plano na tela | `usePlan` e `useViewPlan`, em `share/entitlement.ts` |
 | Compartilhar só no PRO (a implementar) | `payments/limits.ts` (`canShare`) |
 | Exportação de gravação recebida e cortesias (a implementar) | `share/exportOptions.ts` e `components/useFreeExportGate.tsx`; contador de cortesias no servidor |

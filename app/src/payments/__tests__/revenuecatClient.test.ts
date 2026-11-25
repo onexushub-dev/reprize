@@ -148,3 +148,99 @@ describe('createRevenueCatClient', () => {
     expect(Purchases.removeCustomerInfoUpdateListener).toHaveBeenCalledWith(listener);
   });
 });
+
+describe('partners', () => {
+  it('reads the directory from the price tier offerings', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({
+      current: null,
+      all: {
+        default: { metadata: {} },
+        partner_p20: { metadata: { discountPercent: 20, partners: { PROFJOAO: { name: 'Prof. João' } } } },
+      },
+    });
+    expect(await c.partners()).toEqual({ PROFJOAO: { name: 'Prof. João', offering: 'partner_p20', discountPercent: 20 } });
+  });
+
+  it('is null when the offerings fail or the SDK is not configured', async () => {
+    setKeys({});
+    const off = createRevenueCatClient();
+    off.configure();
+    expect(await off.partners()).toBeNull();
+
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.getOfferings as jest.Mock).mockRejectedValueOnce(new Error('offline'));
+    expect(await c.partners()).toBeNull();
+  });
+});
+
+describe('partner attribution', () => {
+
+  it('writes the partner attributes', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    await c.setPartner('PROFJOAO', 'link', 'partner_p20', Date.parse('2026-11-23T12:00:00Z'));
+    expect(Purchases.setAttributes).toHaveBeenCalledWith({
+      partner_code: 'PROFJOAO',
+      partner_source: 'link',
+      partner_offering: 'partner_p20',
+      partner_applied_at: '2026-11-23T12:00:00.000Z',
+    });
+    expect(Purchases.setMediaSource).toHaveBeenCalledWith('partner');
+    expect(Purchases.setCampaign).toHaveBeenCalledWith('PROFJOAO');
+  });
+
+  it('setPartner never throws: SDK failure or no key', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.setAttributes as jest.Mock).mockRejectedValueOnce(new Error('sdk'));
+    await expect(c.setPartner('PROFJOAO', 'link', 'partner_p20', 1)).resolves.toBeUndefined();
+
+    jest.clearAllMocks();
+    setKeys({});
+    const off = createRevenueCatClient();
+    off.configure();
+    await expect(off.setPartner('PROFJOAO', 'link', 'partner_p20', 1)).resolves.toBeUndefined();
+    expect(Purchases.setAttributes).not.toHaveBeenCalled();
+  });
+
+  it('two quick partner writes never interleave: the last code wins in every attribute', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    (Purchases.setAttributes as jest.Mock).mockImplementationOnce(() => new Promise((r) => setTimeout(r, 20)));
+    await Promise.all([c.setPartner('AAA', 'link', 'partner_p10', 1), c.setPartner('BBB', 'typed', 'partner_p20', 2)]);
+    expect((Purchases.setAttributes as jest.Mock).mock.calls.map((a) => a[0].partner_code)).toEqual(['AAA', 'BBB']);
+    expect((Purchases.setCampaign as jest.Mock).mock.calls.map((a) => a[0])).toEqual(['AAA', 'BBB']);
+    expect((Purchases.setMediaSource as jest.Mock).mock.calls).toHaveLength(2);
+    // and the order inside: AAA's three writes all precede BBB's first
+    const order = [
+      ...(Purchases.setAttributes as jest.Mock).mock.invocationCallOrder,
+      ...(Purchases.setCampaign as jest.Mock).mock.invocationCallOrder,
+    ];
+    expect(Math.max(...order.slice(0, 1), ...order.slice(2, 3))).toBeLessThan(Math.min(order[1], order[3]));
+  });
+
+  it('shows the partner offering by its identifier, falling back to the current one', async () => {
+    setKeys({ test: 'test_x' });
+    const c = createRevenueCatClient();
+    c.configure();
+    const partner = { identifier: 'partner_p20' };
+    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({ current: null, all: { partner_p20: partner } });
+    (RevenueCatUI.presentPaywall as jest.Mock).mockResolvedValueOnce('PURCHASED');
+    expect(await c.showPaywall('partner_p20')).toBe('purchased');
+    expect(RevenueCatUI.presentPaywall).toHaveBeenCalledWith({ displayCloseButton: true, offering: partner });
+
+    (Purchases.getOfferings as jest.Mock).mockResolvedValueOnce({ current: null, all: {} });
+    (RevenueCatUI.presentPaywall as jest.Mock).mockResolvedValueOnce('CANCELLED');
+    expect(await c.showPaywall('partner_p20')).toBe('cancelled');
+    expect(RevenueCatUI.presentPaywall).toHaveBeenLastCalledWith({ displayCloseButton: true });
+  });
+});
+
