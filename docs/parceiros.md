@@ -32,7 +32,7 @@ Preço normal nas duas lojas: R$ 119,90/ano e R$ 14,90/mês (o Play foi igualado
 - [x] **Links universais:** `apple-app-site-association` e `assetlinks.json` no PR #30 do site.
 - [ ] **Notas para a revisão da Apple** (colar no envio da 1.1.0): "Referral price tiers (pro_annual_p5, pro_monthly_p5, pro_annual_p10, pro_monthly_p10) are offered only inside the app, after the customer enters a partner's referral code in Settings › Plan. They unlock the same Pro features at a lower price."
 
-As versões antigas de oferta por código da Apple (`P10_ANUAL`, `P10_MENSAL`, códigos `TESTEREPRIZE`) não são usadas pelo app 1.1.0. Desative-as antes do lançamento.
+As ofertas por código antigas da Apple (`P10_ANUAL`, `P10_MENSAL`) foram desativadas em 25/11/2026 (não podem ser reativadas). O app 1.1.0 não usa códigos de oferta da Apple.
 
 ## Criar um parceiro (sem build e sem revisão)
 
