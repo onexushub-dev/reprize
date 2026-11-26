@@ -3,8 +3,9 @@ import XCTest
 @testable import ReplayCore
 
 /// The "salvar" detector's math matches the voice lab (plan 2026-11-24 voice keyword detector, Tasks 2–3).
-/// Fixture: `Fixtures/voice-golden.json`, written by `docs/voice-lab/lab/tools/export_detector.py build`; the filterbank
-/// and classifier are the shipped files in `ios/Models/voice/salvar-v1/`. The Android tests read the same fixture.
+/// Fixture: `Fixtures/voice-golden.json`, written by `docs/voice-lab/lab/tools/export_detector.py build`, and the model it
+/// was written with, `Fixtures/voice-salvar-v1/` (salvar-v1, no longer shipped: the app ships `ios/Models/voice/salvar-v2-rc4`).
+/// The Android tests read the same golden fixture.
 final class VoiceKeywordTests: XCTestCase {
   struct Golden: Decodable {
     let pcm16k: String
@@ -14,12 +15,10 @@ final class VoiceKeywordTests: XCTestCase {
     let fires: [Double]
   }
 
+  /// salvar-v1, the model the golden fixture was made with (a test fixture since rc4 became the app's model).
   static let modelDir = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()  // ReplayCoreTests
-    .deletingLastPathComponent()  // Tests
-    .deletingLastPathComponent()  // Core
-    .deletingLastPathComponent()  // ios
-    .appendingPathComponent("Models/voice/salvar-v1")
+    .appendingPathComponent("Fixtures/voice-salvar-v1")
 
   func golden() throws -> Golden {
     let url = try XCTUnwrap(Bundle.module.url(forResource: "voice-golden", withExtension: "json", subdirectory: "Fixtures"))
@@ -147,12 +146,12 @@ final class VoiceKeywordTests: XCTestCase {
 
   // MARK: Task 3: config, scorer, firing rule
 
-  func loadShipped() throws -> (config: KeywordConfig, filterbank: [Float], scorer: KeywordScorer) {
+  func loadGoldenModel() throws -> (config: KeywordConfig, filterbank: [Float], scorer: KeywordScorer) {
     try KeywordConfig.load(directory: Self.modelDir)
   }
 
-  func testLoadsShippedModel() throws {
-    let (config, filterbank, scorer) = try loadShipped()
+  func testLoadsGoldenModel() throws {
+    let (config, filterbank, scorer) = try loadGoldenModel()
     XCTAssertEqual(config.version, "salvar-v1")
     XCTAssertEqual(config.threshold, 0.95)
     XCTAssertEqual(config.consecutive, 2)
@@ -171,7 +170,7 @@ final class VoiceKeywordTests: XCTestCase {
 
   func testScoresMatchGolden() throws {
     let g = try golden()
-    let (config, _, scorer) = try loadShipped()
+    let (config, _, scorer) = try loadGoldenModel()
     let scores = goldenScores(g, scorer, config)
     XCTAssertEqual(scores.count, g.scores.count)
     for (a, b) in zip(scores, g.scores) { XCTAssertEqual(a, b, accuracy: 1e-4) }
@@ -179,7 +178,7 @@ final class VoiceKeywordTests: XCTestCase {
 
   func testFiresMatchGolden() throws {
     let g = try golden()
-    let (config, _, _) = try loadShipped()
+    let (config, _, _) = try loadGoldenModel()
     var rule = FiringRule(config: config)
     var fires: [Double] = []
     for (j, s) in g.scores.enumerated() {
@@ -224,7 +223,7 @@ final class VoiceKeywordTests: XCTestCase {
   }
 
   func testScorerIsFiniteOnSilenceAndClipping() throws {
-    let (config, filterbank, scorer) = try loadShipped()
+    let (config, filterbank, scorer) = try loadGoldenModel()
     XCTAssertEqual(filterbank.count, 257 * config.nMels)
     for value: Float in [0, -8, 50] {
       let s = scorer.score([Float](repeating: value, count: scorer.inputSize))
@@ -254,24 +253,36 @@ final class VoiceKeywordTests: XCTestCase {
     XCTAssertEqual(used.push(Array(samples[0..<16000])), fresh)
   }
 
-  // MARK: Phase 2: engine choice and the shipped candidate model
+  // MARK: Engine choice
 
+  /// Portuguese listens with the detector when its model loaded; English, or a missing model, falls back to dictation.
   func testEngineChoice() {
-    XCTAssertEqual(VoiceEngine.choose(preferred: .keyword, locale: .ptBR, keywordAvailable: true), .keyword)
-    XCTAssertEqual(VoiceEngine.choose(preferred: .keyword, locale: .enUS, keywordAvailable: true), .dictation)
-    XCTAssertEqual(VoiceEngine.choose(preferred: .keyword, locale: .ptBR, keywordAvailable: false), .dictation)
-    XCTAssertEqual(VoiceEngine.choose(preferred: .dictation, locale: .ptBR, keywordAvailable: true), .dictation)
+    XCTAssertTrue(VoiceEngine.portugueseUsesKeyword)
+    XCTAssertEqual(VoiceEngine.choose(locale: .ptBR, keywordAvailable: true), .keyword)
+    XCTAssertEqual(VoiceEngine.choose(locale: .enUS, keywordAvailable: true), .dictation)
+    XCTAssertEqual(VoiceEngine.choose(locale: .ptBR, keywordAvailable: false), .dictation)
   }
 
-  /// `salvar-v2-rc1` (1536 → 256 → 1), the model the app ships behind the Diagnóstico switch: it loads, and on the
-  /// golden audio's embeddings it fires where the lab says (it waits for the word to end, so later than salvar-v1).
-  func testCandidateModelLoadsAndFiresOnGolden() throws {
-    let dir = Self.modelDir.deletingLastPathComponent().appendingPathComponent("salvar-v2-rc1")
-    let (config, filterbank, scorer) = try KeywordConfig.load(directory: dir)
-    XCTAssertEqual(config.version, "salvar-v2-rc1")
-    XCTAssertEqual(config.hidden, 256)
-    XCTAssertEqual(scorer.hidden, 256)
+  // MARK: salvar-v2-rc4: rc1 plus a veto trained on real verbs ending in -ar
+
+  /// The app's model: `ios/Models/voice/salvar-v2-rc4`, bundled by `ReplayCamera.podspec`.
+  static let rc4Dir = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()  // ReplayCoreTests
+    .deletingLastPathComponent()  // Tests
+    .deletingLastPathComponent()  // Core
+    .deletingLastPathComponent()  // ios
+    .appendingPathComponent("Models/voice/salvar-v2-rc4")
+
+  /// The shipped model: rc4 = rc1's classifier + `veto.bin`. The veto lets every golden "salvar" through, so rc4 fires
+  /// where rc1 did (the lab: both [2.702, 4.702]; the veto's lowest score where rc1 reaches 0.95 is 0.94).
+  func testRc4LoadsVetoAndFiresLikeRc1OnGolden() throws {
+    let (config, filterbank, scorer) = try KeywordConfig.load(directory: Self.rc4Dir)
+    XCTAssertEqual(config.version, "salvar-v2-rc4")
+    XCTAssertEqual(config.veto, KeywordConfig.Veto(file: "veto.bin", hidden: 256, minScore: 0.05))
     XCTAssertEqual(filterbank.count, 257 * 32)
+    let veto = try XCTUnwrap(scorer.veto)
+    XCTAssertEqual(veto.hidden, 256)
+    XCTAssertEqual(scorer.vetoMinScore, 0.05)
     let g = try golden()
     var rule = FiringRule(config: config)
     var fires: [Double] = []
@@ -282,5 +293,52 @@ final class VoiceKeywordTests: XCTestCase {
     }
     XCTAssertEqual(fires.count, 2)
     for (a, b) in zip(fires, [2.702, 4.702]) { XCTAssertEqual(a, b, accuracy: 0.08) }
+  }
+
+  /// A veto only ever removes: one that always says no zeroes every score, one that always says yes changes none.
+  func testVetoOnlyRemoves() throws {
+    // rc4's own classifier.bin is rc1 (the model without its veto).
+    let (config, _, _) = try KeywordConfig.load(directory: Self.rc4Dir)
+    let n = KeywordScorer.weightCount(inputSize: config.classifierInput, hidden: 8)
+    func constant(_ bias: Float) throws -> KeywordScorer {
+      var w = [Float](repeating: 0, count: n)
+      w[n - 1] = bias
+      return try KeywordScorer(weights: w, inputSize: config.classifierInput, hidden: 8)
+    }
+    let weights = try Data(contentsOf: Self.rc4Dir.appendingPathComponent("classifier.bin")).withUnsafeBytes { raw in
+      raw.bindMemory(to: Float32.self).map { Float($0) }
+    }
+    let main = try KeywordScorer(weights: weights, inputSize: config.classifierInput, hidden: config.hidden)
+    let no = try KeywordScorer(weights: weights, inputSize: config.classifierInput, hidden: config.hidden,
+                               veto: try constant(-10), vetoMinScore: 0.05)
+    let yes = try KeywordScorer(weights: weights, inputSize: config.classifierInput, hidden: config.hidden,
+                                veto: try constant(10), vetoMinScore: 0.05)
+    let g = try golden()
+    let plain = goldenScores(g, main, config)
+    XCTAssertTrue(plain.contains { $0 >= 0.95 })
+    XCTAssertEqual(goldenScores(g, no, config), [Double](repeating: 0, count: plain.count))
+    XCTAssertEqual(goldenScores(g, yes, config), plain)
+    let window = [Float](repeating: 0.5, count: config.classifierInput)
+    let s = no.scores(window)
+    XCTAssertEqual(s.main, main.score(window), accuracy: 1e-12)
+    XCTAssertEqual(try XCTUnwrap(s.veto), 1 / (1 + exp(10)), accuracy: 1e-9)
+    XCTAssertEqual(s.combined, 0)
+    XCTAssertThrowsError(try KeywordScorer(weights: weights, inputSize: config.classifierInput, hidden: config.hidden,
+                                           veto: try KeywordScorer(weights: [Float](repeating: 0, count: KeywordScorer.weightCount(inputSize: 96, hidden: 8)),
+                                                                   inputSize: 96, hidden: 8)))
+  }
+
+  /// A config that names a veto needs its file; an old folder without `veto` in the config loads with no veto.
+  func testVetoFileIsRequiredWhenNamed() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("voice-\(UUID().uuidString)")
+    try FileManager.default.copyItem(at: Self.rc4Dir, to: tmp)
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    try FileManager.default.removeItem(at: tmp.appendingPathComponent("veto.bin"))
+    XCTAssertThrowsError(try KeywordConfig.load(directory: tmp)) { error in
+      XCTAssertEqual(error as? KeywordModelError, .missing("veto.bin"))
+    }
+    let (config, _, scorer) = try KeywordConfig.load(directory: Self.modelDir)
+    XCTAssertNil(config.veto)
+    XCTAssertNil(scorer.veto)
   }
 }

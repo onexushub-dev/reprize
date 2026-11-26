@@ -22,6 +22,16 @@ public struct KeywordConfig: Decodable, Equatable {
   public let threshold: Double
   public let consecutive: Int
   public let refractorySec: Double
+  /// Optional second classifier that can only remove fires (salvar-v2-rc4, trained on real verbs ending in -ar):
+  /// a score counts only where the veto gives at least `minScore`. Absent in older model folders.
+  public let veto: Veto?
+
+  public struct Veto: Decodable, Equatable {
+    /// Weights file in the model folder, same layout as `classifier.bin`.
+    public let file: String
+    public let hidden: Int
+    public let minScore: Double
+  }
 
   /// Seconds of audio at which score `index` exists (end of its last embedding's last mel frame).
   public func scoreTime(index: Int) -> Double {
@@ -32,7 +42,8 @@ public struct KeywordConfig: Decodable, Equatable {
   /// Size of one classifier input: `windows` embeddings of `embedSize`.
   public var classifierInput: Int { windows * embedSize }
 
-  /// A model folder (`detector.json`, `mel_filterbank.bin`, `classifier.bin`): its config, filterbank and scorer.
+  /// A model folder (`detector.json`, `mel_filterbank.bin`, `classifier.bin`, and the veto's file when the config
+  /// names one): its config, filterbank and scorer.
   public static func load(directory: URL) throws -> (config: KeywordConfig, filterbank: [Float], scorer: KeywordScorer) {
     let config: KeywordConfig
     do {
@@ -45,10 +56,20 @@ public struct KeywordConfig: Decodable, Equatable {
     let filterbank = try floats(try read(directory, "mel_filterbank.bin"), name: "mel_filterbank.bin",
                                 count: (config.nFft / 2 + 1) * config.nMels)
     let weights = try read(directory, "classifier.bin")
+    var vetoScorer: KeywordScorer? = nil
+    var vetoMin = 0.0
+    if let v = config.veto {
+      vetoScorer = try KeywordScorer(weights: try floats(try read(directory, v.file), name: v.file,
+                                                         count: KeywordScorer.weightCount(inputSize: config.classifierInput,
+                                                                                          hidden: v.hidden)),
+                                     inputSize: config.classifierInput, hidden: v.hidden)
+      vetoMin = v.minScore
+    }
     let scorer = try KeywordScorer(weights: try floats(weights, name: "classifier.bin",
                                                        count: KeywordScorer.weightCount(inputSize: config.classifierInput,
                                                                                         hidden: config.hidden)),
-                                   inputSize: config.classifierInput, hidden: config.hidden)
+                                   inputSize: config.classifierInput, hidden: config.hidden,
+                                   veto: vetoScorer, vetoMinScore: vetoMin)
     return (config, filterbank, scorer)
   }
 
@@ -73,11 +94,22 @@ public enum KeywordModelError: Error, Equatable {
   case corrupt(String)
 }
 
+/// What one window scored: the main classifier, the veto (nil without one) and what the firing rule sees.
+public struct KeywordScores: Equatable {
+  public let main: Double
+  public let veto: Double?
+  /// `main`, or 0 where the veto gave less than its minimum.
+  public let combined: Double
+}
+
 /// The classifier: `windows` embeddings in a row → 1 hidden layer (ReLU) → sigmoid score in 0…1.
 /// Weights, float32 little-endian, in this order: W1 (input × hidden, row-major), b1 (hidden), W2 (hidden), b2 (1).
+/// With a veto (another classifier of the same shape), a window counts only where the veto gives >= `vetoMinScore`.
 public final class KeywordScorer {
   public let inputSize: Int
   public let hidden: Int
+  public let veto: KeywordScorer?
+  public let vetoMinScore: Double
   private let w1: [Float]
   private let b1: [Float]
   private let w2: [Float]
@@ -85,12 +117,17 @@ public final class KeywordScorer {
 
   public static func weightCount(inputSize: Int, hidden: Int) -> Int { inputSize * hidden + hidden + hidden + 1 }
 
-  public init(weights: [Float], inputSize: Int, hidden: Int) throws {
+  public init(weights: [Float], inputSize: Int, hidden: Int, veto: KeywordScorer? = nil, vetoMinScore: Double = 0) throws {
     guard weights.count == KeywordScorer.weightCount(inputSize: inputSize, hidden: hidden) else {
       throw KeywordModelError.corrupt("classifier: \(weights.count) weights for \(inputSize)×\(hidden)")
     }
+    if let v = veto, v.inputSize != inputSize {
+      throw KeywordModelError.corrupt("veto: input \(v.inputSize), classifier input \(inputSize)")
+    }
     self.inputSize = inputSize
     self.hidden = hidden
+    self.veto = veto
+    self.vetoMinScore = vetoMinScore
     var at = 0
     w1 = Array(weights[at..<(at + inputSize * hidden)])
     at += inputSize * hidden
@@ -101,8 +138,20 @@ public final class KeywordScorer {
     b2 = weights[at]
   }
 
-  /// `window`: the last `windows` embeddings concatenated, oldest first (`inputSize` values).
-  public func score(_ window: [Float]) -> Double {
+  /// `window`: the last `windows` embeddings concatenated, oldest first (`inputSize` values). What the firing rule
+  /// sees: the main score, or 0 where the veto says no.
+  public func score(_ window: [Float]) -> Double { scores(window).combined }
+
+  /// Main score, veto score and their combination for one window.
+  public func scores(_ window: [Float]) -> KeywordScores {
+    let main = raw(window)
+    guard let v = veto else { return KeywordScores(main: main, veto: nil, combined: main) }
+    let vs = v.raw(window)
+    return KeywordScores(main: main, veto: vs, combined: vs >= vetoMinScore ? main : 0)
+  }
+
+  /// This classifier alone.
+  fileprivate func raw(_ window: [Float]) -> Double {
     precondition(window.count == inputSize, "classifier input must be \(inputSize) values")
     #if canImport(Accelerate)
     // hidden = window (1×inputSize) · w1 (inputSize×hidden) + b1, ReLU, then · w2 + b2 (vDSP, Float accumulation).

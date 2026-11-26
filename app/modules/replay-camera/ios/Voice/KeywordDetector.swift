@@ -21,11 +21,16 @@ final class KeywordDetector {
 
   /// A "salvar": its score (on the main queue).
   var onCommand: ((Double) -> Void)?
+  /// Only with a veto (salvar-v2-rc4): where the main classifier alone would have fired (rc1), vetoed or not, with
+  /// its score (on the main queue). VoiceBench counts these next to `onCommand` to compare the two live.
+  var onMainCommand: ((Double) -> Void)?
   /// Diagnostic lines, never anything that was said.
   var log: ((String) -> Void)?
 
   let config: KeywordConfig
   private let scorer: KeywordScorer
+  /// True when the model has a veto, so `onMainCommand` reports the classifier without it.
+  var hasVeto: Bool { scorer.veto != nil }
   private let embedding: MLModel
   private let input: MLMultiArray
   private let queue = DispatchQueue(label: "voice.keyword", qos: .userInitiated)
@@ -46,6 +51,8 @@ final class KeywordDetector {
   private var embeddings: [[Float]] = []
   private var embedCount = 0
   private var rule: FiringRule
+  /// The firing rule on the main score alone, only to log when the veto stopped a "salvar" (Diagnóstico).
+  private var mainRule: FiringRule
 
   /// `directory`: `detector.json`, `mel_filterbank.bin`, `classifier.bin`. `embeddingModel`: the compiled
   /// `voice_embedding.mlmodelc`.
@@ -61,6 +68,7 @@ final class KeywordDetector {
     mel = MelFrontend(filterbank: loaded.filterbank, nFft: loaded.config.nFft, winLength: loaded.config.winLength,
                       hop: loaded.config.hop, nMels: loaded.config.nMels)
     rule = FiringRule(config: loaded.config)
+    mainRule = FiringRule(config: loaded.config)
   }
 
   /// How far behind real time the detector was at its last "salvar" (ms): the audio that completed the word arrived
@@ -88,6 +96,7 @@ final class KeywordDetector {
       self.embeddings = []
       self.embedCount = 0
       self.rule.reset()
+      self.mainRule.reset()
       self.mel.reset()
     }
   }
@@ -229,8 +238,15 @@ final class KeywordDetector {
     let index = embedCount
     embedCount += 1
     if embeddings.count == config.windows {
-      let score = scorer.score(Array(embeddings.joined()))
+      let scores = scorer.scores(Array(embeddings.joined()))
+      let score = scores.combined
       let seconds = config.scoreTime(index: index - (config.windows - 1))
+      if mainRule.feed(score: scores.main, at: seconds), let v = scores.veto {
+        if v < scorer.vetoMinScore { log?(String(format: "voz: vetado (nota %.2f, veto %.2f)", scores.main, v)) }
+        let mainCallback = onMainCommand
+        let mainScore = scores.main
+        DispatchQueue.main.async { mainCallback?(mainScore) }
+      }
       if rule.feed(score: score, at: seconds) {
         let lag = CACurrentMediaTime() - currentArrival
         lock.lock()

@@ -5,10 +5,9 @@ import Speech
 /// in the game's own audio (the capture session's microphone samples), strictly on the device (court audio never goes to a server). Each recognition task is restarted every ~50s (Apple's
 /// limit is about a minute) and right after a command, which also clears the transcript.
 ///
-/// Two engines (plan 2026-11-24 voice keyword detector, Phase 2 revision): today's dictation, and the "salvar" detector
-/// (`KeywordDetector`, model in the pod's resource bundle). Which one listens comes from `preferred` (the Diagnóstico
-/// switch, only in builds with diagnostics) through `VoiceEngine.choose`: the detector only in Portuguese and only when
-/// its model loaded. Exactly one engine is live at a time.
+/// Two engines (plan 2026-11-24 voice keyword detector): the "salvar" detector (`KeywordDetector`, model
+/// `salvar-v2-rc4` in the pod's resource bundle) for Portuguese, and dictation for English or when the model fails to
+/// load (`VoiceEngine.choose`). Exactly one engine is live at a time.
 final class VoiceTrigger {
   static let restartAfter: TimeInterval = 50
   static let cooldown: TimeInterval = 2
@@ -21,27 +20,6 @@ final class VoiceTrigger {
   /// Offline recognition in `locale` exists on this phone.
   static func isSupported(_ locale: VoiceLocale) -> Bool {
     SFSpeechRecognizer(locale: locale.locale)?.supportsOnDeviceRecognition ?? false
-  }
-
-  // MARK: Engine preference (shared by the camera phone's and the remote phone's triggers)
-
-  static let preferenceChanged = Notification.Name("ReplayVoiceEnginePreferenceChanged")
-  private static let preferenceLock = NSLock()
-  private static var preferredValue = VoiceEngine.dictation
-
-  static var preferred: VoiceEngine {
-    preferenceLock.lock()
-    defer { preferenceLock.unlock() }
-    return preferredValue
-  }
-
-  /// The Diagnóstico switch. Every live trigger re-applies on its own queue.
-  static func setPreferred(_ engine: VoiceEngine) {
-    preferenceLock.lock()
-    let changed = preferredValue != engine
-    preferredValue = engine
-    preferenceLock.unlock()
-    if changed { NotificationCenter.default.post(name: preferenceChanged, object: nil) }
   }
 
   var onCommand: (() -> Void)?
@@ -65,19 +43,6 @@ final class VoiceTrigger {
   private var keywordFailed = false
   private var reportedDrops = 0.0
   private var lastDropReport = Date.distantPast
-  private var observer: NSObjectProtocol?
-
-  init() {
-    observer = NotificationCenter.default.addObserver(forName: Self.preferenceChanged, object: nil, queue: nil) {
-      [weak self] _ in
-      guard let self else { return }
-      self.queue.async { self.chooseEngine() }
-    }
-  }
-
-  deinit {
-    if let observer { NotificationCenter.default.removeObserver(observer) }
-  }
 
   static func requestPermission(completion: @escaping (Bool) -> Void) {
     SFSpeechRecognizer.requestAuthorization { completion($0 == .authorized) }
@@ -155,12 +120,11 @@ final class VoiceTrigger {
 
   // MARK: Engine choice (on `queue`)
 
-  /// Picks the engine for the current preference and locale; switching stops the old one before the new one listens.
+  /// Picks the engine for the current locale; switching stops the old one before the new one listens.
   private func chooseEngine(announce: Bool = false) {
     guard enabled else { return }
-    let wanted = Self.preferred
-    if wanted == .keyword && locale == .ptBR { loadKeywordIfNeeded() }
-    let next = VoiceEngine.choose(preferred: wanted, locale: locale, keywordAvailable: keyword != nil)
+    if VoiceEngine.portugueseUsesKeyword && locale == .ptBR { loadKeywordIfNeeded() }
+    let next = VoiceEngine.choose(locale: locale, keywordAvailable: keyword != nil)
     guard next != live || announce else { return }
     if next == .keyword {
       // Dictation stops before the detector listens, and the detector forgets audio from before (no stale word fires).

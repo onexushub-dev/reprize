@@ -15,7 +15,6 @@ import { startSharePrep } from '../cloud/appSharePrep';
 import { startReceiveQueue } from '../cloud/receive';
 import { GlassDialogHost } from '../components/GlassDialog';
 import { startFocusQueue } from '../focus/appFocusQueue';
-import { applyVoiceEngine } from '../voice/voiceEngine';
 import { useLocaleSync } from '../i18n/useT';
 import { payments } from '../payments';
 import { RemoteStartListener } from '../session/RemoteStartListener';
@@ -72,8 +71,6 @@ export default function RootLayout() {
 
   // Modo Foco in the background: clips are analysed while the app is open and no recording runs.
   useEffect(() => startFocusQueue(), []);
-  // The voice trigger engine chosen in Diagnóstico (dictation unless a build with diagnostics chose the model).
-  useEffect(() => applyVoiceEngine(), []);
 
   // Shared recordings upload in the background; the queue starts again what a swiped-away app left (sharing design §5.4).
   useEffect(() => startUploadQueue(), []);

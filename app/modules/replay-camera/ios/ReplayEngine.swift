@@ -98,7 +98,6 @@ final class ReplayEngine {
       self?.voice.consider(buffer)
     }
     voice.onCommand = { [weak self] in
-      self?.markVoiceCommand()
       self?.emit?("onTrigger", ["source": "voice", "at": Date().timeIntervalSince1970 * 1000])
     }
     voice.log = { [weak self] line in self?.diag(line) }
@@ -394,27 +393,6 @@ final class ReplayEngine {
   }
 
   // MARK: - TEMP(diag-remote): Bluetooth remote investigation, remove with its commit
-
-  // Voice → flash delay for Diagnóstico (plan 2026-11-24 voice keyword detector, Phase 2): when the last voice command
-  // left the native side, so `signalSaved` can say how long the app took to show the flash.
-  private let voiceCommandLock = NSLock()
-  private var lastVoiceCommand: CFTimeInterval = 0
-
-  func markVoiceCommand() {
-    voiceCommandLock.lock()
-    lastVoiceCommand = CACurrentMediaTime()
-    voiceCommandLock.unlock()
-  }
-
-  /// Milliseconds since the last voice command, if it came in the last 5 s (once per command).
-  func takeVoiceCommandAge() -> Double? {
-    voiceCommandLock.lock()
-    defer { voiceCommandLock.unlock() }
-    guard lastVoiceCommand > 0 else { return nil }
-    let age = CACurrentMediaTime() - lastVoiceCommand
-    lastVoiceCommand = 0
-    return age < 5 ? age * 1000 : nil
-  }
 
   /// One line for the in-app diagnostic log (`src/diag`), also in the device console as `[replay] diag`.
   func diag(_ message: String) {

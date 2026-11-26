@@ -25,5 +25,5 @@ Pod::Spec.new do |s|
   # `xcrun coremlcompiler compile`; BallAnalyzer looks for it in this bundle.
   # Voice "salvar" detector (plan 2026-11-24, Phase 2): the model behind the Diagnóstico switch, flattened into the same
   # bundle (detector.json, mel_filterbank.bin, classifier.bin) next to voice_embedding.mlmodelc. One version at a time.
-  s.resource_bundles = { "ReplayCameraModels" => ["Models/*.mlmodelc", "Models/voice/salvar-v2-rc1/*"] }
+  s.resource_bundles = { "ReplayCameraModels" => ["Models/*.mlmodelc", "Models/voice/salvar-v2-rc4/*"] }
 end

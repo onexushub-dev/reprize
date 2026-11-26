@@ -196,15 +196,6 @@ export function setVoiceEnabled(enabled: boolean, locale: VoiceLocale): void {
   ReplayCameraModule.setVoiceEnabled(enabled, locale);
 }
 
-/**
- * Which engine listens for "salvar": today's dictation or the trained model (Diagnóstico switch; English always stays on
- * dictation). iOS only: a no-op on Android and in older builds.
- */
-export function setVoiceEngine(engine: 'dictation' | 'keyword'): void {
-  const set = ReplayCameraModule.setVoiceEngine;
-  if (typeof set === 'function') set.call(ReplayCameraModule, engine);
-}
-
 /** True when this phone can recognize the save command offline in `locale` (iOS with that on-device model). */
 export function isVoiceSupported(locale: VoiceLocale): boolean {
   return ReplayCameraModule.isVoiceSupported(locale);

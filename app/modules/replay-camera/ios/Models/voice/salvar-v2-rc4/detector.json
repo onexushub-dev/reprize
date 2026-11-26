@@ -1,5 +1,5 @@
 {
-  "version": "salvar-v2-rc1",
+  "version": "salvar-v2-rc4",
   "sampleRate": 16000,
   "nFft": 512,
   "winLength": 400,
@@ -14,5 +14,10 @@
   "hidden": 256,
   "threshold": 0.95,
   "consecutive": 2,
-  "refractorySec": 1.5
+  "refractorySec": 1.5,
+  "veto": {
+    "file": "veto.bin",
+    "hidden": 256,
+    "minScore": 0.05
+  }
 }
