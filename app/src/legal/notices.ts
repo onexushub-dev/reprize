@@ -1,7 +1,7 @@
 /**
  * Notices the app must carry (docs/voice-lab/MODELS.md): the voice trigger's speech embedding is Apache-2.0, so the app
  * shows that license and where the model comes from. Shown in the hidden "Licenças de código aberto" screen
- * (src/app/licenses.tsx), with the npm packages of src/legal/thirdParty.ts.
+ * (src/app/licenses.tsx).
  */
 export type Notice = { name: string; license: string; text: string };
 

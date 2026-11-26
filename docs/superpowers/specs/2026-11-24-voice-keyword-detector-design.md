@@ -258,9 +258,8 @@ checks. Files and provenance: `docs/voice-lab/MODELS.md`.
 - **Going back** (dictation for Portuguese, or rc1): `docs/voice-lab/MODELS.md`, "Going back".
 - **Next:** retrain the veto as recordings come in, women first (Parecidas with the -ar list plus Acerto from the same
   people), with the same rule: a new version replaces rc4 only if it is equal or better on every "salvar".
-- **Licenses:** the Apache-2.0 notice of the speech embedding, and the npm packages' licenses, are in a hidden screen
-  (Conta → tap the version line → `app/src/app/licenses.tsx`). Run `node scripts/gen-licenses.js` after changing
-  dependencies.
+- **Licenses:** the Apache-2.0 notice of the speech embedding is in a hidden screen (Conta → tap the version line →
+  `app/src/app/licenses.tsx`). Only Apache-2.0 notices for now; the npm packages' MIT notices are not listed.
 
 ## Left to the builder
 

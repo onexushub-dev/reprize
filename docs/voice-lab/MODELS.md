@@ -3,8 +3,8 @@
 The files the voice keyword detector ("salvar", pt-BR) ships, where each comes from, its license and how it is
 built. **No file here goes into a store build before Victor approves this page** (plan Task 1, step 8). Victor
 approved `salvar-v2-rc4` as the app's Portuguese model on 2026-11-26. The Apache-2.0 notice of the embedding ships in
-the app's hidden licenses screen (Conta → tap the version line; `app/src/app/licenses.tsx`, `app/src/legal/notices.ts`,
-npm packages from `app/scripts/gen-licenses.js`).
+the app's hidden licenses screen (Conta → tap the version line; `app/src/app/licenses.tsx`, `app/src/legal/notices.ts`).
+Only Apache-2.0 notices are listed there for now; the npm packages' MIT notices are not.
 
 Built by `lab/tools/export_detector.py` (`fetch` → `build` → `mac`). Lab results: `2026-11-23-voice-trigger-field-test.md`.
 

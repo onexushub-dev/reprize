@@ -558,8 +558,6 @@ export const en = {
     title: 'Licenses',
     intro: 'Open-source software used by Reprize. Tap an item to see its license.',
     sectionVoice: 'Voice recognition',
-    sectionPackages: 'Libraries',
-    noText: 'The package ships no license text; the license named above applies.',
   },
   update: {
     title: 'New version available',

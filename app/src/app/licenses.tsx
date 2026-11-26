@@ -7,14 +7,14 @@ import { GlassButton } from '../components/GlassButton';
 import { BackIcon } from '../components/icons';
 import { useT } from '../i18n/useT';
 import { APACHE_2_0, VOICE_MODEL_NOTICES } from '../legal/notices';
-import { THIRD_PARTY } from '../legal/thirdParty';
 import { colors, fonts } from '../theme/tokens';
 
-type Entry = { key: string; name: string; detail: string; text: string | null };
+type Entry = { key: string; name: string; detail: string; text: string };
 
 /**
  * Open-source licenses (docs/voice-lab/MODELS.md: the voice model's Apache-2.0 notice must ship with the app), reached
- * only by tapping the version line at the bottom of Conta. Each entry opens its license text on tap.
+ * only by tapping the version line at the bottom of Conta. Each entry opens its license text on tap. Only the Apache-2.0
+ * notices for now (Victor, 2026-11-26); the npm packages' MIT notices are not listed.
  */
 export default function LicensesScreen() {
   const { t } = useT();
@@ -25,12 +25,6 @@ export default function LicensesScreen() {
     name: n.name,
     detail: n.license,
     text: `${n.text}\n\n${APACHE_2_0}`,
-  }));
-  const packages: Entry[] = THIRD_PARTY.map((p) => ({
-    key: `npm:${p.name}`,
-    name: p.name,
-    detail: `${p.license} · ${p.version}`,
-    text: p.text,
   }));
 
   const renderEntry = (e: Entry) => {
@@ -45,7 +39,7 @@ export default function LicensesScreen() {
       >
         <Text style={styles.name}>{e.name}</Text>
         <Text style={styles.detail}>{e.detail}</Text>
-        {expanded ? <Text style={styles.text}>{e.text !== null ? e.text : t('licenses.noText')}</Text> : null}
+        {expanded ? <Text style={styles.text}>{e.text}</Text> : null}
       </Pressable>
     );
   };
@@ -64,8 +58,6 @@ export default function LicensesScreen() {
         <Text style={styles.intro}>{t('licenses.intro')}</Text>
         <Text style={styles.section}>{t('licenses.sectionVoice')}</Text>
         {voice.map(renderEntry)}
-        <Text style={styles.section}>{t('licenses.sectionPackages')}</Text>
-        {packages.map(renderEntry)}
       </ScrollView>
     </SafeAreaView>
   );

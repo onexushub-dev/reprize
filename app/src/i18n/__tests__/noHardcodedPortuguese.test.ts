@@ -10,8 +10,6 @@ import ts from 'typescript';
 const SRC = path.join(__dirname, '..', '..');
 const SKIP_DIRS = new Set(['__tests__', 'locales']);
 const ALLOWLIST = new Set([
-  // Third-party license texts, copied verbatim from node_modules by scripts/gen-licenses.js (not app copy).
-  'legal/thirdParty.ts',
   // Developer field-test screen for the camera module ("Not the product UI"), never linked from the app.
   'app/spike.tsx',
   // TEMP(diag-remote) (for the team only): the diagnostic log and its screen.

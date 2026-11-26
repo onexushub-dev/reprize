@@ -556,8 +556,6 @@ export const ptBR: Messages = {
     title: 'Licenças',
     intro: 'Software de código aberto usado pelo Reprize. Toque em um item para ver a licença.',
     sectionVoice: 'Reconhecimento de voz',
-    sectionPackages: 'Bibliotecas',
-    noText: 'O pacote não traz o texto da licença; vale a licença indicada acima.',
   },
   update: {
     title: 'Nova versão disponível',
