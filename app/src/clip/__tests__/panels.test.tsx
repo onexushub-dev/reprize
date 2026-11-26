@@ -28,7 +28,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
-const panel = (id: string) => EDIT_TOOLS.find((t) => t.id === id)!.Panel;
+const panel = (id: string) => EDIT_TOOLS.find((t) => t.id === id)!.Panel!;
 
 test('the tools, in order, with their names', () => {
   expect(EDIT_TOOLS.map((tool) => [tool.id, translate('pt-BR', tool.label)])).toEqual([
@@ -48,22 +48,6 @@ test('Velocidade has no description and stores the chosen speed', async () => {
   expect(screen.getByRole('button', { name: 'Velocidade 1x' }).props.accessibilityState).toMatchObject({ selected: true });
   await fireEvent.press(screen.getByRole('button', { name: 'Velocidade 2x' }));
   expect(c.setEdit).toHaveBeenCalledWith({ speed: 2 });
-});
-
-test('Som turns the sound off and on, and is off and locked at another speed', async () => {
-  const c = ctx();
-  const Panel = panel('sound');
-  const view = await render(<Panel ctx={c} />);
-  expect(screen.queryByText('Ative ou desative o som do clipe.')).toBeNull();
-  expect(screen.getByText('Com som')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: 'Som' }));
-  expect(c.setEdit).toHaveBeenCalledWith({ muted: true });
-  const fast = ctx({ edit: { ...readEdit(undefined), speed: 2 } });
-  await view.rerender(<Panel ctx={fast} />);
-  expect(screen.getByText('Sem som')).toBeTruthy();
-  expect(screen.getByText('Fora de 1x o vídeo sai sem som.')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: 'Som' }));
-  expect(fast.setEdit).not.toHaveBeenCalled();
 });
 
 test('Zoom shows the hand zoom and goes back to 1x', async () => {
@@ -200,17 +184,6 @@ test('not known: the sheet opens with nothing marked', async () => {
   }
 });
 
-test('on a free recording the sound works; the Pro pill (no sentence) says it does not leave the app', async () => {
-  const c = ctx({ plan: 'free' });
-  const Panel = panel('sound');
-  await render(<Panel ctx={c} />);
-  expect(screen.queryByText(/O som toca aqui no app/)).toBeNull();
-  expect(screen.getByLabelText('PRO')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: 'Som' }));
-  expect(c.setEdit).toHaveBeenCalledWith({ muted: true });
-  expect(c.unlock).not.toHaveBeenCalled();
-});
-
 test('on a free recording Jogadores works; the Pro pill (no note) says it does not leave the app', async () => {
   const c = ctx({ focus: 'on', plan: 'free', edit: { ...readEdit(undefined), framing: 'focus', focus: true } });
   const Panel = panel('focus');
@@ -242,12 +215,4 @@ describe('a received clip (2026-11-22): only the sound of a clip sent without it
     expect(screen.getByText('Bola')).toBeTruthy();
   });
 
-  test('sent without sound: the switch is off for good and says why', async () => {
-    const setEdit = jest.fn();
-    const Sound = panel('sound');
-    await render(<Sound ctx={ctx({ edit: { ...readEdit(undefined), muted: true }, setEdit, locks: { sound: true } })} />);
-    expect(screen.getByText('Quem enviou tirou o som deste clipe.')).toBeTruthy();
-    await fireEvent.press(screen.getByRole('button', { name: 'Som' }));
-    expect(setEdit).not.toHaveBeenCalled();
-  });
 });

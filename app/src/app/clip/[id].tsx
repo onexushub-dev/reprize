@@ -35,6 +35,7 @@ import { BallChip, type BallChipState } from '../../clip/BallChip';
 import { BallIntroSheet } from '../../clip/BallIntroSheet';
 import { ballContent, previewBox } from '../../clip/stage';
 import { type Rect as TileRect, takeOpening, tileRect, willOpenFromTile } from '../../clip/tileFrames';
+import { soundOf, soundTap } from '../../clip/soundToggle';
 import { ToolBar } from '../../clip/ToolBar';
 import { type BallUi, EDIT_TOOLS, type EditTool, type FocusUi, type ToolContext } from '../../clip/tools';
 import { WatchProgress } from '../../clip/WatchProgress';
@@ -50,7 +51,6 @@ import { knownShape, rememberShape } from '../../components/clipShape';
 import { useClipThumbnail } from '../../components/useClipThumbnail';
 import { useReduceMotion } from '../../components/useReduceMotion';
 import { VolumeHud } from '../../components/VolumeHud';
-import { VolumeManager } from 'react-native-volume-manager';
 import { sessionSummary, track as trackEvent } from '../../analytics';
 import { exportPlanOf } from '../../analytics/plans';
 import { askPhotos } from '../../share/askPhotos';
@@ -100,8 +100,6 @@ const POSTER_MAX_MS = 1500;
 let enterFrom: 1 | -1 | 0 = 0;
 /** Watch mode's controls hidden by a tap stay hidden on the next clip, as in Photos. */
 let chromeShown = true;
-/** Watch mode's mute (the player's own, not the clip's sound): kept from clip to clip, as in Photos. */
-let watchMuted = false;
 
 /** Loop back this much before the end of the cut: the last time update can land just short of it. */
 const LOOP_EARLY_S = 0.15;
@@ -123,6 +121,9 @@ const FOUND_MS = 2500;
 type Player = ReturnType<typeof useVideoPlayer>;
 
 /** Player settings live outside the component: the React Compiler forbids mutating a hook's return value. */
+/** How long the notice after a tap on the Som switch stays over the video. */
+const SOUND_NOTICE_MS = 1600;
+
 function applyPlayback(player: Player, speed: number, muted: boolean) {
   player.playbackRate = speed;
   player.muted = muted || speed !== 1;
@@ -314,32 +315,22 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const [zoomKey, setZoomKey] = useState(0);
   // Watch (clean, Salvar/Enviar) or edit (tool bar, Cancelar/Concluir); edit keeps what Cancelar puts back.
   const [mode, setMode] = useState<'watch' | 'edit'>('watch');
-  const [quietPlay, setQuietPlay] = useState(() => watchMuted);
-  // Muted with the player's button, a press of the phone's volume buttons gives the sound back (2026-11-21, as in Photos).
-  useEffect(() => {
-    if (!quietPlay) return;
-    let sub: { remove: () => void } | undefined;
-    try {
-      sub = VolumeManager.addVolumeListener(() => {
-        watchMuted = false;
-        setQuietPlay(false);
-      });
-    } catch {
-      // No volume module (web, tests without it): the button alone.
-    }
-    return () => {
-      if (sub !== undefined) sub.remove();
-    };
-  }, [quietPlay]);
 
   const snapshot = useRef<EditSnapshot | undefined>(undefined);
   // One report per tool per clip: flipping between tabs is browsing, not using.
   const reportedTools = useRef(new Set<string>());
   const [openTool, setOpenTool] = useState<ToolId>(lastTool);
+  // What a tap on the Som switch did, over the video for a moment: its icon has no words (2026-11-26).
+  const [soundNotice, setSoundNotice] = useState<{ key: MessageKey; n: number } | undefined>(undefined);
+  useEffect(() => {
+    if (soundNotice === undefined) return;
+    const hide = setTimeout(() => setSoundNotice(undefined), SOUND_NOTICE_MS);
+    return () => clearTimeout(hide);
+  }, [soundNotice]);
   // A finger held on the video in watch mode: 2x while it stays down.
   const [fast, setFast] = useState(false);
-  // The clip's own sound off (an edit), or the player muted while watching (2026-11-20).
-  const silent = soundOff || (mode === 'watch' && quietPlay);
+  // The clip plays with the sound its edit gives it: watching has no mute of its own (2026-11-26).
+  const silent = soundOff;
   // Watch mode: a tap on the video hides the controls, the next brings them back (2026-11-20, like Photos).
   const [chrome, setChromeState] = useState(() => chromeShown);
   const window = useWindowDimensions();
@@ -954,6 +945,15 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     leaveEdit();
   }
 
+  function toggleSound() {
+    const tap = soundTap(edit, locks);
+    if (tap.muted !== undefined) setEdit({ muted: tap.muted });
+    setSoundNotice((prev) => ({ key: tap.notice, n: (prev?.n ?? 0) + 1 }));
+    if (reportedTools.current.has(`${id}:sound`)) return;
+    reportedTools.current.add(`${id}:sound`);
+    trackEvent('clip_edit_tool_used', { tool: 'sound' });
+  }
+
   function pickTool(tool: ToolId) {
     setOpenTool(tool);
     rememberTool(tool);
@@ -1006,11 +1006,6 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
         () => leave(),
       );
     });
-  }
-
-  function toggleMute() {
-    watchMuted = !quietPlay;
-    setQuietPlay(watchMuted);
   }
 
   function toggleChrome() {
@@ -1326,7 +1321,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       setZoomKey((k) => k + 1);
     },
   };
-  const tool = (tools.find((t) => t.id === openTool) as EditTool | undefined) || tools[0];
+  // Som is a switch with no panel: the panel open stays the last one with a panel.
+  const tool = (tools.find((t) => t.id === openTool && t.Panel !== undefined) as EditTool | undefined) || tools[0];
 
   /** The export's frame as large as `area` allows, the video in it, the app mark over it. */
   function renderStage(area: { width: number; height: number }) {
@@ -1421,7 +1417,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
           renderStage={renderStage}
           onCancel={cancelEdit}
           onDone={leaveEdit}
-          panel={<tool.Panel ctx={ctx} />}
+          panel={tool.Panel === undefined ? null : <tool.Panel ctx={ctx} />}
+          notice={soundNotice === undefined ? undefined : t(soundNotice.key)}
           cut={
             <>
               <View style={styles.trimLabels}>
@@ -1458,7 +1455,15 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
               </View>
             </>
           }
-          toolBar={<ToolBar open={tool.id} focusOn={focusUi === 'on'} onOpen={pickTool} tools={tools} />}
+          toolBar={
+            <ToolBar
+              open={tool.id}
+              focusOn={focusUi === 'on'}
+              onOpen={pickTool}
+              tools={tools}
+              sound={{ on: soundOf(edit, locks), onToggle: toggleSound }}
+            />
+          }
         />
       ) : (
         <ClipWatch
@@ -1489,8 +1494,6 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
               onTogglePlay={togglePlay}
               onSeek={scrubTo}
               onSeekEnd={endScrub}
-              muted={silent}
-              onToggleMute={soundOff ? undefined : toggleMute}
             />
           }
           onEdit={() => enterEdit()}

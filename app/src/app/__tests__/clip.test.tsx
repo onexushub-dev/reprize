@@ -250,21 +250,11 @@ test('paused while watching, the disc in the middle plays again (2026-11-20)', a
   expect(screen.queryByTestId('paused-play')).toBeNull();
 });
 
-test('the mute at the end of the player silences the clip while watching, and only while watching (2026-11-20)', async () => {
+test('watching has no mute of its own: the clip plays with the sound its edit gives it (2026-11-26)', async () => {
   await open();
-  await pressAction('Silenciar');
-  expect(player.muted).toBe(true);
-  await pressAction('Ativar som');
+  expect(screen.queryByRole('button', { name: 'Silenciar' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Ativar som' })).toBeNull();
   expect(player.muted).toBe(false);
-});
-
-test('muted with the player\'s button, a press of the volume buttons gives the sound back (2026-11-21)', async () => {
-  await open();
-  await pressAction('Silenciar');
-  expect(player.muted).toBe(true);
-  await act(async () => jest.requireMock('react-native-volume-manager').__volume(0.7));
-  expect(player.muted).toBe(false);
-  expect(screen.getByRole('button', { name: 'Silenciar' })).toBeTruthy();
 });
 
 test('the volume buttons show the level over the clip, since iOS shows nothing here (2026-11-21)', async () => {
@@ -323,17 +313,36 @@ test('choosing a speed stores it on the clip', async () => {
   expect(repo.updateClip).toHaveBeenCalledWith('c1', { edit: { speed: 2, muted: false, framing: 'none' } });
 });
 
-test('toggling sound stores muted', async () => {
-  await openEdit('Som');
-  await fireEvent.press(screen.getByRole('button', { name: 'Som' }));
+test('the Sound tab turns the clip\'s sound off and on at once, its icon and a notice saying which (2026-11-26)', async () => {
+  await openEdit();
+  const sound = () => screen.getByRole('switch', { name: 'Som' });
+  expect(sound()).toBeChecked();
+  await fireEvent.press(sound());
   expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: true, framing: 'none' } });
+  expect(sound()).not.toBeChecked();
+  expect(screen.getByTestId('sound-icon-off')).toBeTruthy();
+  expect(screen.getByText('Som desligado')).toBeTruthy();
+  await fireEvent.press(sound());
+  expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'none' } });
+  expect(screen.getByTestId('sound-icon-on')).toBeTruthy();
+  expect(screen.getByText('Som ligado')).toBeTruthy();
 });
 
-test('at any speed but 1x the sound shows as off and cannot be turned on', async () => {
+test('the Sound tab opens no panel: the panel open before stays', async () => {
+  await openEdit('Velocidade');
+  await fireEvent.press(screen.getByRole('switch', { name: 'Som' }));
+  expect(screen.getByRole('button', { name: 'Velocidade 2x' })).toBeTruthy();
+  expect(screen.queryByText('Com som')).toBeNull();
+});
+
+test('at any speed but 1x the sound shows as off, and a tap only says why', async () => {
   __setClip({ ...base, edit: { speed: 1.5, muted: false } });
-  await openEdit('Som');
-  expect(screen.getByRole('button', { name: 'Som' })).toBeDisabled();
-  expect(screen.getByText('Sem som')).toBeTruthy();
+  await openEdit();
+  repo.updateClip.mockClear();
+  expect(screen.getByRole('switch', { name: 'Som' })).not.toBeChecked();
+  await fireEvent.press(screen.getByRole('switch', { name: 'Som' }));
+  expect(repo.updateClip).not.toHaveBeenCalled();
+  expect(screen.getByText('Fora da velocidade 1x o clipe fica sem som.')).toBeTruthy();
 });
 
 test('a clip saved with the old slow motion switch opens at 0.5x', async () => {
@@ -617,10 +626,10 @@ describe('watch and edit', () => {
     await openEdit();
     expect(screen.queryByRole('button', { name: 'Compartilhar' })).toBeNull();
     expect(tab(/^Foco/).props.accessibilityState).toMatchObject({ selected: true });
-    await act(async () => fireEvent.press(tab(/^Som/)));
+    await act(async () => fireEvent.press(tab(/^Zoom/)));
     await pressAction('Concluir');
     await pressAction('Editar');
-    expect(tab(/^Som/).props.accessibilityState).toMatchObject({ selected: true });
+    expect(tab(/^Zoom/).props.accessibilityState).toMatchObject({ selected: true });
   });
 
   test('Cancelar puts the clip back as it was when editing began', async () => {
@@ -1246,11 +1255,11 @@ describe('analytics', () => {
 
   test('opening the same tool twice on one clip reports it once', async () => {
     await openEdit('Velocidade');
-    await act(async () => fireEvent.press(screen.getByRole('tab', { name: /^Som/ })));
+    await act(async () => fireEvent.press(screen.getByRole('tab', { name: /^Zoom/ })));
     await act(async () => fireEvent.press(screen.getByRole('tab', { name: /^Velocidade/ })));
     expect(events()).toEqual([
       ['clip_edit_tool_used', { tool: 'speed' }],
-      ['clip_edit_tool_used', { tool: 'sound' }],
+      ['clip_edit_tool_used', { tool: 'zoom' }],
     ]);
   });
 

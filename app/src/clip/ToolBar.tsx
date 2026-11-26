@@ -1,5 +1,6 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { MutedIcon, SoundIcon } from '../components/icons';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
 import type { ToolId } from './editSession';
@@ -11,10 +12,13 @@ export function ToolBar({
   focusOn,
   onOpen,
   tools = EDIT_TOOLS,
+  sound,
 }: {
   open: ToolId;
   focusOn: boolean;
   onOpen: (id: ToolId) => void;
+  /** Som is a switch, not a panel (2026-11-26): whether the clip has sound now, and the tap. */
+  sound: { on: boolean; onToggle: () => void };
   /** The tools this phone has (no Foco where Modo Foco cannot run). */
   tools?: EditTool[];
 }) {
@@ -22,6 +26,27 @@ export function ToolBar({
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bar}>
       {tools.map((tool) => {
+        if (tool.Panel === undefined) {
+          // The switch: its icon shows the sound the clip has now; never amber, as it opens nothing.
+          return (
+            <Pressable
+              key={tool.id}
+              accessibilityRole="switch"
+              accessibilityLabel={t(tool.label)}
+              accessibilityState={{ checked: sound.on }}
+              onPress={sound.onToggle}
+              style={styles.tool}>
+              <View style={styles.icon}>
+                {sound.on ? (
+                  <View testID="sound-icon-on"><SoundIcon color={colors.text} /></View>
+                ) : (
+                  <View testID="sound-icon-off"><MutedIcon color={colors.text} /></View>
+                )}
+              </View>
+              <Text style={styles.label}>{t(tool.label)}</Text>
+            </Pressable>
+          );
+        }
         const selected = tool.id === open;
         const marked = tool.id === 'focus' && focusOn;
         return (

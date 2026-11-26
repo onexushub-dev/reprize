@@ -9,7 +9,6 @@ import type { Edit, Framing } from '../share/editing';
 import type { ToolId } from './editSession';
 import { FocusPanel } from './panels/FocusPanel';
 import { RotatePanel } from './panels/RotatePanel';
-import { SoundPanel } from './panels/SoundPanel';
 import { SpeedPanel } from './panels/SpeedPanel';
 import { ZoomPanel } from './panels/ZoomPanel';
 
@@ -62,14 +61,15 @@ export type EditTool = {
   /** The catalog key of the tool's name. */
   label: MessageKey;
   icon: (color: string) => ReactNode;
-  Panel: (props: { ctx: ToolContext }) => ReactNode;
+  /** What the tool opens over the cut; none for a switch (Som: a tap turns the sound off or on, 2026-11-26). */
+  Panel?: (props: { ctx: ToolContext }) => ReactNode;
 };
 
 /** The edit mode's tool bar, in order. A new edit is one more entry here and its panel. */
 export const EDIT_TOOLS: EditTool[] = [
   { id: 'focus', label: 'clip.toolFocus', icon: (color) => <FocusIcon color={color} />, Panel: FocusPanel },
   { id: 'speed', label: 'clip.toolSpeed', icon: (color) => <SpeedIcon color={color} />, Panel: SpeedPanel },
-  { id: 'sound', label: 'clip.sound', icon: (color) => <SoundIcon color={color} />, Panel: SoundPanel },
+  { id: 'sound', label: 'clip.sound', icon: (color) => <SoundIcon color={color} /> },
   { id: 'zoom', label: 'clip.toolZoom', icon: (color) => <ZoomIcon color={color} />, Panel: ZoomPanel },
   { id: 'rotate', label: 'clip.toolRotate', icon: (color) => <RotateIcon color={color} size={22} />, Panel: RotatePanel },
 ];

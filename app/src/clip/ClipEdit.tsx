@@ -15,10 +15,12 @@ type Props = {
   /** Play + trim bar, always shown while editing. */
   cut: ReactNode;
   toolBar: ReactNode;
+  /** A word over the video for a moment (what the Som switch did, 2026-11-26). */
+  notice?: string;
 };
 
 /** Edit mode: Cancelar · EDITAR · Concluir, the video, the open tool's panel, the cut and the tool bar. */
-export function ClipEdit({ renderStage, onCancel, onDone, panel, cut, toolBar }: Props) {
+export function ClipEdit({ renderStage, onCancel, onDone, panel, cut, toolBar, notice }: Props) {
   const { t } = useT();
   const window = useWindowDimensions();
   // Until the stage is measured, about the space it gets; the video shows once it is measured, so it never jumps from
@@ -43,6 +45,13 @@ export function ClipEdit({ renderStage, onCancel, onDone, panel, cut, toolBar }:
           setMeasured(true);
         }}>
         <View style={[styles.fill, !measured && styles.hidden]}>{renderStage(area)}</View>
+        {notice === undefined ? null : (
+          <View pointerEvents="none" style={styles.noticeWrap}>
+            <Text testID="edit-notice" accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.notice}>
+              {notice}
+            </Text>
+          </View>
+        )}
       </View>
       <View style={styles.panel}>{panel}</View>
       <View style={styles.cut}>{cut}</View>
@@ -52,6 +61,19 @@ export function ClipEdit({ renderStage, onCancel, onDone, panel, cut, toolBar }:
 }
 
 const styles = StyleSheet.create({
+  // Over the video's lower part, like the camera's battery-saving notice.
+  noticeWrap: { position: 'absolute', left: 0, right: 0, bottom: 16, alignItems: 'center' },
+  notice: {
+    overflow: 'hidden',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    backgroundColor: 'rgba(12,12,12,0.82)',
+    color: colors.text,
+    fontFamily: fonts.bodyBold,
+    fontSize: 15,
+    textAlign: 'center',
+  },
   root: { flex: 1, backgroundColor: colors.ground },
   top: {
     height: 52,
