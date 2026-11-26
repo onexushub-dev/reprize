@@ -8,15 +8,19 @@ import UIKit
 enum BenchMode: String, CaseIterable, Identifiable {
   case acerto = "Acerto"
   case ruido = "Ruído"
+  case parecidas = "Parecidas"
   case consumo = "Consumo"
   var id: String { rawValue }
   var kind: String {
     switch self {
     case .acerto: return "accuracy"
     case .ruido: return "noise"
+    case .parecidas: return "confusers"
     case .consumo: return "perf"
     }
   }
+  /// Modes where who speaks matters (required to start).
+  var needsSpeaker: Bool { self == .acerto || self == .parecidas }
 }
 
 enum PerfChoice: String, CaseIterable, Identifiable {
@@ -36,6 +40,9 @@ enum PerfChoice: String, CaseIterable, Identifiable {
 /// One VoiceBench session at a time: which engines listen, the counters, the minute-by-minute readings, the files.
 final class BenchModel: ObservableObject {
   static let distances = [3, 5, 10, 12]
+  /// Read in Parecidas, 5 times each, never "salvar" (bench-protocol.md). Every firing there is a confusion.
+  static let confusers = ["salvando", "salvamento", "salva-me", "salvador", "salvação", "salva-vidas", "salvei", "salvou",
+                          "salvo", "salve", "salva", "salto", "saltar", "sacar", "salada"]
 
   @Published var mode: BenchMode = .acerto
   @Published var distance = 3
@@ -54,6 +61,8 @@ final class BenchModel: ObservableObject {
   @Published private(set) var sessions: [BenchSession] = []
   @Published private(set) var flashAtual = false
   @Published private(set) var flashNovo = false
+  /// The "Novo" model copied in by `voice_bench.py prepare` (salvar-v1, salvar-v2…).
+  let modelVersion = BenchModel.bundledModelVersion()
 
   private let capture = AudioCapture()
   private var dictation: DictationEngine?
@@ -102,7 +111,7 @@ final class BenchModel: ObservableObject {
   }
 
   /// Acerto needs a name, or its numbers can't be told apart later.
-  var canStart: Bool { mode != .acerto || !speaker.trimmingCharacters(in: .whitespaces).isEmpty }
+  var canStart: Bool { !mode.needsSpeaker || !speaker.trimmingCharacters(in: .whitespaces).isEmpty }
 
   private var usesDictation: Bool { mode != .consumo || perfChoice == .atual }
   private var usesKeyword: Bool { mode != .consumo || perfChoice == .novo }
@@ -178,12 +187,12 @@ final class BenchModel: ObservableObject {
       kind: activeMode.kind,
       engines: (dictation != nil ? ["dictation"] : []) + (keyword != nil ? ["keyword"] : []),
       perfEngine: activeMode == .consumo ? perfChoice.key : nil,
-      distance: activeMode == .acerto ? distance : nil,
-      speaker: activeMode == .acerto ? speaker.trimmingCharacters(in: .whitespaces) : nil,
+      distance: activeMode.needsSpeaker ? distance : nil,
+      speaker: activeMode.needsSpeaker ? speaker.trimmingCharacters(in: .whitespaces) : nil,
       expected: activeMode == .acerto ? expected : nil,
       device: SessionStore.deviceModel,
       ios: UIDevice.current.systemVersion,
-      model: keyword?.config.version ?? "salvar-v1",
+      model: modelVersion,
       start: ISO8601DateFormatter().string(from: startDate),
       durationSec: elapsed,
       events: events,
@@ -247,6 +256,15 @@ final class BenchModel: ObservableObject {
       lastStepSeconds = s.stepSeconds
     }
     return PerfSampler.row(at: t, keywordStepMs: stepMs)
+  }
+
+  static func bundledModelVersion() -> String {
+    let url = Bundle.main.url(forResource: "detector", withExtension: "json")
+      ?? Bundle.main.url(forResource: "detector", withExtension: "json", subdirectory: "Data")
+    guard let url, let data = try? Data(contentsOf: url),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let version = json["version"] as? String else { return "?" }
+    return version
   }
 
   /// The model files copied into the app by `voice_bench.py prepare` (bundle root, or Data/).

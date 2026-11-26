@@ -4,13 +4,14 @@ O VoiceBench compara, no mesmo microfone do iPhone, o gatilho de voz de hoje (**
 detector novo de "salvar" (**Novo**, o mesmo código que vai para o Reprize). O resultado decide se o detector novo entra
 no app (fase 2 do plano `docs/superpowers/plans/2026-11-24-voice-keyword-detector.md`).
 
-**Critério para levar ao app:** as vozes de mulheres adultas chegam ao nível do Victor até 10 m, sem alarmes falsos a
-mais que o Atual no ruído de jogo. Mais de 10 m é bônus.
+**Critério para levar ao app (Victor, 2026-11-25):** **até 5 m, todo "salvar" é ouvido** (homens e mulheres, sem vento
+forte); **até 10 m, a maioria**; **alarme falso é o que não pode acontecer** (jogo, conversa e palavras parecidas), então
+na dúvida o modelo fica mais rígido. Mais de 10 m não é preciso.
 
 ## Antes de sair de casa
 
 - [ ] iPhone com o VoiceBench instalado (Xcode → ⌘R) e bateria acima de 80%.
-- [ ] Trena ou passos contados para 3, 5, 10 e 12 m.
+- [ ] Trena ou passos contados para 3, 5 e 10 m.
 - [ ] Suporte para o celular na mesma posição em que ele fica no jogo (atrás da linha de fundo, deitado, ~1 m de altura).
 - [ ] Pelo menos 2 mulheres adultas além do Victor.
 
@@ -24,7 +25,7 @@ Num dia calmo (sem vento forte), com o celular no suporte:
    **Espere uns 3 s entre uma e outra** (o Atual ignora um segundo "salvar" que vem antes de 2 s).
 4. Ninguém mais fala "salvar" durante a sessão. **Parar.**
 
-Uma sessão por pessoa e distância: 3 m, 5 m, 10 m e 12 m. São 4 sessões por pessoa, ~1 min cada.
+Uma sessão por pessoa e distância: 3 m, 5 m e 10 m. São 3 sessões por pessoa, ~1 min cada. Anote se estava ventando.
 
 Os contadores mostram na hora: **Atual** (laranja) e **Novo** (azul), cada um com seu som.
 
@@ -35,9 +36,20 @@ Os contadores mostram na hora: **Atual** (laranja) e **Novo** (azul), cada um co
 
 Cada número que subir aqui é um alarme falso.
 
-**Palavras parecidas (2 min, pode ser em casa):** outra sessão de **Ruído**, com alguém a ~3 m dizendo em voz normal,
-com calma, só palavras parecidas: "salva", "salvei", "salvou", "salve", "salvo", "saiu", "sacar", "salada" — várias
-vezes cada, **nunca "salvar"**. Qualquer disparo aqui é o motor confundindo a palavra.
+## 2b. Parecidas — palavras parecidas com "salvar" (~3 min por pessoa, pode ser em casa)
+
+Mede se o motor confunde "salvar" com palavras parecidas (o Novo v1 dispara com "salvando", "salvamento" e
+"salva-me", visto no crossfit em 2026-11-25).
+
+1. Em **Parecidas**, escolha **3 m** e escreva **quem fala**. **Iniciar.**
+2. A pessoa lê a lista que aparece na tela, **cada palavra 5 vezes**, ~2 s entre elas, **nunca "salvar"**:
+   salvando · salvamento · salva-me · salvador · salvação · salva-vidas · salvei · salvou · salvo · salve · salva ·
+   salto · saltar · sacar · salada
+3. **Parar.**
+
+Todo disparo aqui é confusão. Faça com cada pessoa (Victor e as mulheres): essas gravações também viram exemplos de
+"não é salvar" para treinar a próxima versão do modelo (salvar-v2), e o relatório mostra uma tabela à parte, fora da
+conta de alarmes do jogo.
 
 ## 3. Consumo — um motor por vez
 

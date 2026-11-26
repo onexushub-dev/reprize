@@ -39,3 +39,25 @@ Written by `export_detector.py`.
 | classifier.bin | b53b77e6c78b38eea995f9f9e1262d5932918d8bed19221a6699c2832943f467 |
 | voice_embedding.tflite (Android) | c0aea21eb84a4ce90a08c870da41b7a7173b45269e6a3207c71d67c40f3a59d8 |
 | voice_embedding.mlmodelc (iOS) | 81fcaf363202273c330092411f5ae1919a5b154b51a91f1895ae6742065b5c33 |
+
+## salvar-v2-rc1 (the app's model behind the Diagnóstico switch, 2026-11-25)
+
+Same pipeline, embedding and filterbank as `salvar-v1`; a new classifier (1536 → 256 ReLU → 1 logistic) that waits
+for the word to end (~0.25 s later than v1) and was also trained on public speech. Built from
+`lab/tools/models/clf_v8_h256_s1.pkl` (`lab/tools/exp_v8.py`); compared with v1 in `lab/tools/eval_range.py`.
+iOS only for now (`ios/Models/voice/salvar-v2-rc1/`).
+
+Training data (used only to train; no audio from any of them ships in the app, only the learned weights):
+
+| Data | Used for | License |
+|---|---|---|
+| Reprize's own recordings (Victor, Eliane, Yasmin, Sara; courts, crossfit, home) | "salvar", noise and similar words | Ours, with the speakers' consent |
+| MLCommons Multilingual Spoken Words Corpus, Portuguese (Mazumder et al., 2021) | "salvar" and similar words (salvador, saltar, salto…) | CC BY 4.0 (credit given here) |
+| Mozilla Common Voice 27.0, Portuguese | similar words and everyday speech from 3,600+ speakers | CC0; not redistributed; no attempt to identify speakers |
+| Piper TTS pt_BR voices cadu, jeff, faber (datasets CC0) and edresson (TTS-Portuguese-Corpus, CC BY 4.0) | synthetic "salvar" and similar words | Piper: MIT; voices as stated |
+
+| File (salvar-v2-rc1) | sha256 |
+|---|---|
+| salvar-v2-rc1/detector.json | fa1abe941f17004099d483d9019c90fd691e868ef6b934dcc64b07d89ef73700 |
+| salvar-v2-rc1/mel_filterbank.bin | 47011319e6e5feff36d6c53986b58062c159348ba48102e36cc02f0a94666ac5 |
+| salvar-v2-rc1/classifier.bin | 0141c43863fc2497006d27234a0d12b407ed96171249dcef640dd31399f8a15a |

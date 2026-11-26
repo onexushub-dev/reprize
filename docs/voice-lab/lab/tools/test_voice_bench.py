@@ -93,6 +93,21 @@ def test_cpu_above_microphone():
     assert vb.above({"engine": "none", "cpuSecPerMin": 3.6}, 3.6) == "—"
 
 
+def test_cuts_leave_stretches_out_of_noise_counts():
+    s = session("noise", duration=2116.0)
+    s["events"] = [{"engine": "keyword", "t": 367.3}] + [{"engine": "keyword", "t": t} for t in (1651.9, 1730.1, 1747.6)]
+    named, lines = vb.apply_cuts([("20261125-062444-noise", s)],
+                                 {"20261125-062444-noise": [{"from": 1630, "to": 1760, "why": "palavras parecidas"}]})
+    assert vb.noise_rows([named[0][1]]) == [(33.1, 0, 0.0, 1, 1.81)]
+    assert lines == ["20261125-062444-noise (Ruído): 27:10–29:20 left out (palavras parecidas); Atual 0, Novo 3 events there"]
+
+
+def test_confusers_counted_per_speaker_and_kept_out_of_noise():
+    s = session("confusers", ["keyword", "keyword", "dictation"], duration=180.0, speaker="Eliane", distance=3)
+    assert vb.confuser_rows([s]) == [("Eliane", 3, 3.0, 1, 2)]
+    assert vb.noise_rows([s]) == []
+
+
 def test_loads_zips_and_folders_once():
     with tempfile.TemporaryDirectory() as d:
         s = session("noise", duration=60.0)

@@ -40,6 +40,16 @@ struct ContentView: View {
           case .ruido:
             Text("Jogo normal, sem ninguém falar \"salvar\".")
               .foregroundStyle(.secondary)
+          case .parecidas:
+            Picker("Distância", selection: $model.distance) {
+              ForEach(BenchModel.distances, id: \.self) { Text("\($0) m").tag($0) }
+            }
+            .pickerStyle(.segmented)
+            TextField("Quem fala", text: $model.speaker)
+              .textInputAutocapitalization(.words)
+            Text("Cada palavra 5 vezes, ~2 s entre elas. Nunca \"salvar\": todo disparo aqui é confusão.")
+              .font(.footnote)
+              .foregroundStyle(.secondary)
           case .consumo:
             Picker("Motor", selection: $model.perfChoice) {
               ForEach(PerfChoice.allCases) { Text($0.rawValue).tag($0) }
@@ -57,6 +67,13 @@ struct ContentView: View {
         }
         .disabled(model.running)
 
+        if model.mode == .parecidas {
+          Section("Palavras (5× cada)") {
+            Text(BenchModel.confusers.joined(separator: " · "))
+              .font(.title3)
+          }
+        }
+
         Section {
           HStack(spacing: 12) {
             counter("Atual", model.atual, flash: model.flashAtual, color: .orange)
@@ -65,6 +82,10 @@ struct ContentView: View {
           .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
           Text(clock)
             .font(.system(.title2, design: .monospaced))
+            .frame(maxWidth: .infinity)
+          Text("Novo = \(model.modelVersion)")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
           Button(model.running ? "Parar" : "Iniciar") {
             if model.running { model.stop() } else { model.start() }
@@ -152,6 +173,7 @@ struct ContentView: View {
     switch s.kind {
     case "accuracy": return "Acerto · \(s.speaker ?? "?") · \(s.distance ?? 0) m"
     case "noise": return "Ruído"
+    case "confusers": return "Parecidas · \(s.speaker ?? "?") · \(s.distance ?? 0) m"
     default: return "Consumo · \(s.perfEngine ?? "?")"
     }
   }

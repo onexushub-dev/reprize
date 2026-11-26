@@ -4,7 +4,7 @@ import UIKit
 /// One session's file (`Documents/<yyyyMMdd-HHmmss>-<kind>.json`, next to its .m4a). Read by
 /// docs/voice-lab/lab/tools/voice_bench.py `results`. No transcripts are stored.
 struct BenchSession: Codable {
-  var kind: String              // "accuracy" | "noise" | "perf"
+  var kind: String              // "accuracy" | "noise" | "confusers" | "perf"
   var engines: [String]         // "dictation" and/or "keyword"
   var perfEngine: String?       // perf runs: "none" | "dictation" | "keyword"
   var distance: Int?

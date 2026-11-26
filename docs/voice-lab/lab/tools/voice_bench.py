@@ -6,14 +6,17 @@ VoiceBench is a throwaway iPhone app, separate from Reprize, that runs today's d
 consumption runs with one engine at a time. How to run a session: docs/voice-lab/bench-protocol.md.
 
     # on the Mac, before building the app in Xcode: model files -> ios-bench/VoiceBench/Data/ (not in git)
-    python3 docs/voice-lab/lab/tools/voice_bench.py prepare
+    python3 docs/voice-lab/lab/tools/voice_bench.py prepare [--model docs/voice-lab/lab/tools/build/salvar-v2]
     # after a run: the .zip exported by the app (AirDrop) goes in docs/voice-lab/bench/, then
     python3 docs/voice-lab/lab/tools/voice_bench.py results docs/voice-lab/bench [--md out.md]
 
 `results` reads every session .json in the folder, its subfolders and its .zip files (each session once; folders whose
-name starts with "_", like _descartadas/, are skipped):
+name starts with "_", like _descartadas/, are skipped; stretches listed in the folder's cuts.json, such as words said on
+purpose during a noise run, are left out of the counts and listed at the end):
   - accuracy: per speaker and distance, each engine's events counted up to the expected number, extras as "(+n)";
   - noise: each engine's false triggers per hour;
+  - confusers ("Parecidas"): firings per speaker on similar words (nobody says "salvar" there);
+  - with sessions from more than one model ("Novo" = salvar-v1, salvar-v2…), one set of tables per model;
   - perf: per engine (the microphone-only run first, as the baseline), battery drop per hour, minutes in each
     thermal state, CPU seconds per minute and the new engine's mean step time.
 The counts trust the app's events. To check one session by ear, its .m4a sits next to its .json; the events' `t` is
@@ -68,27 +71,34 @@ def sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def cmd_prepare(_a) -> int:
-    missing = [f for f in MODEL_FILES if not os.path.isfile(os.path.join(MODEL_DIR, f))]
+def cmd_prepare(a) -> int:
+    """The app's shipped model by default (checked against MODELS.md), or `--model <folder>` for a candidate such as
+    salvar-v2 (detector.json, mel_filterbank.bin, classifier.bin; never touches the app's own files)."""
+    model_dir = os.path.abspath(a.model) if a.model else MODEL_DIR
+    missing = [f for f in MODEL_FILES if not os.path.isfile(os.path.join(model_dir, f))]
     if missing:
-        print(f"Faltam {', '.join(missing)} em {MODEL_DIR}: rode export_detector.py build", file=sys.stderr)
+        print(f"Faltam {', '.join(missing)} em {model_dir}: rode export_detector.py build", file=sys.stderr)
         return 1
     if not os.path.isdir(EMBEDDING):
         print(f"Falta {EMBEDDING}: rode export_detector.py build", file=sys.stderr)
         return 1
-    known = expected_sha256()
-    for f in MODEL_FILES:
-        got = sha256(os.path.join(MODEL_DIR, f))
-        if known.get(f) != got:
-            print(f"{f} não bate com o sha256 de MODELS.md ({got[:12]}…): rode export_detector.py build", file=sys.stderr)
-            return 1
+    if not a.model:
+        known = expected_sha256()
+        for f in MODEL_FILES:
+            got = sha256(os.path.join(model_dir, f))
+            if known.get(f) != got:
+                print(f"{f} não bate com o sha256 de MODELS.md ({got[:12]}…): rode export_detector.py build",
+                      file=sys.stderr)
+                return 1
+    with open(os.path.join(model_dir, "detector.json"), encoding="utf-8") as f:
+        version = json.load(f).get("version", "?")
     if os.path.isdir(DATA):
         shutil.rmtree(DATA)
     os.makedirs(DATA)
     for f in MODEL_FILES:
-        shutil.copy2(os.path.join(MODEL_DIR, f), os.path.join(DATA, f))
+        shutil.copy2(os.path.join(model_dir, f), os.path.join(DATA, f))
     shutil.copytree(EMBEDDING, os.path.join(DATA, "voice_embedding.mlpackage"))
-    print(f"Pronto: {os.path.normpath(DATA)}")
+    print(f"Pronto: {os.path.normpath(DATA)} (modelo {version})")
     for name in sorted(os.listdir(DATA)):
         print(f"  {name}")
     print("Agora abra docs/voice-lab/lab/ios-bench/VoiceBench.xcodeproj no Xcode e rode no iPhone.")
@@ -112,7 +122,7 @@ def load_sessions(folder: str) -> list[tuple[str, dict]]:
             data = json.loads(read())
         except (ValueError, UnicodeDecodeError):
             return
-        if isinstance(data, dict) and data.get("kind") in ("accuracy", "noise", "perf"):
+        if isinstance(data, dict) and data.get("kind") in ("accuracy", "noise", "confusers", "perf"):
             found[name] = data
 
     for dirpath, dirs, files in os.walk(folder):
@@ -126,6 +136,33 @@ def load_sessions(folder: str) -> list[tuple[str, dict]]:
             else:
                 add(path, lambda p=path: open(p, "rb").read())
     return sorted(found.items())
+
+
+def apply_cuts(named: list[tuple[str, dict]], cuts: dict) -> tuple[list[tuple[str, dict]], list[str]]:
+    """Leave stretches out of the counts, from the folder's cuts.json: {"<session>": [{"from": s, "to": s, "why": ""}]}.
+    Events inside a stretch are dropped and the stretch's seconds come off durationSec. Returns the sessions and one
+    line per cut stretch (with how many events it held per engine)."""
+    out, lines = [], []
+    for name, s in named:
+        stretches = cuts.get(name) or []
+        if not stretches:
+            out.append((name, s))
+            continue
+        s = dict(s)
+        inside = lambda t: any(c["from"] <= t <= c["to"] for c in stretches)
+        dropped = [e for e in s.get("events", []) if inside(e["t"])]
+        s["events"] = [e for e in s.get("events", []) if not inside(e["t"])]
+        s["durationSec"] = float(s.get("durationSec") or 0) - sum(c["to"] - c["from"] for c in stretches)
+        for c in stretches:
+            n = {e: sum(1 for d in dropped if d.get("engine") == e and c["from"] <= d["t"] <= c["to"]) for e in ENGINES}
+            lines.append(f"{name} ({session_label(s)}): {clock(c['from'])}–{clock(c['to'])} left out ({c.get('why', '')}); "
+                         f"Atual {n['dictation']}, Novo {n['keyword']} events there")
+        out.append((name, s))
+    return out, lines
+
+
+def clock(t: float) -> str:
+    return f"{int(t // 60)}:{int(t % 60):02d}"
 
 
 def count(session: dict, engine: str) -> int:
@@ -150,6 +187,21 @@ def accuracy_rows(sessions: list[dict]) -> list[tuple[str, int, str, str]]:
     text = lambda hits, extra, expected: f"{hits}/{expected}" + (f" (+{extra})" if extra else "")
     return [(speaker, distance, text(atual, atual_x, expected), text(novo, novo_x, expected))
             for (speaker, distance), (expected, atual, atual_x, novo, novo_x) in sorted(groups.items())]
+
+
+def confuser_rows(sessions: list[dict]) -> list[tuple[str, int, float, int, int]]:
+    """(speaker, distance, minutes, Atual firings, Novo firings) per speaker and distance. Nobody says "salvar" in
+    these sessions, so every firing is a confusion with a similar word."""
+    groups: dict[tuple[str, int], list[float]] = {}
+    for s in sessions:
+        if s.get("kind") != "confusers":
+            continue
+        key = ((s.get("speaker") or "").strip() or "?", int(s.get("distance") or 0))
+        g = groups.setdefault(key, [0.0, 0, 0])
+        g[0] += float(s.get("durationSec") or 0) / 60
+        g[1] += count(s, "dictation")
+        g[2] += count(s, "keyword")
+    return [(spk, d, round(m, 1), int(a), int(n)) for (spk, d), (m, a, n) in sorted(groups.items())]
 
 
 def noise_rows(sessions: list[dict]) -> list[tuple[float, int, float, int, float]]:
@@ -206,6 +258,8 @@ def session_label(s: dict) -> str:
         return f"Acerto {(s.get('speaker') or '').strip() or '?'} {s.get('distance')} m"
     if s.get("kind") == "noise":
         return "Ruído"
+    if s.get("kind") == "confusers":
+        return f"Parecidas {(s.get('speaker') or '').strip() or '?'}"
     return RUN_NAMES.get(s.get("perfEngine") or "none", "Consumo")
 
 
@@ -215,7 +269,7 @@ def issue_lines(named: list[tuple[str, dict]]) -> list[str]:
     for name, s in named:
         issues = s.get("issues") or []
         if issues:
-            text = "; ".join(f"{int(i['t'] // 60)}:{int(i['t'] % 60):02d} {i['what']}" for i in issues)
+            text = "; ".join(f"{clock(i['t'])} {i['what']}" for i in issues)
             lines.append(f"{name} ({session_label(s)}): {text}")
     return lines
 
@@ -256,6 +310,17 @@ def markdown(sessions: list[dict], named: list[tuple[str, dict]] | None = None) 
     else:
         out.append("No noise sessions.")
     out.append("")
+    out.append("### Similar words (\"Parecidas\": nobody says \"salvar\", every firing is a confusion)")
+    out.append("")
+    conf = confuser_rows(sessions)
+    if conf:
+        out.append("| Speaker | Distance | Minutes | Atual | Novo |")
+        out.append("|---|---|---|---|---|")
+        for speaker, distance, minutes, a_, n_ in conf:
+            out.append(f"| {speaker} | {distance} m | {minutes:g} | {a_} | {n_} |")
+    else:
+        out.append("No similar-word sessions.")
+    out.append("")
     out.append("### Consumption (one engine at a time)")
     out.append("")
     perf = perf_rows(sessions)
@@ -295,7 +360,22 @@ def cmd_results(a) -> int:
     if not loaded:
         print(f"Nenhuma sessão em {a.folder}", file=sys.stderr)
         return 1
-    text = markdown([s for _, s in loaded], loaded)
+    cuts_path = os.path.join(a.folder, "cuts.json")
+    cut_lines: list[str] = []
+    if os.path.isfile(cuts_path):
+        with open(cuts_path, encoding="utf-8") as f:
+            loaded, cut_lines = apply_cuts(loaded, json.load(f))
+    models = sorted({s.get("model", "?") for _, s in loaded if s.get("kind") != "perf" or s.get("perfEngine") == "keyword"})
+    if len(models) > 1:
+        parts = []
+        for model in models:
+            named = [(n, s) for n, s in loaded if s.get("model", "?") == model]
+            parts.append(f"## Novo = {model}\n\n" + markdown([s for _, s in named], named))
+        text = "\n".join(parts)
+    else:
+        text = markdown([s for _, s in loaded], loaded)
+    if cut_lines:
+        text += "\n### Left out of the counts (cuts.json)\n\n" + "".join(f"- {line}\n" for line in cut_lines)
     print(text)
     if a.md:
         with open(a.md, "w", encoding="utf-8") as f:
@@ -307,7 +387,9 @@ def cmd_results(a) -> int:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("prepare", help="copy the model files into ios-bench/VoiceBench/Data").set_defaults(fn=cmd_prepare)
+    pr = sub.add_parser("prepare", help="copy the model files into ios-bench/VoiceBench/Data")
+    pr.add_argument("--model", help="a candidate model folder instead of the app's (e.g. lab/tools/build/salvar-v2)")
+    pr.set_defaults(fn=cmd_prepare)
     r = sub.add_parser("results", help="tables from the app's exported sessions")
     r.add_argument("folder", help="folder with session .json files and/or the app's exported .zip files")
     r.add_argument("--md", help="also write the tables to this Markdown file")
