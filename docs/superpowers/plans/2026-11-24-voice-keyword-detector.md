@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Prove the dedicated "salvar" detector against today's trigger in a test app (VoiceBench, Phase 1), then put it in Reprize for Portuguese (iOS + Android, camera and remote phones; Phase 2). English stays on today's engine.
+**Goal:** Prove the dedicated "salvar" detector against today's trigger in a test app (VoiceBench, Phase 1), then put it in Reprize behind a Diagnóstico switch, iPhone only, for Portuguese on the camera and remote phones (Phase 2, revised 2026-11-25). English stays on today's engine; Android comes after the iPhone field validation.
 
 **Architecture:** One pipeline on both platforms: 16 kHz resample → mel frames (native) → speech embedding (Core ML / LiteRT model) → small MLP classifier (weights file) → firing rule. The pure math (resampler, mel, classifier, rule, config) lives in the platform-free cores (`ReplayCore` in Swift, `core/` in Kotlin) and is pinned by one shared golden fixture. `VoiceTrigger` on each platform routes `pt-BR` to the new `KeywordDetector` and `en-US` to the old recognizer. The model files are produced by one export script from the lab.
 
@@ -15,7 +15,7 @@
 - pt-BR only. `en-US` keeps `SFSpeechRecognizer` (iOS) and ML Kit GenAI (Android) exactly as today.
 - Pipeline numbers: 16 000 Hz; samples scaled to int16 range (×32767); mel: frames of 512 every 160 (no padding), periodic Hann(400) at samples 56…455 of the 512, real FFT, power, 32-bin filterbank from `mel_filterbank.bin` (torchaudio slaney scale + slaney norm, 60–3800 Hz), `10·log10(max(p, 1e-10))`, **no top-dB floor** (Task 1 measured it changes no word count), then `/10 + 2`; embedding every 8 mel frames from the last 76; classifier on the last 16 embeddings; fire on 2 consecutive scores ≥ 0.95; refractory 1.5 s; the existing 2 s cooldown stays.
 - First classifier: `docs/voice-lab/lab/tools/models/clf_v4_M4.pkl` (1536 → 128 ReLU → 1 logistic).
-- Model folder version `salvar-v1`; all runtime numbers come from its `detector.json`, never from code constants.
+- Model folder version `salvar-v1` (Phase 1 and the golden tests); Phase 2 ships `salvar-v2-rc1` (`models/clf_v8_h256_s1.pkl`, 1536 → 256 ReLU → 1 logistic). All runtime numbers come from the folder's `detector.json`, never from code constants.
 - No audio leaves the phone; the recorded clip audio is never modified; the detector never blocks the capture/recorder thread.
 - Diagnóstico lines use the `voz:` prefix and never contain transcribed speech.
 - License gate: no model file ships until Victor signs off `MODELS.md` (Task 1). Project rule: free, commercial use allowed, no GPL/AGPL.
@@ -183,109 +183,61 @@
 - [ ] **Step 6: Field run and verdict.** Victor runs the protocol. `voice_bench.py results` → tables appended to `docs/voice-lab/2026-11-23-voice-trigger-field-test.md` ("VoiceBench" section). Victor decides whether Phase 2 starts.
 - [ ] **Commit point** (Victor).
 
-## Phase 2 — Integration into Reprize (starts after the VoiceBench verdict)
+## Phase 2 — In Reprize behind a Diagnóstico switch, iPhone only (revised 2026-11-25)
 
-### Task 6: iOS — `KeywordDetector` and routing in `VoiceTrigger`
+Spec: "Phase 2 revision". Store builds stay on dictation; builds with diagnostics get "Gatilho de voz: Ditado | Modelo".
+The model is `salvar-v2-rc1` (`docs/voice-lab/lab/tools/build/salvar-v2-rc1/`, from `models/clf_v8_h256_s1.pkl`).
+Permissions, onboarding and setup texts don't change in this phase.
+
+### Task 6: iOS — model files, engine choice and routing in `VoiceTrigger`
 
 **Files:**
-- Create: `ios/Core/Sources/ReplayCore/Voice/VoiceEngine.swift`
-- Modify: `app/modules/replay-camera/ios/KeywordDetector.swift` (created in Task 4; here it gains `loadBundled()` and the Diagnóstico sink)
-- Modify: `ios/VoiceTrigger.swift`, `ios/ReplayCameraModule.swift:510-526`, `ios/RemoteVoice.swift`, `ReplayCamera.podspec` (resource bundle `ReplayCameraModels` gains `Models/voice/**/*`)
-- Test: `VoiceKeywordTests.swift` (routing and backlog), plus a device check
+- Create: `app/modules/replay-camera/ios/Core/Sources/ReplayCore/Voice/VoiceEngine.swift`
+- Create: `app/modules/replay-camera/ios/Models/voice/salvar-v2-rc1/{detector.json,mel_filterbank.bin,classifier.bin}` (copied from the lab build; `salvar-v1` stays for the golden tests)
+- Modify: `ReplayCamera.podspec` (resource bundle `ReplayCameraModels` gains the `Models/voice/salvar-v2-rc1` folder and `voice_embedding.mlmodelc`), `ios/Voice/KeywordDetector.swift` (gains `static func loadBundled(log:) -> KeywordDetector?`), `ios/VoiceTrigger.swift`, `ios/ReplayEngine.swift` (diag sink), `ios/ReplayCameraModule.swift` (new function), `docs/voice-lab/MODELS.md` (rc1 provenance, training-data credits, sha256)
+- Test: `ios/Core/Tests/ReplayCoreTests/VoiceKeywordTests.swift`
 
 **Interfaces:**
-- Produces `public enum VoiceEngine { case keyword, dictation; public static func forLocale(_ l: VoiceLocale) -> VoiceEngine }` (`.ptBR` → `.keyword`), and `public struct DropCounter` (bounded backlog: `mutating func offer(_ samples: Int) -> Bool`, `capacity` 2 s of 16 kHz audio, `dropped: Int`).
-- Produces `final class KeywordDetector { static func loadBundled() -> KeywordDetector?; var onCommand: ((Double) -> Void)?; var log: ((String) -> Void)?; func consider(_ buffer: CMSampleBuffer); func consider(_ buffer: AVAudioPCMBuffer); func reset() }`. Its own serial queue; it reads the format from each buffer (`CMAudioFormatDescription` / `AVAudioFormat`) and rebuilds the `Resampler` when the format changes. The embedding goes through `MLModel` (`voice_embedding.mlmodelc`) on batches of the pending 76-frame windows.
-- `VoiceTrigger.isSupported(.ptBR)` → `KeywordDetector.loadBundled() != nil` (cached); `.enUS` unchanged.
-- `VoiceTrigger.needsSpeechPermission(_ l: VoiceLocale) -> Bool` → `l == .enUS`.
-- Module: `Function("voiceNeedsSpeechPermission") { (locale: String) -> Bool }`.
-- Diagnóstico via the existing `diag` sink: `voz: detector salvar-v1 ativo`, `voz: comando (nota 0.99)`, `voz: N trechos descartados`, `voz: modelo indisponível (…)`.
+- Produces `public enum VoiceEngine: String { case dictation, keyword }` with `public static func choose(preferred: VoiceEngine, locale: VoiceLocale, keywordAvailable: Bool) -> VoiceEngine` (`.keyword` only when preferred, `.ptBR` and available; otherwise `.dictation`).
+- `VoiceTrigger.preferred: VoiceEngine` (static, lock-protected, default `.dictation`) and `static func setPreferred(_ e: VoiceEngine)`, which posts a notification so every live `VoiceTrigger` (camera and `RemoteVoice`) re-applies on its own queue.
+- `VoiceTrigger` keeps its public surface (`setEnabled`, `consider(CMSampleBuffer)`, `consider(AVAudioPCMBuffer)`, `onCommand`, `isEnabled`, `stop`) and gains `var log: ((String) -> Void)?`. Inside: the engine is chosen on `setEnabled` and on a preference change; `consider` feeds only the live engine; the detector is loaded once (lazily) and shared.
+- Module: `Function("setVoiceEngine") { (engine: String) in VoiceTrigger.setPreferred(VoiceEngine(rawValue: engine) ?? .dictation) }`.
+- Diagnóstico lines (camera phone, via `ReplayEngine.diag`): `voz: gatilho ditado` / `voz: gatilho modelo salvar-v2-rc1`; `voz: comando (modelo, nota 0.99)` / `voz: comando (ditado)`; `voz: N s de áudio descartados` (once per minute, only when N > 0); `voz: modelo indisponível (…) — usando ditado`.
 
-- [ ] **Step 1: Failing tests.** `testEngineForLocale` (`.ptBR` → `.keyword`, `.enUS` → `.dictation`); `testDropCounterBoundsBacklog` (offers past 32 000 samples return false and count as dropped).
-- [ ] **Step 2:** `swift test --filter VoiceKeywordTests` → FAIL.
-- [ ] **Step 3: Implement `VoiceEngine` and `DropCounter`, and wire `KeywordDetector`.** Then `VoiceTrigger`: `setEnabled(on, locale)` starts or stops the matching engine; switching locale while on stops the old engine before starting the new one. `consider(…)` routes to the live engine only. `RemoteVoice` keeps feeding `VoiceTrigger` as today.
-- [ ] **Step 4:** `swift test` → PASS. `cd app && npx expo run:ios --device` builds.
-- [ ] **Step 5: Device check.**
-  - Voice on, app in Portuguese: Diagnóstico shows `voz: detector salvar-v1 ativo`, and "salvar" at 3 m saves a clip with a `voz: comando` line.
-  - Switch the app to English: dictation runs as before.
-  - Remote phone: "salvar" saves.
+- [ ] **Step 1: Failing tests** in `VoiceKeywordTests`:
+  - `testEngineChoice`: (`.keyword`, `.ptBR`, true) → `.keyword`; (`.keyword`, `.enUS`, true) → `.dictation`; (`.keyword`, `.ptBR`, false) → `.dictation`; (`.dictation`, `.ptBR`, true) → `.dictation`.
+  - `testCandidateModelLoadsAndFiresOnGolden`: `KeywordConfig.load(directory: ios/Models/voice/salvar-v2-rc1)` gives `version == "salvar-v2-rc1"`, `hidden == 256`; scoring the fixture's `embeddings` (16 at a time) through its scorer and `FiringRule` fires at `[2.702, 4.702]` (±0.08 s).
+- [ ] **Step 2:** `cd app/modules/replay-camera/ios/Core && swift test --filter VoiceKeywordTests` → FAIL.
+- [ ] **Step 3: Implement** `VoiceEngine`, copy the rc1 folder, then the routing in `VoiceTrigger` and the module function as in Interfaces. Switching engine while listening stops the old one before starting the new one; nothing may fire twice for one word.
+- [ ] **Step 4:** `swift test` → PASS (all ReplayCore tests).
 - [ ] **Commit point** (Victor).
 
-### Task 7: Kotlin core — the same math, same fixture
+### Task 7: App — the switch in Diagnóstico
 
 **Files:**
-- Create: `android/src/main/java/expo/modules/replaycamera/core/voice/{Resampler,MelFrontend,KeywordConfig,KeywordScorer,FiringRule}.kt`
-- Test: `android/src/test/java/expo/modules/replaycamera/core/VoiceKeywordTest.kt` (reads `voice-golden.json` from the shared Fixtures resource dir already wired in `build.gradle:21`)
-
-**Interfaces:** the Kotlin mirror of Tasks 2–3:
-- `Resampler(fromRate: Int, channels: Int).process(pcm: FloatArray): FloatArray`
-- `MelFrontend(filterbank: FloatArray, nFft: Int, winLength: Int, hop: Int, nMels: Int).push(samples: FloatArray): List<FloatArray>`
-- `KeywordConfig.load(dir: File): Triple<KeywordConfig, FloatArray, KeywordScorer>` (throws `KeywordModelException`)
-- `KeywordScorer.score(window: FloatArray): Double`
-- `FiringRule(config).feed(score: Double, atSec: Double): Boolean`
-
-Config field names are identical to `detector.json`.
-
-- [ ] **Step 1: Failing tests:** the same eight tests as Tasks 2–3, with the same assertions and tolerances (`melMatchesGolden`, `resamplerBlocksAliasing`, `resamplerStereo48kMatches16kMono`, `silenceAndClippingAreFinite`, `scoresMatchGolden`, `firesMatchGolden`, `ruleNeedsTwoInARowAndRefractory`, `brokenModelFolderThrows`).
-- [ ] **Step 2:** `cd app/android && ./gradlew :replay-camera:testDebugUnitTest --tests "*VoiceKeywordTest*"` → FAIL.
-- [ ] **Step 3: Implement.** The FFT is a 512-point radix-2 real FFT in `core/voice/Fft.kt`. No Android APIs in `core/`.
-- [ ] **Step 4:** → PASS.
-- [ ] **Commit point** (Victor).
-
-### Task 8: Android — `KeywordDetector` and routing
-
-**Files:**
-- Create: `android/src/main/java/expo/modules/replaycamera/KeywordDetector.kt`
-- Modify: `VoiceTrigger.kt` (pt-BR → detector; `en-US` → ML Kit, which now resamples with the `core/voice/Resampler` instead of linear interpolation), `remote/RemoteVoice.kt`, `ReplayCameraModule.kt:378-391`
-- Test: `android/src/test/java/expo/modules/replaycamera/VoiceTriggerTest.kt`
+- Create: `app/src/voice/voiceEngine.ts`
+- Modify: `app/src/data/schema.ts` (prefs: `labVoiceEngine?: 'dictation' | 'keyword'`), `app/modules/replay-camera/src/{ReplayCameraModule,ReplayCamera}.ts` (`setVoiceEngine(engine: 'dictation' | 'keyword'): void`), `app/src/app/diag.tsx` (`LabSwitches` row "Gatilho de voz": Ditado | Modelo), the app's root layout (apply the choice once at start)
+- Test: `app/src/voice/__tests__/voiceEngine.test.ts`
 
 **Interfaces:**
-- `class KeywordDetector(context: Context, log: (String) -> Unit) : Closeable { var onCommand: (() -> Unit)?; fun consider(buf: ByteBuffer, bytes: Int, rate: Int); fun reset() }`
-  - LiteRT `Interpreter` on `assets/voice_embedding.tflite`, CPU, 1 thread.
-  - Its own worker thread, with an `ArrayBlockingQueue` holding at most 2 s of audio (drops counted and logged).
-  - It rebuilds the `Resampler` when `rate` changes.
-- `VoiceTrigger.isSupported(locale: String): Boolean`: `"pt-BR"` → the detector loads; otherwise today's API ≥ 31 check.
-- Module: `Function("isVoiceSupported") { locale: String -> VoiceTrigger.isSupported(locale) }` and `Function("voiceNeedsSpeechPermission") { _: String -> false }`. Android only needs `RECORD_AUDIO`, which `requestSpeechPermission` already checks.
-- Diagnóstico: the same `voz:` lines as iOS.
+- `voiceEngine(): 'dictation' | 'keyword'` → `'keyword'` only when `DIAGNOSTICS_ENABLED` and the pref is `'keyword'`.
+- `setVoiceEnginePref(e)` saves the pref and calls `applyVoiceEngine()`; `applyVoiceEngine()` calls `camera.setVoiceEngine(voiceEngine())` and never throws (older native builds, module mocks).
 
-- [ ] **Step 1: Failing tests** in `VoiceTriggerTest`:
-  - `engineForLocale` (`"pt-BR"` → keyword, `"en-US"` → ML Kit);
-  - `switchingLocaleStopsTheOldEngine`, with a fake engine factory: after `setEnabled(true,"pt-BR")` then `setEnabled(true,"en-US")`, the keyword engine is closed and only ML Kit receives audio;
-  - the existing `matches` tests stay green.
-- [ ] **Step 2:** `./gradlew :replay-camera:testDebugUnitTest --tests "*VoiceTriggerTest*"` → FAIL.
-- [ ] **Step 3: Implement.** Inject an engine factory into `VoiceTrigger` (default: real detector and ML Kit) so the test can fake both. `RemoteVoice.set` uses `VoiceTrigger.isSupported(locale)`.
-- [ ] **Step 4:** → PASS. `cd app && npx expo run:android --device` builds.
-- [ ] **Step 5: Device check:**
-  - an Android 11 or older phone, if one is available: voice is offered and works in Portuguese;
-  - the Diagnóstico lines show up;
-  - English still uses ML Kit;
-  - the remote phone saves on "salvar".
+- [ ] **Step 1: Failing tests:** diagnostics off + pref `'keyword'` → `'dictation'` and native gets `'dictation'`; diagnostics on + pref `'keyword'` → native gets `'keyword'`; no pref → `'dictation'`; a native call that throws is swallowed.
+- [ ] **Step 2:** `cd app && npx jest src/voice` → FAIL.
+- [ ] **Step 3: Implement.** No `?.`.
+- [ ] **Step 4:** `npx jest src/voice` → PASS; `npx jest` → PASS; `npx tsc --noEmit` → no errors.
 - [ ] **Commit point** (Victor).
 
-### Task 9: App — permission and support per locale
+### Task 8: Device check and field use
 
-**Files:**
-- Modify: `app/modules/replay-camera/src/ReplayCameraModule.ts`, `src/ReplayCamera.ts` (export `voiceNeedsSpeechPermission(locale: VoiceLocale): boolean`), `app/src/app/setup.tsx:255-380`, `app/src/app/remote.tsx` (~L165, ~L473), `app/src/app/onboarding.tsx:29`
-- Test: `app/src/app/__tests__/setup.test.tsx`, `app/src/app/__tests__/remote.test.tsx` (and the module mock they use)
-
-**Interfaces:**
-- Consumes `voiceNeedsSpeechPermission` (Tasks 6 and 8). In `setup.tsx`: `speechGranted` becomes `const voiceAllowed = !voiceNeedsSpeechPermission(voiceLocale(locale)) || speech === "granted"`, and `toggleVoice` only calls `requestSpeechPermission()` when `voiceNeedsSpeechPermission(...)` is true. `remote.tsx` follows the same rule for `speechOk`. `onboarding.tsx`: `VOICE = isVoiceSupported("pt-BR")` on both platforms.
-
-- [ ] **Step 1: Failing tests:**
-  - `setup.test.tsx`: "in Portuguese, turning voice on asks no speech permission" (`voiceNeedsSpeechPermission` mocked to false → `requestSpeechPermission` not called; voice shows "Diga \"salvar\"" status);
-  - "in English it still asks" (mocked true → called once);
-  - `remote.test.tsx`: the same pair for the remote's voice alert.
-- [ ] **Step 2:** `cd app && npx jest src/app/__tests__/setup.test.tsx src/app/__tests__/remote.test.tsx` → FAIL.
-- [ ] **Step 3: Implement** as in Interfaces. No `?.`. Then search `app/src/i18n/locales/*.ts` for text about the speech-recognition permission ("reconhecimento de fala", "speech recognition"). Show it only when `voiceNeedsSpeechPermission` is true.
-- [ ] **Step 4:** the same command → PASS; then `npx jest` (whole suite) → PASS; `npx tsc --noEmit` → no errors.
+- [ ] **Step 1: Build** with diagnostics on the iPhone (`npx expo run:ios --device` with `REPRIZE_DIAGNOSTICS=1`).
+- [ ] **Step 2: Desk check:** Diagnóstico → Gatilho de voz → Modelo. Record in Portuguese: `voz: gatilho modelo salvar-v2-rc1` shows; "salvar" at 3 m saves a clip with `voz: comando (modelo, nota …)`. Back to Ditado: `voz: gatilho ditado`, dictation saves as before. Switch while recording: one engine at a time, no double save. App in English with Modelo selected: dictation. Remote phone with Modelo: "salvar" saves.
+- [ ] **Step 3: Field:** games with Modelo on; note unwanted saves and missed "salvar" per session. Victor decides when the model becomes the default (spec approach A, a later plan) and when Android starts.
 - [ ] **Commit point** (Victor).
 
-### Task 10: Device budget and field check
+### Later (not in this plan's scope now)
 
-**Files:**
-- Modify: `docs/voice-lab/2026-11-23-voice-trigger-field-test.md` (new section "In the app")
-
-- [ ] **Step 1: Battery and heat.** 10 min recording with voice on vs. 10 min with voice off, same phone and place, on one iPhone and one Android. Record battery %, thermal state from Diagnóstico, and the share of `voz: N trechos descartados`. Pass when the difference does not move the app to a hotter step and nothing was dropped at normal temperature.
-- [ ] **Step 2: Field session** with the voice checklist (3/5/10 m with voice ON, then a normal game). Log hits per distance and unwanted saves. Pass when it matches the lab table in the spec within a word or two per distance and shows no unwanted save in the game.
-- [ ] **Step 3: Write it up** in the report: numbers, phones, conditions.
-- [ ] **Commit point** (Victor); then the PR `feat/voice-keyword-detector` is ready for review.
+- Android: the Kotlin core and detector (the former Tasks 7–8), after the iPhone validation.
+- Portuguese asking only for the microphone (the former Task 9), when the model becomes the default.
+- New model versions (rc2…): a new `Models/voice/<version>/` folder and the podspec line; nothing else changes.

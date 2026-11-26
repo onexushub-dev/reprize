@@ -1,6 +1,6 @@
 # Voice keyword detector for "salvar" — design
 
-Status: draft for Victor's approval · 2026-11-24
+Status: approved 2026-11-24 · Phase 2 revised 2026-11-25 (iPhone only, behind a Diagnóstico switch: see "Phase 2 revision")
 Lab work behind it: `docs/voice-lab/2026-11-23-voice-trigger-field-test.md` (results) and `docs/voice-lab/lab/tools/` (scripts).
 
 ## Why
@@ -26,7 +26,9 @@ fires on its own.
 
 - In Portuguese (`pt-BR`), "salvar" is heard by the dedicated detector on **iOS and Android**, on the **camera phone**
   and on the **remote phone**.
-- Hit rate at least the prototype's (table above) up to 10 m, with ≤ 1 false trigger per hour.
+- Range target (Victor, 2026-11-25): **every "salvar" up to 5 m** (men and women, no strong wind), **most of them up to
+  10 m**, nothing needed beyond 10 m. **No false triggers** in game noise, talk or similar words ("salvando",
+  "saltar", "sacar"…): when in doubt the model is tuned stricter, trading 10 m recall for fewer false triggers.
 - Portuguese voice needs **only the microphone permission** (no speech-recognition permission), and works on every
   Android version the app supports (no Android 12 floor, no language-pack download).
 - A better model ships by **replacing files**, with no code change.
@@ -37,7 +39,8 @@ fires on its own.
   one proves itself.
 - Apple Watch voice (raise wrist, say "salvar"): a separate spec, after this ships. It will reuse the same model files
   and pipeline.
-- Downloading models from a server, remote flags, or engine switches in the UI.
+- Downloading models from a server, remote flags, or engine switches in the regular UI. The one switch is in the
+  Diagnóstico screen, which only builds with diagnostics have (Phase 2 revision).
 - Changing how the model is trained (the lab stays in `docs/voice-lab/`).
 
 ## Anti-goals (a failure even if it "works")
@@ -54,6 +57,7 @@ fires on its own.
 | **A — direct swap (chosen, Victor 2026-11-24)** | In `pt-BR`, the detector replaces dictation outright, after it wins in VoiceBench (Phase 1) | Fastest in the app. Going back needs a store release. |
 | B — side-by-side phase | A test build runs both engines and logs both; then the detector becomes the default | Field numbers before shipping, more work |
 | C — server-controlled | Like B, with engine and threshold switched from the backend | No release to switch, but new infrastructure and more ways to fail |
+| **D — ship behind a Diagnóstico switch (chosen for Phase 2, Victor 2026-11-25)** | The detector and the best model ship in the app; a switch in Diagnóstico (builds with diagnostics only) picks dictation or the model; store builds stay on dictation | Field tests in the real app now; a better model is a file swap; becoming the default (A) is a later, separate step |
 
 ## Phase 1: VoiceBench, before the app (Victor, 2026-11-24)
 
@@ -84,6 +88,28 @@ The detector goes into Reprize only after it beats today's trigger in a test app
 
 Phase 2, the integration into Reprize below (iOS, Android, app), starts only after Victor approves the VoiceBench
 numbers.
+
+## Phase 2 revision (Victor, 2026-11-25)
+
+VoiceBench showed what Phase 1 had to show: `salvar-v2-rc1` with no false trigger at home, in a crossfit gym and with the
+TV on; every "salvar" up to 5 m from Victor and from Jessica (a woman it never heard); the iPhone firing at the same
+moments as the lab. What is left is the real game, which only the app shows. So Phase 2 changes:
+
+- **iPhone only.** Android (the Kotlin core and its detector) waits until the iPhone field tests validate the model.
+- **Behind a switch, not a swap.** Diagnóstico gets "Gatilho de voz: Ditado | Modelo". It lives with the lab switches,
+  so it exists only in builds made with `REPRIZE_DIAGNOSTICS=1`; store builds have no such screen and stay on dictation.
+  The choice is saved with the app's preferences and applies to the camera phone and the remote phone.
+- **Model:** `salvar-v2-rc1` (1536 → 256 ReLU → 1 logistic, trained with the public data and the "wait for the word to
+  end" rule), not `M4`. Same pipeline, same `detector.json` fields (`hidden: 256`), same firing rule (0.95 × 2, 1.5 s).
+  It ships in all builds (about 3 MB: 1.4 MB embedding + 1.6 MB classifier and filterbank); only the switch uses it.
+- **English** stays on dictation whatever the switch says.
+- **Permissions unchanged for now:** dictation is still the default, so the app keeps asking for speech recognition as
+  today. Asking only for the microphone in Portuguese comes with the later step that makes the model the default.
+- **Fallback:** if the model files fail to load, voice runs on dictation and Diagnóstico says why.
+- **A new model** is a new folder with `detector.json` and `classifier.bin`, then a new build. The switch and the code
+  don't change.
+- **Datasets** never ship. Only the learned weights do; `MODELS.md` credits the training data (MLCommons Multilingual
+  Spoken Words, CC BY 4.0; Common Voice 27 pt, CC0, not redistributed; Piper pt_BR voices; Reprize's own recordings).
 
 ## How it works
 
@@ -186,6 +212,25 @@ needs speech recognition, it should say so only for English.
   difference has to be small enough not to change the app's heat steps.
 - **Field:** one session with the field-test checklist (3/5/10 m, voice ON, plus a normal game), comparing with the
   lab numbers.
+
+### Retraining with VoiceBench sessions (2026-11-25): not adopted
+
+Rule (Victor): a new model replaces `salvar-v2-rc1` only if it is equal or better on everything, false triggers first.
+Two attempts added the real VoiceBench sessions (Victor home/TV, Jessica, Ester, Carol) to rc1's recipe; recall on the
+women was measured leaving each one out of training.
+
+- **rc2** (sessions weighted 4x plus noise-augmented copies, 2 seeds): Carol improved, but false triggers rose
+  (courts 8 and 1 vs 0; public talk 13 and 5/400 vs 4; similar words at crossfit 1/8 vs 0/8) and the seeds disagreed.
+- **rc2b** (sessions 1x, no augmentation, 3 seeds): recall about equal to rc1; false triggers equal or slightly worse
+  (talk 3-9/400, similar words at crossfit 1/8 in every seed).
+- Decision: keep rc1. The sessions stay as an evaluation set. Scripts: `docs/voice-lab/lab/tools/exp_rc2.py` and
+  `exp_rc2b.py`.
+- **Shorter wait** (Victor asked to try it on rc1 anyway): rc1's recipe with positives ending 0.15-0.45 s before the
+  window end instead of 0.25-0.55 s, 3 seeds, compared on the gates and on all 18 VoiceBench sessions (in neither
+  model's training). It fires 80-160 ms earlier (median), but every seed lost on something: seed 0 had false
+  triggers (courts 3, talk 8/400, similar words 1/8), seed 1 had none but missed far more (Victor 36/46 vs 43/46,
+  old 10 m 13/36 vs 21/36), seed 2 had false triggers (courts 2) and missed more. Not adopted; rc1 stays.
+  Script: `exp_wait.py`. Note that rc1 is itself the best of its seeds (the same recipe with seed 0 misses more).
 
 ## Left to the builder
 
