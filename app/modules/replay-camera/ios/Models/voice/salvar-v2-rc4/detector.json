@@ -1,0 +1,23 @@
+{
+  "version": "salvar-v2-rc4",
+  "sampleRate": 16000,
+  "nFft": 512,
+  "winLength": 400,
+  "hop": 160,
+  "nMels": 32,
+  "fMin": 60.0,
+  "fMax": 3800.0,
+  "embedEvery": 8,
+  "embedFrames": 76,
+  "embedSize": 96,
+  "windows": 16,
+  "hidden": 256,
+  "threshold": 0.95,
+  "consecutive": 2,
+  "refractorySec": 1.5,
+  "veto": {
+    "file": "veto.bin",
+    "hidden": 256,
+    "minScore": 0.05
+  }
+}

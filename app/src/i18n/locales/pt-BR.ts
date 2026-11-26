@@ -552,6 +552,11 @@ export const ptBR: Messages = {
     privacyUrl: 'https://www.reprizeapp.com/privacy',
     version: 'Reprize %{version}',
   },
+  licenses: {
+    title: 'Licenças',
+    intro: 'Software de código aberto usado pelo Reprize. Toque em um item para ver a licença.',
+    sectionVoice: 'Reconhecimento de voz',
+  },
   update: {
     title: 'Nova versão disponível',
     body: 'Atualize o Reprize para acessar os novos recursos e melhorias.',

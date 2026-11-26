@@ -100,6 +100,7 @@ final class ReplayEngine {
     voice.onCommand = { [weak self] in
       self?.emit?("onTrigger", ["source": "voice", "at": Date().timeIntervalSince1970 * 1000])
     }
+    voice.log = { [weak self] line in self?.diag(line) }
     capture.onPressure = { [weak self] pressure in
       self?.diag("câmera: pressão \(pressure) — \(Self.thermalLevel().name)") // TEMP(diag-remote), plan 2026-11-12 I3a
     }

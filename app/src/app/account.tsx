@@ -181,7 +181,12 @@ export default function SettingsScreen() {
         ) : null}
         {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {version ? <Text style={styles.version}>{t('about.version', { version })}</Text> : null}
+        {version ? (
+          // Tapping the version opens the open-source licenses (kept out of sight on purpose; MODELS.md).
+          <Text style={styles.version} onPress={() => router.push('/licenses')}>
+            {t('about.version', { version })}
+          </Text>
+        ) : null}
       </ScrollView>
       <DeleteAccountSheet
         visible={deleting}

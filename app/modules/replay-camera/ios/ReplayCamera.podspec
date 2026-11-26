@@ -23,5 +23,7 @@ Pod::Spec.new do |s|
   s.exclude_files = ["Core/Package.swift", "Core/Tests/**/*", "Core/.build/**/*"]
   # Seguir a Bola's ball detector (ball_tiny_gym, YOLOX-Tiny 416), compiled from the lab's .mlpackage with
   # `xcrun coremlcompiler compile`; BallAnalyzer looks for it in this bundle.
-  s.resource_bundles = { "ReplayCameraModels" => ["Models/*.mlmodelc"] }
+  # Voice "salvar" detector (plan 2026-11-24, Phase 2): the model behind the Diagnóstico switch, flattened into the same
+  # bundle (detector.json, mel_filterbank.bin, classifier.bin) next to voice_embedding.mlmodelc. One version at a time.
+  s.resource_bundles = { "ReplayCameraModels" => ["Models/*.mlmodelc", "Models/voice/salvar-v2-rc4/*"] }
 end

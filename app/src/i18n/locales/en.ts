@@ -554,6 +554,11 @@ export const en = {
     privacyUrl: 'https://www.reprizeapp.com/en/privacy',
     version: 'Reprize %{version}',
   },
+  licenses: {
+    title: 'Licenses',
+    intro: 'Open-source software used by Reprize. Tap an item to see its license.',
+    sectionVoice: 'Voice recognition',
+  },
   update: {
     title: 'New version available',
     body: 'Update Reprize to get the latest features and improvements.',
