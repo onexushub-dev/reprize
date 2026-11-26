@@ -296,6 +296,11 @@ export type Prefs = {
    * picture changed (lab tests 53 and 54). Absent / false = every tile, the default.
    */
   labBallMotionTiles?: boolean;
+  /**
+   * Voice trigger engine (plan 2026-11-24 voice keyword detector, Phase 2, Diagnóstico only, iPhone): today's dictation
+   * or the trained "salvar" model. Absent / 'dictation' = dictation, the default; builds without diagnostics ignore it.
+   */
+  labVoiceEngine?: 'dictation' | 'keyword';
 };
 
 export const DEFAULT_PREFS: Prefs = {

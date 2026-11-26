@@ -25,6 +25,7 @@ import { focusPath, peoplePath } from '../data/focusFile';
 import { repo } from '../data/mmkv';
 import { applyLabVariants, ballMaxWidth, ballMotionTiles, scanSequential } from '../focus/appBallQueue';
 import { focusEveryMs } from '../focus/appFocusQueue';
+import { setVoiceEnginePref, voiceEngine } from '../voice/voiceEngine';
 import { colors, fonts, radius } from '../theme/tokens';
 import { SHARING_ENABLED } from '../account/flags';
 import { clearAllGroups } from '../cloud/shareGroup';
@@ -73,6 +74,13 @@ function LabSwitches() {
   const pickSequential = (v: number) => {
     repo.setPrefs({ labScanSequential: v === 1 });
     setSequential(v);
+  };
+  // Voice trigger (plan 2026-11-24 voice keyword detector, Phase 2): today's dictation or the trained "salvar" model.
+  // iPhone only; the Diagnóstico lines `voz: gatilho …` and `voz: comando (…)` say which one listened.
+  const [voiceModel, setVoiceModel] = useState(() => (voiceEngine() === 'keyword' ? 1 : 0));
+  const pickVoice = (v: number) => {
+    setVoiceEnginePref(v === 1 ? 'keyword' : 'dictation');
+    setVoiceModel(v);
   };
   const row = (label: string, options: [number, string][], value: number, pick: (v: number) => void) => (
     <View style={styles.labRow}>
@@ -142,6 +150,9 @@ function LabSwitches() {
       {row('Jogadores', [[100, '10 fps (antes)'], [200, '5 fps (padrão)']], every, pickEvery)}
       {row('Recortes', [[0, 'Todos (padrão)'], [1, 'Só com movimento']], motion, pickMotion)}
       {row('Passe', [[0, 'Lado a lado (padrão)'], [1, 'Um após o outro']], sequential, pickSequential)}
+      {Platform.OS === 'ios'
+        ? row('Gatilho de voz', [[0, 'Ditado (padrão)'], [1, 'Modelo salvar']], voiceModel, pickVoice)
+        : null}
       <Pressable accessibilityRole="button" onPress={resetAll} hitSlop={8} style={styles.labReset}>
         <Text style={styles.linkSoft}>Zerar análises de todos os clipes</Text>
       </Pressable>

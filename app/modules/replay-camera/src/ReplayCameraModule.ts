@@ -68,6 +68,8 @@ declare class ReplayCameraModule extends NativeModule<ReplayCameraModuleEvents> 
   signalAction?(kind: 'started' | 'ended', sound: boolean, flash: boolean): void;
   signalSaveFailed(sound: boolean): void;
   setVoiceEnabled(enabled: boolean, locale: VoiceLocale): void;
+  // Which engine listens for "salvar" (iOS only: missing on Android and in older builds).
+  setVoiceEngine?(engine: 'dictation' | 'keyword'): void;
   requestSpeechPermission(): Promise<boolean>;
   isVoiceSupported(locale: VoiceLocale): boolean;
   getSpeechPermission(): 'granted' | 'denied' | 'undetermined';
