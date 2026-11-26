@@ -328,11 +328,15 @@ test('the Sound tab turns the clip\'s sound off and on at once, its icon and a n
   expect(screen.getByText('Som ligado')).toBeTruthy();
 });
 
-test('the Sound tab opens no panel: the panel open before stays', async () => {
+test('a tap on Som selects it like the other tabs, with no panel under it; another tab opens its panel again', async () => {
   await openEdit('Velocidade');
   await fireEvent.press(screen.getByRole('switch', { name: 'Som' }));
-  expect(screen.getByRole('button', { name: 'Velocidade 2x' })).toBeTruthy();
+  expect(screen.getByRole('switch', { name: 'Som' }).props.accessibilityState).toMatchObject({ selected: true });
+  expect(screen.queryByRole('button', { name: 'Velocidade 2x' })).toBeNull();
   expect(screen.queryByText('Com som')).toBeNull();
+  await fireEvent.press(screen.getByRole('tab', { name: /^Velocidade/ }));
+  expect(screen.getByRole('button', { name: 'Velocidade 2x' })).toBeTruthy();
+  expect(screen.getByRole('switch', { name: 'Som' }).props.accessibilityState).toMatchObject({ selected: false });
 });
 
 test('at any speed but 1x the sound shows as off, and a tap only says why', async () => {

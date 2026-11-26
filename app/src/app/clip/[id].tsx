@@ -949,6 +949,9 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     const tap = soundTap(edit, locks);
     if (tap.muted !== undefined) setEdit({ muted: tap.muted });
     setSoundNotice((prev) => ({ key: tap.notice, n: (prev?.n ?? 0) + 1 }));
+    // Selected like a tab, with no panel under it.
+    setOpenTool('sound');
+    rememberTool('sound');
     if (reportedTools.current.has(`${id}:sound`)) return;
     reportedTools.current.add(`${id}:sound`);
     trackEvent('clip_edit_tool_used', { tool: 'sound' });
@@ -1321,8 +1324,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
       setZoomKey((k) => k + 1);
     },
   };
-  // Som is a switch with no panel: the panel open stays the last one with a panel.
-  const tool = (tools.find((t) => t.id === openTool && t.Panel !== undefined) as EditTool | undefined) || tools[0];
+  // Som is a switch with no panel: selected after a tap, with nothing under it.
+  const tool = (tools.find((t) => t.id === openTool) as EditTool | undefined) || tools[0];
 
   /** The export's frame as large as `area` allows, the video in it, the app mark over it. */
   function renderStage(area: { width: number; height: number }) {

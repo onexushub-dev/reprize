@@ -17,7 +17,7 @@ export function ToolBar({
   open: ToolId;
   focusOn: boolean;
   onOpen: (id: ToolId) => void;
-  /** Som is a switch, not a panel (2026-11-26): whether the clip has sound now, and the tap. */
+  /** Som is a switch with no panel (2026-11-26): whether the clip has sound now, and the tap (which also selects it). */
   sound: { on: boolean; onToggle: () => void };
   /** The tools this phone has (no Foco where Modo Foco cannot run). */
   tools?: EditTool[];
@@ -26,28 +26,29 @@ export function ToolBar({
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bar}>
       {tools.map((tool) => {
+        const selected = tool.id === open;
         if (tool.Panel === undefined) {
-          // The switch: its icon shows the sound the clip has now; never amber, as it opens nothing.
+          // The switch: its icon shows the sound the clip has now; amber once tapped, like a tab, with no panel.
+          const color = selected ? colors.onAccent : colors.text;
           return (
             <Pressable
               key={tool.id}
               accessibilityRole="switch"
               accessibilityLabel={t(tool.label)}
-              accessibilityState={{ checked: sound.on }}
+              accessibilityState={{ checked: sound.on, selected }}
               onPress={sound.onToggle}
               style={styles.tool}>
-              <View style={styles.icon}>
+              <View style={[styles.icon, selected ? styles.iconOn : null]}>
                 {sound.on ? (
-                  <View testID="sound-icon-on"><SoundIcon color={colors.text} /></View>
+                  <View testID="sound-icon-on"><SoundIcon color={color} /></View>
                 ) : (
-                  <View testID="sound-icon-off"><MutedIcon color={colors.text} /></View>
+                  <View testID="sound-icon-off"><MutedIcon color={color} /></View>
                 )}
               </View>
-              <Text style={styles.label}>{t(tool.label)}</Text>
+              <Text style={[styles.label, selected ? styles.labelOn : null]}>{t(tool.label)}</Text>
             </Pressable>
           );
         }
-        const selected = tool.id === open;
         const marked = tool.id === 'focus' && focusOn;
         return (
           <Pressable
