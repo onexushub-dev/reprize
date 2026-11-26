@@ -1,6 +1,6 @@
 # Voice keyword detector for "salvar" — design
 
-Status: approved 2026-11-24 · Phase 2 revised 2026-11-25 (iPhone only, behind a Diagnóstico switch: see "Phase 2 revision")
+Status: approved 2026-11-24 · Phase 2 revised 2026-11-25 · **salvar-v2-rc4 is the Portuguese default on iPhone since 2026-11-26, in every build** (see "salvar-v2-rc4 is the Portuguese default"; the Diagnóstico switch of the Phase 2 revision is gone)
 Lab work behind it: `docs/voice-lab/2026-11-23-voice-trigger-field-test.md` (results) and `docs/voice-lab/lab/tools/` (scripts).
 
 ## Why
@@ -231,6 +231,36 @@ women was measured leaving each one out of training.
   triggers (courts 3, talk 8/400, similar words 1/8), seed 1 had none but missed far more (Victor 36/46 vs 43/46,
   old 10 m 13/36 vs 21/36), seed 2 had false triggers (courts 2) and missed more. Not adopted; rc1 stays.
   Script: `exp_wait.py`. Note that rc1 is itself the best of its seeds (the same recipe with seed 0 misses more).
+
+### salvar-v2-rc4: rc1 plus a veto (2026-11-26)
+
+The 2026-11-25 field test showed rc1 firing on almost any verb ending in -ar said on its own (pular, cavar, gritar,
+treinar). Public -ar data alone could not fix it without losing "salvar". Real -ar recordings (VoiceBench Parecidas,
+Yasmin and Victor) trained a **veto**: a second classifier of rc1's shape that can only remove fires (a window counts
+only where it gives >= 0.05). Trained on one person and tested on the other, it cut the -ar fires 63 -> 14 (Victor)
+and 42 -> 22 (Yasmin); trained on both, it left every "salvar" result, every gate and the bench identical to rc1, with
+fewer false fires on talk (4 -> 1/400) and on Victor's labeled field -ar clips 13/14 -> 3/14. rc4 replaces rc1 behind
+the same Diagnóstico switch; the detector logs `voz: vetado (nota, veto)` whenever the veto stops a fire, for field
+checks. Files and provenance: `docs/voice-lab/MODELS.md`.
+
+## salvar-v2-rc4 is the Portuguese default (Victor, 2026-11-26)
+
+- **What ships:** on iPhone, Portuguese listens with `salvar-v2-rc4` in every build (store builds included); English
+  stays on dictation. If the model is missing or fails to load, Portuguese falls back to dictation and Diagnóstico says
+  `voz: modelo indisponível … usando ditado`. Android is unchanged (dictation) until its own validation.
+- **Removed (test code of the comparison):** the Diagnóstico switch "Gatilho de voz" (`app/src/voice/voiceEngine.ts`,
+  the `labVoiceEngine` pref, the native `setVoiceEngine`), the engine preference in `VoiceTrigger`, the voice → flash
+  timing line (`voz: aviso …`) and the `salvar-v2-rc1` folder. `salvar-v1` stays only as the golden test fixture
+  (`ios/Core/Tests/ReplayCoreTests/Fixtures/voice-salvar-v1`).
+- **Kept for production diagnostics:** `voz: gatilho modelo salvar-v2-rc4`, `voz: comando (modelo, nota, atraso)` and
+  `voz: vetado (nota, veto)` in Diagnóstico (builds with diagnostics). VoiceBench (lab) still shows rc1 and rc4 side by
+  side through `KeywordDetector.onMainCommand`.
+- **Going back** (dictation for Portuguese, or rc1): `docs/voice-lab/MODELS.md`, "Going back".
+- **Next:** retrain the veto as recordings come in, women first (Parecidas with the -ar list plus Acerto from the same
+  people), with the same rule: a new version replaces rc4 only if it is equal or better on every "salvar".
+- **Licenses:** the Apache-2.0 notice of the speech embedding, and the npm packages' licenses, are in a hidden screen
+  (Conta → tap the version line → `app/src/app/licenses.tsx`). Run `node scripts/gen-licenses.js` after changing
+  dependencies.
 
 ## Left to the builder
 

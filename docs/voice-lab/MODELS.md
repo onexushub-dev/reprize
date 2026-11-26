@@ -1,7 +1,10 @@
 # Voice detector model files — provenance and licenses
 
 The files the voice keyword detector ("salvar", pt-BR) ships, where each comes from, its license and how it is
-built. **No file here goes into a store build before Victor approves this page** (plan Task 1, step 8).
+built. **No file here goes into a store build before Victor approves this page** (plan Task 1, step 8). Victor
+approved `salvar-v2-rc4` as the app's Portuguese model on 2026-11-26. The Apache-2.0 notice of the embedding ships in
+the app's hidden licenses screen (Conta → tap the version line; `app/src/app/licenses.tsx`, `app/src/legal/notices.ts`,
+npm packages from `app/scripts/gen-licenses.js`).
 
 Built by `lab/tools/export_detector.py` (`fetch` → `build` → `mac`). Lab results: `2026-11-23-voice-trigger-field-test.md`.
 
@@ -40,7 +43,7 @@ Written by `export_detector.py`.
 | voice_embedding.tflite (Android) | c0aea21eb84a4ce90a08c870da41b7a7173b45269e6a3207c71d67c40f3a59d8 |
 | voice_embedding.mlmodelc (iOS) | 81fcaf363202273c330092411f5ae1919a5b154b51a91f1895ae6742065b5c33 |
 
-## salvar-v2-rc1 (the app's model behind the Diagnóstico switch, 2026-11-25)
+## salvar-v2-rc1 (behind the Diagnóstico switch 2026-11-25; folder removed 2026-11-26: it is rc4 without the veto)
 
 Same pipeline, embedding and filterbank as `salvar-v1`; a new classifier (1536 → 256 ReLU → 1 logistic) that waits
 for the word to end (~0.25 s later than v1) and was also trained on public speech. Built from
@@ -61,3 +64,35 @@ Training data (used only to train; no audio from any of them ships in the app, o
 | salvar-v2-rc1/detector.json | fa1abe941f17004099d483d9019c90fd691e868ef6b934dcc64b07d89ef73700 |
 | salvar-v2-rc1/mel_filterbank.bin | 47011319e6e5feff36d6c53986b58062c159348ba48102e36cc02f0a94666ac5 |
 | salvar-v2-rc1/classifier.bin | 0141c43863fc2497006d27234a0d12b407ed96171249dcef640dd31399f8a15a |
+
+## salvar-v2-rc4 (the app's Portuguese model in every build since 2026-11-26)
+
+rc1 unchanged (`classifier.bin` is rc1's, byte for byte) plus a **veto**: a second classifier of the same shape
+(`veto.bin`, 1536 → 256 ReLU → 1 logistic) that can only remove fires. A window counts only where the veto gives at
+least 0.05 (`detector.json` → `veto`). The veto was trained with rc1's recipe plus real verbs ending in -ar (pular,
+cavar, gritar, treinar…) said by Yasmin and Victor in VoiceBench Parecidas (2026-11-26), which rc1 confused with
+"salvar". Built from `lab/tools/models/clf_rc4yv_s1.pkl` (`lab/tools/exp_rc4_cross.py`); checked with
+`exp_rc4_veto.py`, `exp_rc4_cross.py` and `eval_field_clips.py`. Training data: as rc1, plus those two sessions (ours,
+with the speakers' consent). iOS only for now (`ios/Models/voice/salvar-v2-rc4/`).
+
+| File (salvar-v2-rc4) | sha256 |
+|---|---|
+| salvar-v2-rc4/detector.json | 2d113b9f0be755e09b080f710351a10c70b8a8aea4e6225ed7087f83883d99fa |
+| salvar-v2-rc4/mel_filterbank.bin | 47011319e6e5feff36d6c53986b58062c159348ba48102e36cc02f0a94666ac5 |
+| salvar-v2-rc4/classifier.bin | 0141c43863fc2497006d27234a0d12b407ed96171249dcef640dd31399f8a15a |
+| salvar-v2-rc4/veto.bin | 1f85f215e1cd0d5b769897296518dbc0537eed5a9f60c11474d0de1acc411f05 |
+
+## Going back
+
+- **Dictation for Portuguese:** set `VoiceEngine.portugueseUsesKeyword` to `false`
+  (`app/modules/replay-camera/ios/Core/Sources/ReplayCore/Voice/VoiceEngine.swift`). To also drop the model from the
+  app (~3.2 MB), take `Models/voice/salvar-v2-rc4/*` out of `resource_bundles` in `ReplayCamera.podspec`: a missing
+  model already falls back to dictation.
+- **rc1:** rc4's `classifier.bin` is rc1 byte for byte. Remove `veto` from `salvar-v2-rc4/detector.json` (and
+  `veto.bin`), give it the version `salvar-v2-rc1` and update the sha256 rows here.
+- **Comparing again:** VoiceBench (`docs/voice-lab/lab/ios-bench`) with `voice_bench.py prepare --model <folder>`
+  shows the ditado, rc1 and rc4 counters live. The in-app switch between dictation and the model was commit
+  "feat(voice): Diagnostico switch between dictation and the salvar model (iOS, pt-BR)" (2026-11-25), removed
+  2026-11-26; the git history has it.
+- **salvar-v1:** kept as the golden test fixture (`ios/Core/Tests/ReplayCoreTests/Fixtures/voice-salvar-v1`); Android
+  still carries it in `android/src/main/assets/voice/salvar-v1`.

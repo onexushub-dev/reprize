@@ -236,6 +236,12 @@ Permissions, onboarding and setup texts don't change in this phase.
 - [ ] **Step 3: Field:** games with Modelo on; note unwanted saves and missed "salvar" per session. Victor decides when the model becomes the default (spec approach A, a later plan) and when Android starts.
 - [ ] **Commit point** (Victor).
 
+### Task 9: salvar-v2-rc4 as the Portuguese default, lab switch removed (2026-11-26, done)
+
+Spec section "salvar-v2-rc4 is the Portuguese default". `VoiceEngine.choose(locale:keywordAvailable:)` and
+`VoiceEngine.portugueseUsesKeyword` decide; the Diagnóstico switch and its plumbing are deleted; `salvar-v1` moved to
+the test fixtures; `voice_bench.py prepare` defaults to the app's model (rc4, checked against MODELS.md).
+
 ### Later (not in this plan's scope now)
 
 - Android: the Kotlin core and detector (the former Tasks 7–8), after the iPhone validation.
