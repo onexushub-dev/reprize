@@ -90,7 +90,7 @@ test('a tap on the picture saves nothing; two fingers zoom it, and the zoom show
 
 test('the ways are one centred line of short chips, read out whole (2026-11-20, option A)', async () => {
   session({ paid: true });
-  await render(<Recording gesture voice />);
+  await render(<Recording gesture voice remote />);
   expect(screen.getByTestId('save-ways')).toHaveStyle({ flexDirection: 'row', justifyContent: 'center' });
   for (const [short, whole] of [
     ['“salvar”', 'Diga “salvar”'],
@@ -240,7 +240,7 @@ test('the saved popup tells the length the clip really has, not the length asked
 
 test('the hint says the clip length and shows one tag per way that is on, without a line of "ou"', async () => {
   session({ paid: true });
-  await render(<Recording clipSeconds={45} gesture={false} voice />);
+  await render(<Recording clipSeconds={45} gesture={false} voice remote />);
   expect(screen.getByLabelText('Diga “salvar”')).toBeTruthy();
   expect(screen.getByLabelText('Controle')).toBeTruthy();
   expect(screen.queryByLabelText('Acene')).toBeNull();
@@ -256,9 +256,16 @@ test('the wave tag shows when the gesture is on', async () => {
 
 test('in a free game the Bluetooth remote has its tag too: it is free', async () => {
   session({ paid: false });
-  await render(<Recording clipSeconds={15} gesture voice={false} />);
+  await render(<Recording clipSeconds={15} gesture voice={false} remote />);
   expect(screen.getByLabelText('Acene')).toBeTruthy();
   expect(screen.getByLabelText('Controle')).toBeTruthy();
+});
+
+test('2026-11-26: the remote has no tag when it is not on in the triggers (no press heard on the setup screen)', async () => {
+  session({ paid: true });
+  await render(<Recording clipSeconds={15} gesture voice={false} />);
+  expect(screen.getByLabelText('Acene')).toBeTruthy();
+  expect(screen.queryByLabelText('Controle')).toBeNull();
 });
 
 test('a remote phone asking to end the recording ends it like the hold button does', async () => {

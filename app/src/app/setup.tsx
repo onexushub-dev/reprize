@@ -586,6 +586,8 @@ export default function Setup() {
           clipSeconds={settings.cutSeconds}
           gesture={settings.gestureEnabled}
           voice={voiceOn}
+          // Only what the triggers button shows on (2026-11-26): the remote's chip once a press proved it works.
+          remote={remoteReady && remoteAllowed}
           // Continuous zoom only: a fixed lens cannot change while the camera records.
           zoom={
             zoomRange.continuous

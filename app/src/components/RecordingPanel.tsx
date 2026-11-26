@@ -72,11 +72,14 @@ type Props = {
   /** Which hands-free triggers are on in this mode. */
   gesture?: boolean;
   voice?: boolean;
+  /** The Bluetooth remote shown on in the triggers (a press heard, as the setup screen shows it): only then its chip. The
+   * recording listens to it either way (2026-11-26). */
+  remote?: boolean;
   /** The camera's zoom while recording (continuous zoom only): its button over the save button, and the pinch. */
   zoom?: { value: number; onPress: () => void; pinch?: ReturnType<typeof useCameraPinch> };
 };
 
-export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false, zoom }: Props) {
+export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false, remote = false, zoom }: Props) {
   const { state, trigger, undoLast, stop, reset } = useSession();
   // "Continuando · …" says which recording goes on, then leaves the camera clear after 5 s (2026-11-23).
   const [badgeGoneFor, setBadgeGoneFor] = useState<number | undefined>(undefined);
@@ -323,7 +326,7 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
       ? [{ key: 'voice', icon: <MicIcon color={colors.accent} size={16} />, short: t('recording.chipVoice', { word: VOICE_WORD[locale] }), label: t('recording.wayVoice', { word: VOICE_WORD[locale] }) }]
       : []),
     ...(gesture ? [{ key: 'wave', icon: <WaveIcon color={colors.accent} size={16} />, short: t('recording.chipWave'), label: t('recording.wayWave') }] : []),
-    ...(remoteOn ? [{ key: 'remote', icon: <RemoteIcon color={colors.accent} size={16} />, short: t('recording.wayRemote'), label: t('recording.wayRemote') }] : []),
+    ...(remote && remoteOn ? [{ key: 'remote', icon: <RemoteIcon color={colors.accent} size={16} />, short: t('recording.wayRemote'), label: t('recording.wayRemote') }] : []),
     ...(watchOn ? [{ key: 'watch', icon: <WatchIcon color={colors.accent} size={16} />, short: t('recording.chipWatch'), label: t('recording.wayWatch') }] : []),
   ];
   // Always one line (2026-11-21): with every way on, the chips get a little slimmer, and shrink further if still short.
