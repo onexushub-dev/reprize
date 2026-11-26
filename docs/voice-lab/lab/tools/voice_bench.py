@@ -39,7 +39,8 @@ import zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
 DATA = os.path.join(HERE, "..", "ios-bench", "VoiceBench", "Data")
-MODEL_DIR = os.path.join(ROOT, "app", "modules", "replay-camera", "ios", "Models", "voice", "salvar-v1")
+# The app's model (salvar-v2-rc4 since 2026-11-26); its sha256 rows in MODELS.md are named "<version>/<file>".
+MODEL_DIR = os.path.join(ROOT, "app", "modules", "replay-camera", "ios", "Models", "voice", "salvar-v2-rc4")
 MODEL_FILES = ("detector.json", "mel_filterbank.bin", "classifier.bin")
 MODELS_MD = os.path.join(ROOT, "docs", "voice-lab", "MODELS.md")
 # Xcode compiles the .mlpackage into voice_embedding.mlmodelc inside the app (same model as ios/Models/*.mlmodelc).
@@ -52,14 +53,14 @@ THERMAL = ("nominal", "fair", "serious", "critical")
 
 # MARK: prepare
 
-def expected_sha256() -> dict[str, str]:
-    """The model files' sha256 from MODELS.md's table (written by export_detector.py)."""
+def expected_sha256(version: str = os.path.basename(MODEL_DIR)) -> dict[str, str]:
+    """The model files' sha256 from MODELS.md's table rows "| <version>/<file> | <sha256> |"."""
     out = {}
     with open(MODELS_MD, encoding="utf-8") as f:
         for line in f:
-            m = re.match(r"\|\s*([\w.]+)\s*\|\s*([0-9a-f]{64})\s*\|", line)
-            if m:
-                out[m.group(1)] = m.group(2)
+            m = re.match(r"\|\s*([\w.-]+)/([\w.]+)\s*\|\s*([0-9a-f]{64})\s*\|", line)
+            if m and m.group(1) == version:
+                out[m.group(2)] = m.group(3)
     return out
 
 
@@ -73,7 +74,8 @@ def sha256(path: str) -> str:
 
 def cmd_prepare(a) -> int:
     """The app's shipped model by default (checked against MODELS.md), or `--model <folder>` for a candidate such as
-    salvar-v2 (detector.json, mel_filterbank.bin, classifier.bin; never touches the app's own files)."""
+    salvar-v2 (detector.json, mel_filterbank.bin, classifier.bin, plus the veto's file when detector.json names one;
+    never touches the app's own files)."""
     model_dir = os.path.abspath(a.model) if a.model else MODEL_DIR
     missing = [f for f in MODEL_FILES if not os.path.isfile(os.path.join(model_dir, f))]
     if missing:
@@ -82,20 +84,28 @@ def cmd_prepare(a) -> int:
     if not os.path.isdir(EMBEDDING):
         print(f"Falta {EMBEDDING}: rode export_detector.py build", file=sys.stderr)
         return 1
+    with open(os.path.join(model_dir, "detector.json"), encoding="utf-8") as f:
+        cfg = json.load(f)
+    version = cfg.get("version", "?")
+    files = list(MODEL_FILES)
+    veto = cfg.get("veto")
+    if veto:  # salvar-v2-rc4 on: a second classifier that can only remove fires
+        files.append(veto["file"])
+        if not os.path.isfile(os.path.join(model_dir, veto["file"])):
+            print(f"Falta {veto['file']} (veto) em {model_dir}", file=sys.stderr)
+            return 1
     if not a.model:
         known = expected_sha256()
-        for f in MODEL_FILES:
+        for f in files:
             got = sha256(os.path.join(model_dir, f))
             if known.get(f) != got:
-                print(f"{f} não bate com o sha256 de MODELS.md ({got[:12]}…): rode export_detector.py build",
-                      file=sys.stderr)
+                print(f"{f} não bate com o sha256 de MODELS.md ({got[:12]}…): o modelo do app mudou sem atualizar "
+                      "MODELS.md", file=sys.stderr)
                 return 1
-    with open(os.path.join(model_dir, "detector.json"), encoding="utf-8") as f:
-        version = json.load(f).get("version", "?")
     if os.path.isdir(DATA):
         shutil.rmtree(DATA)
     os.makedirs(DATA)
-    for f in MODEL_FILES:
+    for f in files:
         shutil.copy2(os.path.join(model_dir, f), os.path.join(DATA, f))
     shutil.copytree(EMBEDDING, os.path.join(DATA, "voice_embedding.mlpackage"))
     print(f"Pronto: {os.path.normpath(DATA)} (modelo {version})")

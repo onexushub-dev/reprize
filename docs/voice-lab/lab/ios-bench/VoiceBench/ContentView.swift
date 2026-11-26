@@ -77,13 +77,17 @@ struct ContentView: View {
         Section {
           HStack(spacing: 12) {
             counter("Atual", model.atual, flash: model.flashAtual, color: .orange)
-            counter("Novo", model.novo, flash: model.flashNovo, color: .blue)
+            if model.hasBase {
+              counter("rc1", model.base, flash: model.flashBase, color: .purple)
+            }
+            counter(model.hasBase ? "rc4" : "Novo", model.novo, flash: model.flashNovo, color: .blue)
           }
           .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
           Text(clock)
             .font(.system(.title2, design: .monospaced))
             .frame(maxWidth: .infinity)
-          Text("Novo = \(model.modelVersion)")
+          Text(model.hasBase ? "rc4 = \(model.modelVersion) · rc1 = o mesmo sem o veto (mesmo áudio)"
+                             : "Novo = \(model.modelVersion)")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
@@ -162,7 +166,7 @@ struct ContentView: View {
   private func counter(_ label: String, _ value: Int, flash: Bool, color: Color) -> some View {
     VStack(spacing: 4) {
       Text(label).font(.headline)
-      Text("\(value)").font(.system(size: 64, weight: .bold, design: .rounded)).monospacedDigit()
+      Text("\(value)").font(.system(size: model.hasBase ? 52 : 64, weight: .bold, design: .rounded)).monospacedDigit()
     }
     .frame(maxWidth: .infinity, minHeight: 130)
     .background(flash ? color.opacity(0.45) : color.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
@@ -181,10 +185,12 @@ struct ContentView: View {
   private func detail(_ s: BenchSession) -> String {
     let atual = s.events.filter { $0.engine == "dictation" }.count
     let novo = s.events.filter { $0.engine == "keyword" }.count
+    let base = s.events.filter { $0.engine == "keyword-main" }.count
     let minutes = String(format: "%.1f min", s.durationSec / 60)
     let expected = s.expected.map { " de \($0)" } ?? ""
     let issues = (s.issues ?? []).isEmpty ? "" : " · ⚠︎ \((s.issues ?? []).count) aviso(s)"
-    return "Atual \(atual)\(expected) · Novo \(novo)\(expected) · \(minutes)\(issues) · \(s.start)"
+    let rc1 = s.events.contains { $0.engine == "keyword-main" } ? "rc1 \(base)\(expected) · " : ""
+    return "Atual \(atual)\(expected) · \(rc1)Novo \(novo)\(expected) · \(minutes)\(issues) · \(s.start)"
   }
 }
 

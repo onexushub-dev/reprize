@@ -36,15 +36,17 @@ Os contadores mostram na hora: **Atual** (laranja) e **Novo** (azul), cada um co
 
 Cada número que subir aqui é um alarme falso.
 
-## 2b. Parecidas — palavras parecidas com "salvar" (~3 min por pessoa, pode ser em casa)
+## 2b. Parecidas — palavras parecidas com "salvar" (~5 min por pessoa, pode ser em casa)
 
 Mede se o motor confunde "salvar" com palavras parecidas (o Novo v1 dispara com "salvando", "salvamento" e
 "salva-me", visto no crossfit em 2026-11-25).
 
 1. Em **Parecidas**, escolha **3 m** e escreva **quem fala**. **Iniciar.**
-2. A pessoa lê a lista que aparece na tela, **cada palavra 5 vezes**, ~2 s entre elas, **nunca "salvar"**:
+2. A pessoa lê a lista que aparece na tela, **cada palavra 3 vezes**, ~2 s entre elas, **nunca "salvar"**:
    salvando · salvamento · salva-me · salvador · salvação · salva-vidas · salvei · salvou · salvo · salve · salva ·
-   salto · saltar · sacar · salada
+   salto · saltar · sacar · salada · pular · cavar · gritar · treinar · jogar · chutar · passar · marcar · parar ·
+   ganhar · selar · salgar · sentar · cansar · lançar · tocar · falar · amar · levantar · olhar
+   (os verbos em "-ar" entraram depois do teste de campo de 2026-11-25, em que a rc1 disparou com eles).
 3. **Parar.**
 
 Todo disparo aqui é confusão. Faça com cada pessoa (Victor e as mulheres): essas gravações também viram exemplos de

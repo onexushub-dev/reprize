@@ -40,9 +40,12 @@ enum PerfChoice: String, CaseIterable, Identifiable {
 /// One VoiceBench session at a time: which engines listen, the counters, the minute-by-minute readings, the files.
 final class BenchModel: ObservableObject {
   static let distances = [3, 5, 10, 12]
-  /// Read in Parecidas, 5 times each, never "salvar" (bench-protocol.md). Every firing there is a confusion.
+  /// Read in Parecidas, 3 times each, never "salvar" (bench-protocol.md). Every firing there is a confusion.
+  /// The second half are verbs ending in -ar, which fired rc1 in the 2026-11-25 field test.
   static let confusers = ["salvando", "salvamento", "salva-me", "salvador", "salvação", "salva-vidas", "salvei", "salvou",
-                          "salvo", "salve", "salva", "salto", "saltar", "sacar", "salada"]
+                          "salvo", "salve", "salva", "salto", "saltar", "sacar", "salada",
+                          "pular", "cavar", "gritar", "treinar", "jogar", "chutar", "passar", "marcar", "parar", "ganhar",
+                          "selar", "salgar", "sentar", "cansar", "lançar", "tocar", "falar", "amar", "levantar", "olhar"]
 
   @Published var mode: BenchMode = .acerto
   @Published var distance = 3
@@ -56,6 +59,10 @@ final class BenchModel: ObservableObject {
   @Published private(set) var running = false
   @Published private(set) var atual = 0
   @Published private(set) var novo = 0
+  /// With a veto model (rc4): what its main classifier alone (rc1) heard, live, on the same audio.
+  @Published private(set) var base = 0
+  @Published private(set) var flashBase = false
+  @Published private(set) var hasBase = BenchModel.bundledHasVeto()
   @Published private(set) var elapsed = 0.0
   @Published private(set) var status = ""
   @Published private(set) var sessions: [BenchSession] = []
@@ -125,6 +132,10 @@ final class BenchModel: ObservableObject {
       if usesKeyword {
         let k = try Self.makeKeyword()
         k.onCommand = { [weak self] score in self?.heard("keyword", score: score) }
+        if k.hasVeto {
+          k.onMainCommand = { [weak self] score in self?.heard("keyword-main", score: score) }
+        }
+        hasBase = k.hasVeto
         k.log = { [weak self] line in DispatchQueue.main.async { self?.status = line } }
         keyword = k
       }
@@ -148,6 +159,7 @@ final class BenchModel: ObservableObject {
       perf = []
       atual = 0
       novo = 0
+      base = 0
       elapsed = 0
       lastPerfAt = 0
       lastSteps = 0
@@ -232,7 +244,11 @@ final class BenchModel: ObservableObject {
     guard running else { return }
     let t = CACurrentMediaTime() - startTime
     events.append(BenchEvent(engine: engine, t: t, score: score))
-    if engine == "dictation" {
+    if engine == "keyword-main" {
+      base += 1
+      flashBase = true
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.flashBase = false }
+    } else if engine == "dictation" {
       atual += 1
       flashAtual = true
       AudioServicesPlaySystemSound(1104)
@@ -256,6 +272,15 @@ final class BenchModel: ObservableObject {
       lastStepSeconds = s.stepSeconds
     }
     return PerfSampler.row(at: t, keywordStepMs: stepMs)
+  }
+
+  /// The bundled model names a veto (salvar-v2-rc4), so the panel shows rc1 and rc4 side by side.
+  static func bundledHasVeto() -> Bool {
+    let url = Bundle.main.url(forResource: "detector", withExtension: "json")
+      ?? Bundle.main.url(forResource: "detector", withExtension: "json", subdirectory: "Data")
+    guard let url, let data = try? Data(contentsOf: url),
+          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+    return json["veto"] != nil
   }
 
   static func bundledModelVersion() -> String {

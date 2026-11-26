@@ -293,7 +293,8 @@ def build_coreml(out_pkg: str, windows: np.ndarray, ref: np.ndarray):
 def cmd_build(a):
     out = os.path.abspath(a.out)
     ios_dir = os.path.join(out, "ios", "Models")
-    ios_voice = os.path.join(ios_dir, "voice", VERSION)
+    # salvar-v1 is no longer the app's model (salvar-v2-rc4 is): it lives next to the golden fixture it made.
+    ios_voice = os.path.join(out, "ios", "Core", "Tests", "ReplayCoreTests", "Fixtures", "voice-" + VERSION)
     and_assets = os.path.join(out, "android", "src", "main", "assets")
     and_voice = os.path.join(and_assets, "voice", VERSION)
     fixtures = os.path.join(out, "ios", "Core", "Tests", "ReplayCoreTests", "Fixtures")
