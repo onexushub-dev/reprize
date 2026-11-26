@@ -3,10 +3,11 @@ import { Platform, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { setLocale } from '../../i18n';
-import { CameraBar } from '../CameraBar';
+import { CameraBar, dockBottom } from '../CameraBar';
 
-// The row of Gravar sinks a little into the bottom safe area on the iPhone (the home indicator), never past it. On
-// Android that area is the system's buttons, which the window is drawn behind: no sinking there (2026-11-25).
+// The black under the row of Gravar, down to the screen's edge (2026-11-26). On the iPhone the row sits 12 points into
+// the home indicator's area; the system buttons or gesture bar of an Android are drawn over the app (edge-to-edge), so
+// the row stays clear of them. Either way at least DOCK_GAP of black under the row: it went flush on the buttons.
 function renderWithBottomInset(bottom: number) {
   return render(
     <SafeAreaProvider initialMetrics={{ frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom } }}>
@@ -25,32 +26,37 @@ function renderWithBottomInset(bottom: number) {
   );
 }
 
-const sink = () => {
-  const style = StyleSheet.flatten(screen.getByTestId('camera-dock').props.style);
-  return -(style.marginBottom ?? 0);
-};
+const under = () => StyleSheet.flatten(screen.getByTestId('camera-dock').props.style).paddingBottom;
 
 beforeEach(() => setLocale('en'));
 afterEach(() => jest.restoreAllMocks());
 
-it('on an iPhone the row of Gravar sinks 12 points into the home indicator area', async () => {
+describe('dockBottom', () => {
+  it('on an iPhone with the home indicator the row sits 12 points into its 34', () => {
+    expect(dockBottom('ios', 34)).toBe(22);
+  });
+
+  it('on an iPhone with a home button there is still black under the row', () => {
+    expect(dockBottom('ios', 0)).toBe(16);
+  });
+
+  it('on Android the row stays 16 points above the system buttons', () => {
+    // Build 13 on a Xiaomi with 3-button navigation, 2026-11-26: a 47 point bar and the record button flush on it.
+    expect(dockBottom('android', 47)).toBe(63);
+  });
+
+  it('on Android with nothing reported at the bottom the row still keeps its 16 points', () => {
+    expect(dockBottom('android', 0)).toBe(16);
+  });
+});
+
+it('the camera bar keeps that space under the row of Gravar on an iPhone', async () => {
   await renderWithBottomInset(34);
-  expect(sink()).toBe(12);
+  expect(under()).toBe(22);
 });
 
-it('with no bottom area the row does not sink', async () => {
-  await renderWithBottomInset(0);
-  expect(sink()).toBe(0);
-});
-
-it('with a small bottom area it sinks only as far as the area goes', async () => {
-  await renderWithBottomInset(5);
-  expect(sink()).toBe(5);
-});
-
-it('on Android the bottom area is the system buttons (edge-to-edge): the row never sinks under them', async () => {
-  // Build 12 on a Xiaomi with 3-button navigation, 2026-11-25: a 47 pt area and the record button cut by the buttons.
+it('the camera bar keeps that space under the row of Gravar on Android', async () => {
   jest.replaceProperty(Platform, 'OS', 'android');
   await renderWithBottomInset(47);
-  expect(sink()).toBe(0);
+  expect(under()).toBe(63);
 });

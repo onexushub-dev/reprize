@@ -367,6 +367,11 @@ export function concatVideos(paths: string[], outPath: string): Promise<Exported
   return ReplayCameraModule.concatVideos(paths, outPath);
 }
 
+/** Whether Google Play has a newer version for this phone. False where the native function is missing. */
+export async function isPlayUpdateAvailable(): Promise<boolean> {
+  return (await ReplayCameraModule.isPlayUpdateAvailable?.()) ?? false;
+}
+
 // ---- Phone remote: a second phone that saves for the camera phone, over Bluetooth LE. Without the native functions
 // every call does nothing.
 

@@ -554,6 +554,12 @@ export const en = {
     privacyUrl: 'https://www.reprizeapp.com/en/privacy',
     version: 'Reprize %{version}',
   },
+  update: {
+    title: 'New version available',
+    body: 'Update Reprize to get the latest features and improvements.',
+    action: 'Update',
+    close: 'Close notice',
+  },
   games: {
     title: 'RECORDINGS',
     emptyTitle: 'No recordings yet',

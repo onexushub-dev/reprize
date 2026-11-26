@@ -22,6 +22,7 @@ import { RemoteStartListener } from '../session/RemoteStartListener';
 import { SessionProvider } from '../session/SessionContext';
 import { clearExportsFolder } from '../share/exportCache';
 import { colors } from '../theme/tokens';
+import { startUpdateNotice } from '../update/updateNotice';
 
 SplashScreen.preventAutoHideAsync();
 // Exports from the last run (a crash or a kill leaves them) go once per start; within a run they are reused.
@@ -74,6 +75,8 @@ export default function RootLayout() {
   // Modo Foco in the background: clips are analysed while the app is open and no recording runs.
   useEffect(() => startFocusQueue(), []);
 
+  // A new version in the store: checked when the app opens, shown by the setup screen.
+  useEffect(() => startUpdateNotice(), []);
   // Shared recordings upload in the background; the queue starts again what a swiped-away app left (sharing design §5.4).
   useEffect(() => startUploadQueue(), []);
   useEffect(() => startSharePrep(), []);

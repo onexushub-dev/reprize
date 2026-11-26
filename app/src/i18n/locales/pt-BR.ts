@@ -552,6 +552,12 @@ export const ptBR: Messages = {
     privacyUrl: 'https://www.reprizeapp.com/privacy',
     version: 'Reprize %{version}',
   },
+  update: {
+    title: 'Nova versão disponível',
+    body: 'Atualize o Reprize para acessar os novos recursos e melhorias.',
+    action: 'Atualizar',
+    close: 'Fechar aviso',
+  },
   games: {
     title: 'GRAVAÇÕES',
     emptyTitle: 'Nenhuma gravação ainda',
