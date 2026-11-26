@@ -1,6 +1,6 @@
 import { type ComponentRef, type ReactNode, useContext, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, type LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaInsetsContext, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
 import { useT } from '../i18n/useT';
@@ -57,12 +57,21 @@ const TARGET_KINDS = ['clip', 'quality', 'triggers', 'record'] as const;
 /** Between the three settings and the black under them; the panels keep the same distance above the settings. */
 export const BAR_GAP = 16;
 
-/**
- * How far the row of Gravar sits into the bottom safe area (points): more = lower, more camera. Never more than the
- * area itself. iPhone only: there the area is the home indicator. On Android it is the system's buttons or gesture bar
- * (the window is drawn behind them, edge-to-edge), and the row went under the buttons (build 12, 2026-11-25).
- */
+/** How far the row of Gravar sits into the iPhone's home indicator area (points): more = lower, more camera. */
 const DOCK_LOWER = 12;
+
+/** The least black under the row of Gravar on any phone (points): it went flush on Android's buttons (2026-11-26). */
+const DOCK_GAP = 16;
+
+/**
+ * The space under the row of Gravar, down to the screen's edge, from the bottom safe area. On the iPhone that area is
+ * the home indicator and the row sits DOCK_LOWER into it. On Android it is the system's buttons or gesture bar, drawn
+ * over the app (edge-to-edge): the row stays above it. Always at least DOCK_GAP of black under the row.
+ */
+export function dockBottom(os: string, bottomInset: number): number {
+  const sunk = os === 'ios' ? bottomInset - DOCK_LOWER : bottomInset + DOCK_GAP;
+  return Math.max(DOCK_GAP, sunk);
+}
 
 /** Until the buttons are measured, a slot as long as the longest of them can be. */
 const SLOT_FALLBACK = 128;
@@ -77,7 +86,7 @@ export function CameraBar(props: Props) {
   const waiting = props.waiting ?? busy;
   const { t, locale } = useT();
   const bottomInset = useContext(SafeAreaInsetsContext)?.bottom ?? 0;
-  const sink = Platform.OS === 'ios' ? Math.min(DOCK_LOWER, bottomInset) : 0;
+
   const active = (kind: 'clip' | 'quality' | 'triggers') => panel === kind || (kind === 'triggers' && (panel === 'test' || panel === 'phone'));
   const tint = (kind: 'clip' | 'quality' | 'triggers') => (active(kind) ? colors.onAccent : colors.text);
   const triggerItems = triggers.map((key) => sourceLabel(TRIGGER_SOURCE[key], locale));
@@ -204,9 +213,9 @@ export function CameraBar(props: Props) {
       <View testID="camera-settings" style={[styles.pills, reversed && styles.pillsReversed, waiting && styles.busy]}>
         {pills}
       </View>
-      <SafeAreaView edges={['bottom']} testID="camera-dock" style={[styles.ground, { marginBottom: -sink }]}>
+      <View testID="camera-dock" style={[styles.ground, { paddingBottom: dockBottom(Platform.OS, bottomInset) }]}>
         <View style={styles.row}>{buttons}</View>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }
@@ -275,8 +284,7 @@ function Arrow({ reversed }: { reversed: boolean }) {
 
 const styles = StyleSheet.create({
   bar: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: BAR_GAP },
-  // Lower into the home bar's area (2026-11-22, tuning it): the black band is shorter and the camera shows more. The
-  // safe area still applies; DOCK_LOWER of it goes under the buttons' band.
+  // The space under the row comes from dockBottom (the phone's bottom area).
   ground: { backgroundColor: colors.ground, paddingTop: 10 },
   pills: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8 },
   pill: {
