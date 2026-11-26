@@ -115,6 +115,24 @@ test('for 3 s after a save (from any trigger) the save button is greyed out and 
   jest.useRealTimers();
 });
 
+test('after Desfazer the save button stays greyed out until the same 3 s are over (2026-11-26)', async () => {
+  jest.useFakeTimers();
+  const at = Date.now();
+  session({ clipCount: 1, lastSaved: { clipId: 'c1', number: 1, source: 'screen', at, cutMs: 15000 } });
+  const view = await render(<Recording />);
+  const button = () => screen.getByRole('button', { name: /Salvar os últimos/ });
+  expect(button()).toBeDisabled();
+  // Desfazer: the clip is gone, and `lastSaved` with it.
+  const s = session({ clipCount: 0 });
+  await view.rerender(<Recording />);
+  expect(button()).toBeDisabled();
+  await fireEvent.press(button());
+  expect(s.trigger).not.toHaveBeenCalled();
+  await act(async () => jest.advanceTimersByTime(3000));
+  expect(button()).toBeEnabled();
+  jest.useRealTimers();
+});
+
 test('the save button saves a clip, then draws its ring and shows a ✓ for a moment (2026-11-21, option C)', async () => {
   const s = session({});
   jest.useFakeTimers();

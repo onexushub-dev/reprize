@@ -213,13 +213,18 @@ export function RecordingPanel({ clipSeconds = 30, gesture = true, voice = false
   const shownAt = shown === undefined ? undefined : shown.at;
   // For TRIGGER_DEBOUNCE_MS after a save (from any trigger) another one is dropped: the save button says so, greyed out
   // until then (2026-11-21). `readyAfter` is the save the wait is over for.
+  // The wait counts from the save itself, kept here: Desfazer removes the clip (and `lastSaved` with it), but the
+  // trigger bus still drops saves until the 3 s are over, so the button stays greyed out too (2026-11-26: it came back
+  // at once after Desfazer and a quick tap saved nothing).
+  const [savedAt, setSavedAt] = useState<number>();
+  if (shownAt !== undefined && shownAt !== savedAt) setSavedAt(shownAt);
   const [readyAfter, setReadyAfter] = useState<number>();
   useEffect(() => {
-    if (shownAt === undefined) return;
-    const ready = setTimeout(() => setReadyAfter(shownAt), Math.max(0, TRIGGER_DEBOUNCE_MS - (Date.now() - shownAt)));
+    if (savedAt === undefined) return;
+    const ready = setTimeout(() => setReadyAfter(savedAt), Math.max(0, TRIGGER_DEBOUNCE_MS - (Date.now() - savedAt)));
     return () => clearTimeout(ready);
-  }, [shownAt]);
-  const cooling = shownAt !== undefined && readyAfter !== shownAt;
+  }, [savedAt]);
+  const cooling = savedAt !== undefined && readyAfter !== savedAt;
   useEffect(() => {
     if (shownAt === undefined) return;
     const hide = setTimeout(() => setDismissed(shownAt), OVERLAY_MS);
