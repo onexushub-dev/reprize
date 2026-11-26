@@ -16,7 +16,7 @@ import { ballContent, clipStage, openingZoom, pictureTransform, previewBox, turn
 const NEIGHBOUR_WAIT_MS = 300;
 
 type Props = {
-  clip: { path?: string; trim?: Clip['trim']; edit?: Clip['edit']; focus?: Clip['focus']; ball?: Clip['ball'] };
+  clip: { path?: string; trim?: Clip['trim']; edit?: Clip['edit']; focus?: Clip['focus']; ball?: Clip['ball']; sharePosition?: number };
   tier: Parameters<typeof clipStage>[0];
   area: { width: number; height: number };
 };
@@ -52,7 +52,7 @@ export function NeighbourStage({ clip, tier, area }: Props) {
     () => (focusFile && size ? readFocusFile(focusFile, landscape ? 'landscape' : 'portrait') : undefined),
     [focusFile, size, landscape],
   );
-  const ballFile = clip.trim ? readyBallFile({ ball: clip.ball, trim: clip.trim }) : undefined;
+  const ballFile = clip.trim ? readyBallFile({ ball: clip.ball, trim: clip.trim, sharePosition: clip.sharePosition }) : undefined;
   const ballTrack = useMemo(() => (ballFile && size ? readFocusFile(ballFile, 'portrait') : undefined), [ballFile, size]);
 
   if (!uri) return null;

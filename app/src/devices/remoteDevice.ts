@@ -9,7 +9,7 @@ export type RemoteDeviceView = {
    * Bluetooth off). Never "paired": iOS does not tell apps which devices are paired (2026-11-01 field test).
    */
   state: DeviceState;
-  /** Toque para conectar → Desconectado / Bluetooth desligado / Aperte um botão para conferir → Conectado. */
+  /** Toque para conectar → Em espera · aperte um botão / Bluetooth desligado → Conectado. */
   statusText: string;
   showSteps: boolean;
   /** The steps sit behind "Não funciona? Parear de novo" (the remote may have been unpaired since). */

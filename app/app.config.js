@@ -35,13 +35,15 @@
  *
  *   REPRIZE_DIAGNOSTICS=1                  shows the Diagnóstico link and keeps the log; off when unset
  *
- * EAS production builds never carry it, whatever the env says: the App Store build has no debug screen.
+ * EAS production builds never carry it, whatever the env says: the App Store build has no debug screen. The
+ * `testflight` profile sets it (team builds on TestFlight, never sent for review).
  *
  * Field-test unlock (TEMP(field-test), src/payments/fieldTest.ts), for local test builds:
  *
  *   REPRIZE_FIELD_TEST_UNLOCK=1            every paid feature works on the free plan; off when unset
  *
- * EAS production builds never carry it either: the store build always locks and shows the paywall.
+ * EAS production and testflight builds never carry it: they always lock and show the paywall (TestFlight purchases
+ * are free sandbox purchases).
  *
  * Supabase (sharing recordings), read into extra.supabase. Both values are public:
  *
@@ -84,19 +86,23 @@ module.exports = ({ config }) => {
   }
 
   // The test_ key is development-only (see pickApiKey), so EAS production builds do not carry it at all.
-  const production = process.env.EAS_BUILD_PROFILE === 'production';
+  // `testflight` (eas.json): the store build with the Diagnóstico screen on, for team testing before a release (it
+  // shows the features still behind diagnostics, such as sharing). It is never submitted for App Store review.
+  const profile = process.env.EAS_BUILD_PROFILE;
+  const production = profile === 'production';
+  const storeSigned = production || profile === 'testflight';
   const extra = Object.assign({}, config.extra, {
     revenueCat: {
       ios: process.env.REPRIZE_RC_IOS_KEY || process.env.REPPLAY_RC_IOS_KEY || process.env.LANCE_RC_IOS_KEY,
       android: process.env.REPRIZE_RC_ANDROID_KEY || process.env.REPPLAY_RC_ANDROID_KEY || process.env.LANCE_RC_ANDROID_KEY,
-      test: production ? undefined : process.env.REPRIZE_RC_TEST_KEY || process.env.REPPLAY_RC_TEST_KEY || process.env.LANCE_RC_TEST_KEY,
+      test: storeSigned ? undefined : process.env.REPRIZE_RC_TEST_KEY || process.env.REPPLAY_RC_TEST_KEY || process.env.LANCE_RC_TEST_KEY,
     },
     posthog: {
       key: process.env.REPRIZE_POSTHOG_KEY || process.env.REPPLAY_POSTHOG_KEY,
       host: process.env.REPRIZE_POSTHOG_HOST || 'https://us.i.posthog.com',
     },
     diagnostics: !production && process.env.REPRIZE_DIAGNOSTICS === '1',
-    fieldTestUnlockAll: !production && process.env.REPRIZE_FIELD_TEST_UNLOCK === '1',
+    fieldTestUnlockAll: !storeSigned && process.env.REPRIZE_FIELD_TEST_UNLOCK === '1',
     supabase: {
       url: process.env.REPRIZE_SUPABASE_URL,
       key: process.env.REPRIZE_SUPABASE_KEY,
@@ -105,7 +111,7 @@ module.exports = ({ config }) => {
       iosClientId: googleIos,
       webClientId: process.env.REPRIZE_GOOGLE_WEB_CLIENT_ID,
     },
-    spikeKey: !production && process.env.REPRIZE_DIAGNOSTICS === '1' ? process.env.REPRIZE_SPIKE_KEY : undefined,
+    spikeKey: !storeSigned && process.env.REPRIZE_DIAGNOSTICS === '1' ? process.env.REPRIZE_SPIKE_KEY : undefined,
   });
 
   return Object.assign({}, config, { ios: ios, android: android, extra: extra, plugins: plugins });

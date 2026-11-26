@@ -42,3 +42,8 @@ export function triggerAllowed(source: TriggerSource, plan: Plan): boolean {
 export function canCompile(plan: Plan): boolean {
   return accessPlan(plan) === 'paid';
 }
+
+/** Sharing a recording by link is paid (sharing design, decision 2). The server checks it again. */
+export function canShare(plan: Plan): boolean {
+  return accessPlan(plan) === 'paid';
+}

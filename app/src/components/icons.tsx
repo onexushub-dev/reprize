@@ -1,6 +1,6 @@
-import Svg, { Circle, Path, Rect } from 'react-native-svg';
+import Svg, { Circle, Path, Rect, Text as SvgText } from 'react-native-svg';
 
-import { colors } from '../theme/tokens';
+import { colors, fonts } from '../theme/tokens';
 import { WavingFigure } from './WavingFigure';
 
 type IconProps = { color?: string; size?: number };
@@ -348,6 +348,248 @@ export function SunIcon({ color = colors.text, size = 22 }: IconProps) {
     <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
       <Circle cx={12} cy={12} r={4} {...stroke(color)} />
       <Path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/**
+ * Two photos (2026-11-22, the camera's Gravações button): a filled one behind, an outlined one in front with a sun and
+ * hills. `under` fills the front photo and the gap round it, so it must be the colour of what the icon sits on.
+ * `size` is the width; the drawing is 48 × 40.
+ */
+export function GalleryIcon({ color = colors.text, size = 40, under = colors.ground }: IconProps & { under?: string }) {
+  return (
+    <Svg width={size} height={(size * 40) / 48} viewBox="0 0 48 40" accessibilityElementsHidden>
+      <Rect x={2} y={3} width={30} height={24} rx={6} fill={color} />
+      <Rect x={8.5} y={8} width={38} height={31} rx={8} fill={under} />
+      <Rect x={12} y={11.5} width={31} height={24} rx={5.5} fill={under} stroke={color} strokeWidth={3} />
+      <Circle cx={22.5} cy={19.5} r={3.4} fill="none" stroke={color} strokeWidth={2.6} />
+      <Path d="M15 33.5l8.5-8 5 4.5 4.5-5 8 8.5z" fill={color} stroke={color} strokeWidth={1} strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** A gear: Ajustes (account, plan, legal pages). */
+export function GearIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={12} cy={12} r={3} {...stroke(color)} />
+      <Path
+        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+        {...stroke(color)}
+      />
+    </Svg>
+  );
+}
+
+/** A door with an arrow out: sign out. */
+export function LogoutIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A price tag: a clip's label (etiqueta). */
+export function TagIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z" {...stroke(color)} />
+      <Circle cx={7.5} cy={7.5} r={1.5} {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A clock face: minutes recorded, or how long a link lasts. */
+export function ClockIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={12} cy={12} r={9} {...stroke(color)} />
+      <Path d="M12 7v5l3 2" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A stack of discs: space taken on the phone. */
+export function DiskIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M4 6c0 1.7 3.6 3 8 3s8-1.3 8-3-3.6-3-8-3-8 1.3-8 3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A gift box: freeing a shared recording without Pro. */
+export function GiftIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x="3" y="9" width="18" height="12" rx="2" {...stroke(color)} />
+      <Path d="M12 9v12M3 13h18M12 9c-1.5-3.5-6-4-6-1.5S12 9 12 9s6 0 6-1.5-4.5-2-6 1.5" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Three dots: more actions. */
+export function MoreIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={5} cy={12} r={1.8} fill={color} />
+      <Circle cx={12} cy={12} r={1.8} fill={color} />
+      <Circle cx={19} cy={12} r={1.8} fill={color} />
+    </Svg>
+  );
+}
+
+/** A plus: add one more (another Bluetooth remote). */
+export function PlusIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M12 5v14M5 12h14" {...stroke(color)} strokeWidth={2.4} />
+    </Svg>
+  );
+}
+
+/** A chevron to the right: a row that opens another screen. */
+export function ChevronIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M9 6l6 6-6 6" {...stroke(color)} strokeWidth={2} />
+    </Svg>
+  );
+}
+
+/** A triangle with an exclamation mark: a step that cannot be undone. */
+export function AlertIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M12 3l10 18H2zM12 10v5M12 18v.5" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** An eye: how many phones opened a link. */
+export function EyeIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" {...stroke(color)} />
+      <Circle cx={12} cy={12} r={3} {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Two sheets: copy. */
+export function CopyIcon({ color = colors.text, size = 18 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x="9" y="9" width="11" height="11" rx="2" {...stroke(color)} />
+      <Path d="M5 15V5a2 2 0 0 1 2-2h10" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A head and shoulders: a person (the account). */
+export function UserIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={12} cy={8} r={4} {...stroke(color)} />
+      <Path d="M4 21c0-4 4-6 8-6s8 2 8 6" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Three sliders: the recording settings (Ajustes on the compact dock). */
+export function SlidersIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" {...stroke(color)} />
+      <Circle cx={16} cy={6} r={2} {...stroke(color)} />
+      <Circle cx={10} cy={12} r={2} {...stroke(color)} />
+      <Circle cx={18} cy={18} r={2} {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** A calendar page: filter by date. */
+export function CalendarIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x="3" y="5" width="18" height="16" rx="2" {...stroke(color)} />
+      <Path d="M3 10h18M8 3v4M16 3v4" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/**
+ * The save button's mark (2026-11-21, option A): an arrow turning back with the clip length in it, like a player's "back
+ * 15 s": a save keeps the last seconds.
+ */
+export function SaveLastIcon({ seconds, color = colors.onAccent, size = 40 }: IconProps & { seconds?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" {...stroke(color)} strokeWidth={2.1} />
+      <Path d="M3 3.5V8h4.5" {...stroke(color)} strokeWidth={2.1} />
+      {seconds === undefined ? null : (
+        <SvgText
+          x={12.6}
+          y={15.6}
+          textAnchor="middle"
+          fontFamily={fonts.bodyBold}
+          fontWeight="800"
+          fontSize={seconds >= 100 ? 6 : 8}
+          fill={color}>
+          {String(seconds)}
+        </SvgText>
+      )}
+    </Svg>
+  );
+}
+
+/** Four corners of a frame: the recording quality (the camera's Full HD / 4K button). */
+export function ResolutionIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4" {...stroke(color)} strokeWidth={2} />
+    </Svg>
+  );
+}
+
+/** A lightning bolt: the triggers (their test) and the flash on a save. */
+export function BoltIcon({ color = colors.text, size = 20 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Three linked circles: Compartilhar a recording by link (Enviar, the box with an arrow, sends clips as files). */
+export function LinkShareIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={18} cy={5} r={3} {...stroke(color)} strokeWidth={2} />
+      <Circle cx={6} cy={12} r={3} {...stroke(color)} strokeWidth={2} />
+      <Circle cx={18} cy={19} r={3} {...stroke(color)} strokeWidth={2} />
+      <Path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" {...stroke(color)} strokeWidth={2} />
+    </Svg>
+  );
+}
+
+/**
+ * Ajustes on the camera (2026-11-22, option B): an outlined gear, eight teeth, with a solid core, as the Gravações
+ * photos beside it pair an outline with a filled shape.
+ */
+export function GearFilledIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Path
+        d="M10.46 3.95 L10.77 1.57 L13.23 1.57 L13.54 3.95 L16.61 5.22 L18.50 3.75 L20.25 5.50 L18.78 7.39 L20.05 10.46 L22.43 10.77 L22.43 13.23 L20.05 13.54 L18.78 16.61 L20.25 18.50 L18.50 20.25 L16.61 18.78 L13.54 20.05 L13.23 22.43 L10.77 22.43 L10.46 20.05 L7.39 18.78 L5.50 20.25 L3.75 18.50 L5.22 16.61 L3.95 13.54 L1.57 13.23 L1.57 10.77 L3.95 10.46 L5.22 7.39 L3.75 5.50 L5.50 3.75 L7.39 5.22 Z"
+        fill="none"
+        stroke={color}
+        strokeWidth={2.2}
+        strokeLinejoin="round"
+      />
+      <Circle cx={12} cy={12} r={3.6} fill={color} />
     </Svg>
   );
 }

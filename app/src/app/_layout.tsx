@@ -10,8 +10,13 @@ import { AppState } from 'react-native';
 import { isRemoteSupported, remoteHostStart, remoteHostStop } from '../../modules/replay-camera';
 import { analytics, initAnalytics, sessionSummary, track } from '../analytics';
 import { useScreenViews } from '../analytics/useScreenViews';
+import { startUploadQueue } from '../cloud/appUploadQueue';
+import { startSharePrep } from '../cloud/appSharePrep';
+import { startReceiveQueue } from '../cloud/receive';
+import { GlassDialogHost } from '../components/GlassDialog';
 import { startFocusQueue } from '../focus/appFocusQueue';
 import { useLocaleSync } from '../i18n/useT';
+import { startPartner } from '../partner';
 import { payments } from '../payments';
 import { RemoteStartListener } from '../session/RemoteStartListener';
 import { SessionProvider } from '../session/SessionContext';
@@ -42,6 +47,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     payments.start();
+    void startPartner();
   }, []);
 
   // Metrics: the session ends when the app leaves the front; coming back starts a new one (the cold start's was begun
@@ -71,6 +77,11 @@ export default function RootLayout() {
 
   // A new version in the store: checked when the app opens, shown by the setup screen.
   useEffect(() => startUpdateNotice(), []);
+  // Shared recordings upload in the background; the queue starts again what a swiped-away app left (sharing design §5.4).
+  useEffect(() => startUploadQueue(), []);
+  useEffect(() => startSharePrep(), []);
+  // Received recordings download into the app while their link lasts (sharing design §5.5).
+  useEffect(() => startReceiveQueue(), []);
 
   // The camera phone answers its paired remotes for as long as the app is open, whatever screen is in front: tying it to
   // one screen dropped the link every time the player moved between the setup, the recording and the summary.
@@ -95,11 +106,30 @@ export default function RootLayout() {
       <RemoteStartListener />
       {/* Back by swiping right from anywhere on the screen, not only the edge (iOS). */}
       <Stack screenOptions={{ headerShown: false, fullScreenGestureEnabled: true, contentStyle: { backgroundColor: colors.ground } }}>
-        {/* The clip screen does its own swipe (between clips; on the first clip, back) and its trim handles drag sideways. */}
-        <Stack.Screen name="clip/[id]" options={{ gestureEnabled: false }} />
-        {/* Dispositivos: a sheet over the setup screen, closed by swiping down. */}
-        <Stack.Screen name="devices" options={{ presentation: 'modal' }} />
+        {/* The clip screen does its own swipe (between clips; on the first clip, back) and its trim handles drag sideways.
+            A transparent modal with no animation of its own (2026-11-21): the recording's grid stays under it, so the clip
+            grows out of its tile and, dragged down, shrinks back into it, like Photos. */}
+        <Stack.Screen
+          name="clip/[id]"
+          options={{
+            gestureEnabled: false,
+            presentation: 'transparentModal',
+            animation: 'none',
+            contentStyle: { backgroundColor: 'transparent' },
+          }}
+        />
+        {/* Controle Bluetooth (2026-11-22): a sheet as tall as what it holds over the setup screen, like the app's other
+            sheets. Transparent, so the camera stays visible above it; the sheet rises on its own, the whole fades out. */}
+        <Stack.Screen
+          name="devices"
+          options={{ presentation: 'transparentModal', animation: 'fade', contentStyle: { backgroundColor: 'transparent' } }}
+        />
+        {/* Compartilhar gravação: a sheet over the recording, closed by swiping down. */}
+        <Stack.Screen name="share/[id]" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="share/group" options={{ presentation: 'modal' }} />
       </Stack>
+      {/* The app's confirmations, in its glass (2026-11-23): shown over whatever screen asked. */}
+      <GlassDialogHost />
     </SessionProvider>
   );
 }

@@ -11,7 +11,7 @@ import {
 import type { TriggerSource } from '../../modules/replay-camera/src/ReplayCamera.types';
 import { type AppLocale, VOICE_WORD, voiceLocale } from '../i18n';
 import { useT } from '../i18n/useT';
-import { colors, fonts, radius } from '../theme/tokens';
+import { colors, fonts, footer, radius } from '../theme/tokens';
 import { Button } from './Button';
 import { SpeakingFigure } from './SpeakingFigure';
 import { WavingFigure } from './WavingFigure';
@@ -221,9 +221,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
-    paddingHorizontal: 20,
+    paddingHorizontal: footer.side,
     paddingTop: 10,
-    paddingBottom: 12,
+    paddingBottom: footer.bottom,
     gap: 14,
   },
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border },

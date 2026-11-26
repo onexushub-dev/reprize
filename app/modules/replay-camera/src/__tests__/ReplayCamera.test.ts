@@ -17,6 +17,7 @@ jest.mock('expo', () => {
 });
 
 import {
+  cancelExport,
   concatVideos,
   getWatchStatus,
   getDeviceUpright,
@@ -203,4 +204,15 @@ test('concatVideos hands the paths and the destination to native and resolves th
   } finally {
     delete mockNative.concatVideos;
   }
+});
+
+test('cancelExport asks the native side to stop that export (2026-11-23)', () => {
+  mockNative.cancelExport = jest.fn();
+  cancelExport('e1');
+  expect(mockNative.cancelExport).toHaveBeenCalledWith('e1');
+});
+
+test('cancelExport does nothing on a build without it', () => {
+  delete mockNative.cancelExport;
+  expect(() => cancelExport('e1')).not.toThrow();
 });

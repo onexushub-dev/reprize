@@ -4,8 +4,10 @@ import { sessionSummary, track } from '../../analytics';
 import { setLocale } from '../../i18n';
 import SessionSummary from '../session/[id]';
 
+// The courtesy sheet signs in (native Apple and Google modules): received recordings have their own tests.
+jest.mock('../../components/useCourtesyGate', () => ({ useCourtesyGate: () => ({ ask: async () => true, sheet: null }) }));
 jest.mock('expo-router', () => ({
-  router: { replace: jest.fn(), push: jest.fn(), dismissTo: jest.fn() },
+  router: { replace: jest.fn(), push: jest.fn(), dismissTo: jest.fn(), back: jest.fn(), canGoBack: jest.fn(() => true) },
   // The stack under the summary: tests that open it from Minhas gravações keep /games in it.
   useNavigation: () => ({ getState: () => ({ routes: [{ name: 'setup' }, { name: 'games' }, { name: 'session/[id]' }] }) }),
   useLocalSearchParams: () => ({ id: 's1' }),
@@ -54,6 +56,7 @@ jest.mock('../../data/mmkv', () => {
   return {
     repo: {
       getSession: jest.fn(),
+      allSessions: jest.fn(() => []),
       listClips: jest.fn(),
       sessionStats: jest.fn(),
       renameSession: jest.fn(),
@@ -105,9 +108,9 @@ test('shows the game stats', async () => {
   repo.listClips.mockReturnValue([clip('a', 'gesture', 1), clip('b', 'screen', 2)]);
   repo.sessionStats.mockReturnValue({ clips: 4, bytes: 92_000_000, recordedMs: (2 * 60 + 14) * 60_000 });
   await render(<SessionSummary />);
-  expect(screen.getByText('2h14')).toBeTruthy();
+  expect(screen.getByText('134')).toBeTruthy(); // minutes
   expect(screen.getByText('4')).toBeTruthy();
-  expect(screen.getByText('92 MB')).toBeTruthy();
+  expect(screen.getByText('92')).toBeTruthy(); // MB
   // The date line is the name field's own text now (the subtitle went with the big title).
   expect(screen.getByLabelText('Nome da gravação').props.placeholder).toBe('Futevôlei · 17/10, 18:40');
 });
@@ -148,13 +151,13 @@ test('a game with no clipes says so', async () => {
   expect(screen.getByText('Salve um lance durante a gravação e ele aparece aqui.')).toBeTruthy();
 });
 
-test('Nova gravação resets the session and goes back to setup', async () => {
+test('Voltar from the game that just ended resets the session and goes back to setup', async () => {
   const reset = jest.fn();
   useSession.mockReturnValue({ reset, state: { sessionId: 's1' } });
   repo.listClips.mockReturnValue([]);
   repo.sessionStats.mockReturnValue({ clips: 0, bytes: 0, recordedMs: 0 });
   await render(<SessionSummary />);
-  await fireEvent.press(screen.getByRole('button', { name: 'Nova gravação' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
   expect(reset).toHaveBeenCalled();
   expect(router.dismissTo).toHaveBeenCalledWith('/setup');
 });
@@ -167,6 +170,19 @@ test('typing a name and submitting renames the game', async () => {
   await fireEvent.changeText(input, 'Final do torneio');
   await fireEvent(input, 'submitEditing');
   expect(repo.renameSession).toHaveBeenCalledWith('s1', 'Final do torneio');
+});
+
+test('a tap on the name puts the cursor after it, nothing selected, so typing adds to it (2026-11-22, as on the clip)', async () => {
+  repo.getSession.mockReturnValue({ id: 's1', sport: 'futevolei', startedAt: 0, name: 'Final', paid: true });
+  repo.listClips.mockReturnValue([]);
+  repo.sessionStats.mockReturnValue({ clips: 0, bytes: 0, recordedMs: 0 });
+  await render(<SessionSummary />);
+  const input = screen.getByLabelText('Nome da gravação');
+  await fireEvent(input, 'focus');
+  expect(screen.getByLabelText('Nome da gravação').props.selection).toEqual({ start: 5, end: 5 });
+  // Released at once: the cursor then goes wherever the finger puts it.
+  await fireEvent(input, 'selectionChange', { nativeEvent: { selection: { start: 5, end: 5 } } });
+  expect(screen.getByLabelText('Nome da gravação').props.selection).toBeUndefined();
 });
 
 test('a named game shows its name in the name field, with no big title above it (2026-11-02: room for the clips)', async () => {
@@ -186,20 +202,20 @@ test('an unnamed game shows no "Gravação encerrada" title: the name field, wit
   await render(<SessionSummary />);
   expect(screen.queryByText('GRAVAÇÃO ENCERRADA')).toBeNull();
   expect(screen.getByLabelText('Nome da gravação').props.placeholder).toMatch(/\d/);
-  expect(screen.getByRole('button', { name: 'Apagar gravação' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Mais opções' })).toBeTruthy();
   expect(screen.queryByText('Opcional. Ajuda a achar a gravação depois.')).toBeNull(); // the field speaks for itself
 });
 
-test('the footer has no "Postar um clipe": sharing happens inside the clip', async () => {
+test('no "Postar um clipe" nor Nova gravação on the clips (2026-11-20: Nova gravação is on the setup and in Gravações)', async () => {
   repo.listClips.mockReturnValue([clip('a', 'gesture', 1), clip('b', 'screen', 2)]);
   repo.sessionStats.mockReturnValue({ clips: 2, bytes: 1, recordedMs: 1 });
   await render(<SessionSummary />);
   expect(screen.queryByRole('button', { name: 'Postar um clipe' })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Nova gravação' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Apagar gravação' })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Nova gravação' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Mais opções' })).toBeTruthy();
 });
 
-test('swiping back from the game that just ended resets it, as Nova gravação does', async () => {
+test('swiping back from the game that just ended resets it, as Voltar does', async () => {
   const reset = jest.fn();
   useSession.mockReturnValue({ reset, state: { sessionId: 's1' } });
   repo.listClips.mockReturnValue([]);
@@ -220,15 +236,15 @@ test('leaving a past game never touches the current session', async () => {
   expect(reset).not.toHaveBeenCalled();
 });
 
-test('Nova gravação from a past game goes back to the existing setup without touching the current session', async () => {
+test('Voltar from a past game goes back to the list without touching the current session', async () => {
   const reset = jest.fn();
   useSession.mockReturnValue({ reset, state: { sessionId: 'other' } });
   repo.listClips.mockReturnValue([]);
   repo.sessionStats.mockReturnValue({ clips: 0, bytes: 0, recordedMs: 0 });
   await render(<SessionSummary />);
-  await fireEvent.press(screen.getByRole('button', { name: 'Nova gravação' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Voltar' }));
   expect(reset).not.toHaveBeenCalled();
-  expect(router.dismissTo).toHaveBeenCalledWith('/setup');
+  expect(router.back).toHaveBeenCalled();
 });
 
 test('the clips show in the order they were saved, the first on top (Victor, 2026-11-13)', async () => {
@@ -265,7 +281,7 @@ describe('free recording', () => {
     setup('free');
     await render(<SessionSummary />);
     expect(screen.getByText('Seus clipes com qualidade PRO')).toBeTruthy();
-    expect(screen.getByText('Full HD, som, Modo Foco e sem marca d’água.')).toBeTruthy();
+    expect(screen.getByText('Full HD, som e Modo Foco.')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: /^Seus clipes com qualidade PRO/ }));
     expect(screen.getByText('Libere a qualidade PRO nesta gravação')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Assinar o PRO' })).toBeTruthy();
@@ -337,13 +353,13 @@ test('Selecionar clipes: pick some, delete them after confirming', async () => {
   expect(screen.getByText('Toque nos clipes')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: /^Clipe 1/ }));
   await fireEvent.press(screen.getByRole('button', { name: /^Clipe 3/ }));
-  expect(screen.getByText('2 selecionados')).toBeTruthy();
+  expect(screen.getByText('2 clipes selecionados')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Apagar 2 clipes' }));
   expect(repo.deleteClip).not.toHaveBeenCalled();
   await act(async () => lastAlertButtons(alert).find((b) => b.text === 'Apagar')!.onPress!());
   expect(repo.deleteClip.mock.calls.map((c: string[]) => c[0])).toEqual(['a', 'c']);
   expect(jest.requireMock('../../data/mmkv').removeFile).toHaveBeenCalledWith('/a.mp4');
-  expect(screen.queryByText('2 selecionados')).toBeNull();
+  expect(screen.queryByText('2 clipes selecionados')).toBeNull();
   alert.mockRestore();
 });
 
@@ -352,7 +368,7 @@ test('holding a clip starts the selection with it picked; Cancelar leaves it', a
   repo.sessionStats.mockReturnValue({ clips: 2, bytes: 1, recordedMs: 1 });
   await render(<SessionSummary />);
   await fireEvent(screen.getByRole('button', { name: /^Clipe 2/ }), 'longPress');
-  expect(screen.getByText('1 selecionado')).toBeTruthy();
+  expect(screen.getByText('1 clipe selecionado')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Cancelar seleção' }));
   expect(screen.getByRole('button', { name: 'Selecionar clipes' })).toBeTruthy();
 });
@@ -365,9 +381,9 @@ test('lifting the finger after holding a clip keeps it picked; the next tap togg
   await fireEvent(card, 'pressIn');
   await fireEvent(card, 'longPress');
   await fireEvent.press(screen.getByRole('button', { name: /^Clipe 2/ })); // the release that follows the hold
-  expect(screen.getByText('1 selecionado')).toBeTruthy();
+  expect(screen.getByText('1 clipe selecionado')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: /^Clipe 2/ }));
-  expect(screen.queryByText('1 selecionado')).toBeNull();
+  expect(screen.queryByText('1 clipe selecionado')).toBeNull();
 });
 
 test('Apagar gravação removes the game and its clips after confirming, and goes to the list', async () => {
@@ -376,8 +392,13 @@ test('Apagar gravação removes the game and its clips after confirming, and goe
   const reset = jest.fn();
   useSession.mockReturnValue({ reset, state: { sessionId: 's1' } });
   const alert = jest.spyOn(require('react-native').Alert, 'alert').mockImplementation(() => {});
+  const menu = jest
+    .spyOn(require('react-native').ActionSheetIOS, 'showActionSheetWithOptions')
+    .mockImplementation((options: unknown, choose: unknown) =>
+      (choose as (i: number) => void)((options as { options: string[] }).options.indexOf('Apagar gravação')),
+    );
   await render(<SessionSummary />);
-  await fireEvent.press(screen.getByRole('button', { name: 'Apagar gravação' }));
+  await fireEvent.press(screen.getByRole('button', { name: 'Mais opções' }));
   expect(repo.deleteSession).not.toHaveBeenCalled();
   await act(async () => lastAlertButtons(alert).find((b) => b.text === 'Apagar')!.onPress!());
   expect(repo.deleteSession).toHaveBeenCalledWith('s1');
@@ -385,6 +406,7 @@ test('Apagar gravação removes the game and its clips after confirming, and goe
   expect(reset).toHaveBeenCalled();
   expect(router.dismissTo).toHaveBeenCalledWith('/games');
   alert.mockRestore();
+  menu.mockRestore();
 });
 
 test('deleting the last clip removes the game too and goes back to the list', async () => {
@@ -420,7 +442,7 @@ test('an English phone sees the selection and delete texts in English', async ()
     await render(<SessionSummary />);
     await fireEvent.press(screen.getByRole('button', { name: 'Select clips' }));
     await fireEvent.press(screen.getByRole('button', { name: /^Clip 1/ }));
-    expect(screen.getByText('1 selected')).toBeTruthy();
+    expect(screen.getByText('1 clip selected')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Delete 1 clip' }));
     expect(alert).toHaveBeenLastCalledWith('Delete 1 clip?', "This can't be undone.", expect.any(Array));
     alert.mockRestore();
@@ -440,7 +462,17 @@ describe('batch: save, send or compile the picked clips', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Selecionar clipes' }));
     for (const n of numbers) await fireEvent.press(screen.getByRole('button', { name: new RegExp(`^Clipe ${n}`) }));
   };
-  const press = (name: string) => act(async () => fireEvent.press(screen.getByRole('button', { name })));
+  /** Salvar, Compilar and Etiqueta sit behind "…" (2026-11-22, as in Photos): the menu opens and the option is picked. */
+  const press = async (name: string) => {
+    const inMenu = name.startsWith('Salvar') ? 'Salvar' : name === 'Compilar' || name === 'Etiqueta' ? name : undefined;
+    if (inMenu === undefined) return act(async () => fireEvent.press(screen.getByRole('button', { name })));
+    const menu = jest.spyOn(require('react-native').ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(
+      (options: unknown, choose: unknown) =>
+        (choose as (i: number) => void)((options as { options: string[] }).options.findIndex((o) => o.startsWith(inMenu))),
+    );
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Mais opções' })));
+    menu.mockRestore();
+  };
 
   beforeEach(() => {
     runBatch.mockImplementation(async (o: { clips: { id: string }[]; onProgress: (d: number, t: number) => void }) => {
@@ -450,12 +482,26 @@ describe('batch: save, send or compile the picked clips', () => {
     Object.keys(mockShapes).forEach((k) => delete mockShapes[k]);
   });
 
-  test('selecting shows Enviar (N) on its own line, then Salvar, Compilar and Apagar, all visible', async () => {
+  test('selecting shows one line as in Photos: Enviar, how many are picked, Apagar and "…" with Salvar, Compilar and Etiqueta', async () => {
     three();
     await render(<SessionSummary />);
     await pick(1, 3);
-    for (const name of ['Enviar (2)', 'Salvar (2)', 'Compilar', 'Apagar 2 clipes']) expect(screen.getByRole('button', { name })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Mais' })).toBeNull();
+    for (const name of ['Enviar (2)', 'Apagar 2 clipes', 'Mais opções']) expect(screen.getByRole('button', { name })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Salvar (2)' })).toBeNull();
+    expect(screen.getByText('2 clipes selecionados')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Compilar' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Etiqueta' })).toBeNull();
+    // "Todos" where the count was, at the top.
+    expect(screen.getByRole('button', { name: 'Selecionar todos' })).toBeTruthy();
+    const menu = jest.spyOn(require('react-native').ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+    await fireEvent.press(screen.getByRole('button', { name: 'Mais opções' }));
+    expect((menu.mock.calls[0][0] as { options: string[] }).options).toEqual([
+      'Salvar',
+      expect.stringMatching(/^Compilar/),
+      'Etiqueta',
+      'Cancelar',
+    ]);
+    menu.mockRestore();
   });
 
   test('nothing picked: the actions wait for a pick', async () => {
@@ -463,9 +509,9 @@ describe('batch: save, send or compile the picked clips', () => {
     await render(<SessionSummary />);
     await pick();
     expect(screen.getByRole('button', { name: 'Enviar (0)' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Salvar (0)' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Compilar' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Mais opções' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Apagar' })).toBeDisabled();
+    expect(screen.getByText('Toque nos clipes')).toBeTruthy();
   });
 
   test('Salvar exports the picked clips in order and saves each to Photos', async () => {
@@ -624,37 +670,54 @@ describe('batch: save, send or compile the picked clips', () => {
     await pick(1, 3);
     repo.listClips.mockReturnValue([clip('a', 'gesture', 1), clip('b', 'screen', 2)]);
     await act(async () => repo.__change());
-    expect(screen.getByRole('button', { name: 'Salvar (1)' })).toBeTruthy();
+    expect(screen.getByText('1 clipe selecionado')).toBeTruthy();
     await press('Salvar (1)');
     expect(runBatch.mock.calls[0][0].clips.map((c: { id: string }) => c.id)).toEqual(['a']);
   });
 });
 
 describe('clip labels (2026-11-07)', () => {
-  test('a clip without a label offers one; the sheet saves what is typed', async () => {
-    repo.listClips.mockReturnValue([clip('a', 'gesture', 1)]);
-    repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 1 });
+  /** Etiqueta sits behind "…" in the selection bar (2026-11-22). */
+  const press = async (name: string) => {
+    const menu = jest.spyOn(require('react-native').ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(
+      (options: unknown, choose: unknown) =>
+        (choose as (i: number) => void)((options as { options: string[] }).options.indexOf(name)),
+    );
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Mais opções' })));
+    menu.mockRestore();
+  };
+  test('picked clips get a label from the selection; the sheet saves what is typed on each', async () => {
+    repo.listClips.mockReturnValue([clip('a', 'gesture', 1), clip('b', 'screen', 2)]);
+    repo.sessionStats.mockReturnValue({ clips: 2, bytes: 1, recordedMs: 1 });
     await render(<SessionSummary />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Adicionar etiqueta ao clipe 1' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Selecionar clipes' }));
+    await fireEvent.press(screen.getByRole('button', { name: /^Clipe 1/ }));
+    await fireEvent.press(screen.getByRole('button', { name: /^Clipe 2/ }));
+    await press('Etiqueta');
     await fireEvent.changeText(screen.getByLabelText('Etiqueta do clipe'), 'toco do marcão');
     await fireEvent.press(screen.getByRole('button', { name: 'OK' }));
     expect(repo.renameClip).toHaveBeenCalledWith('a', 'toco do marcão');
+    expect(repo.renameClip).toHaveBeenCalledWith('b', 'toco do marcão');
+    expect(screen.getByRole('button', { name: 'Selecionar clipes' })).toBeTruthy();
   });
 
   test('a label already used in the recording is one tap away', async () => {
     repo.listClips.mockReturnValue([{ ...clip('a', 'gesture', 1), name: 'cesta de 3 victor' }, clip('b', 'remote', 2)]);
     repo.sessionStats.mockReturnValue({ clips: 2, bytes: 1, recordedMs: 1 });
     await render(<SessionSummary />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Adicionar etiqueta ao clipe 2' }));
+    await fireEvent(screen.getByRole('button', { name: /^Clipe 2/ }), 'longPress');
+    await press('Etiqueta');
     await fireEvent.press(screen.getByRole('button', { name: 'cesta de 3 victor' }));
     expect(repo.renameClip).toHaveBeenCalledWith('b', 'cesta de 3 victor');
   });
 
-  test('the label shows on its card and can be removed', async () => {
+  test('the label shows on its tile and can be removed', async () => {
     repo.listClips.mockReturnValue([{ ...clip('a', 'gesture', 1), name: 'toco do marcão' }]);
     repo.sessionStats.mockReturnValue({ clips: 1, bytes: 1, recordedMs: 1 });
     await render(<SessionSummary />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Etiqueta do clipe 1: toco do marcão. Toque para mudar' }));
+    expect(screen.getByText('toco do marcão')).toBeTruthy();
+    await fireEvent(screen.getByRole('button', { name: /^Clipe 1/ }), 'longPress');
+    await press('Etiqueta');
     await fireEvent.press(screen.getByRole('button', { name: 'Tirar a etiqueta' }));
     expect(repo.renameClip).toHaveBeenCalledWith('a', '');
   });

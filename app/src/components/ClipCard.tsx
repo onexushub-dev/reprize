@@ -1,30 +1,31 @@
 import { Image } from 'expo-image';
-import { useRef } from 'react';
+import { type ComponentRef, useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { markOpening, registerTile } from '../clip/tileFrames';
 import type { Clip, TriggerSource } from '../data/schema';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
-import { seconds, timeOfDay } from './format';
-import { CheckIcon, MicIcon, PhoneIcon, RemoteIcon, TapIcon, WatchIcon, WaveIcon } from './icons';
+import { seconds } from './format';
+import { CheckIcon, DownloadIcon, MicIcon, PhoneIcon, RemoteIcon, TagIcon, TapIcon, WatchIcon, WaveIcon } from './icons';
 import { sourceLabel } from './sourceLabel';
 import { useClipThumbnail } from './useClipThumbnail';
 
 type Props = {
   clip: Clip;
   number: number;
+  /** The tile's width: three to a row, edge to edge. */
+  width: number;
   onPress: () => void;
   onLongPress?: () => void;
-  /** Picking clips to delete: the card shows a check circle and is dimmed until picked. */
+  /** Picking clips: every tile shows a circle, filled on the picked ones. */
   selecting?: boolean;
   selected?: boolean;
-  /** Its label as a chip to tap ("+ Etiqueta" without one), opening the label sheet (2026-11-07 spec §6). */
-  onLabel?: () => void;
 };
 
-/** How the clip was saved, as a small accent icon. */
+/** How the clip was saved, as a small white icon. */
 function SourceIcon({ source }: { source: TriggerSource }) {
-  const color = colors.accent;
+  const color = colors.text;
   switch (source) {
     case 'gesture':
       return <WaveIcon color={color} size={14} />;
@@ -41,7 +42,15 @@ function SourceIcon({ source }: { source: TriggerSource }) {
   }
 }
 
-export function ClipCard({ clip, number, onPress, onLongPress, selecting = false, selected = false, onLabel }: Props) {
+/** Tiles are a little taller than wide, like the Photos grid with portrait videos. */
+export const TILE_RATIO = 4 / 3;
+
+/**
+ * One clip of a recording, as in the Photos grid (2026-11-20): the frame edge to edge, the clip's number at the top left,
+ * its label (etiqueta) at the top right, how it was saved (and a check once it went to the gallery or was sent) at the
+ * bottom left, its length at the bottom right.
+ */
+export function ClipCard({ clip, number, width, onPress, onLongPress, selecting = false, selected = false }: Props) {
   const { t, locale } = useT();
   const thumb = useClipThumbnail(clip.path, clip.trim.startMs);
   const duration = seconds(clip.trim.endMs - clip.trim.startMs);
@@ -56,8 +65,16 @@ export function ClipCard({ clip, number, onPress, onLongPress, selecting = false
   // A hold that starts the selection ends with the finger lifting, and by then this card already counts as picked:
   // that release must not count as a tap, which would unpick it at once.
   const held = useRef(false);
+  // The clip screen grows out of this tile and goes back into it (tileFrames).
+  const tile = useRef<ComponentRef<typeof View>>(null);
+  const clipId = clip.id;
+  useEffect(() => {
+    const node = tile.current;
+    return node ? registerTile(clipId, node) : undefined;
+  }, [clipId]);
   return (
     <Pressable
+      ref={tile}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={selecting ? { checked: selected } : undefined}
@@ -69,6 +86,7 @@ export function ClipCard({ clip, number, onPress, onLongPress, selecting = false
           held.current = false;
           return;
         }
+        if (!selecting) markOpening(clip.id);
         onPress();
       }}
       onLongPress={
@@ -79,99 +97,111 @@ export function ClipCard({ clip, number, onPress, onLongPress, selecting = false
             }
           : undefined
       }
-      style={[styles.card, selecting && !selected && styles.unpicked]}>
-      {/* Top strip: the label (who or what), or "+ Etiqueta" (option C, 2026-11-07). */}
-      {onLabel !== undefined && !selecting ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            clip.name ? t('summary.labelA11y', { number, label: clip.name }) : t('summary.addLabelA11y', { number })
-          }
-          onPress={onLabel}
-          style={styles.strip}>
-          <Text style={clip.name ? styles.labelText : styles.addText} numberOfLines={1}>
-            {clip.name ? clip.name : t('summary.addLabel')}
-          </Text>
-        </Pressable>
-      ) : (
-        <View style={styles.strip}>
+      style={[styles.tile, { width, height: Math.round(width * TILE_RATIO) }]}>
+      {thumb ? <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
+      <Text style={styles.number}>{number}</Text>
+      {clip.name ? (
+        <View style={styles.label}>
+          <TagIcon color={colors.accent} size={11} />
           <Text style={styles.labelText} numberOfLines={1}>
-            {clip.name ? clip.name : ' '}
+            {clip.name}
           </Text>
         </View>
-      )}
-      <View style={styles.thumb}>
-        {thumb ? <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} contentFit="cover" /> : null}
-        <View style={[styles.tag, { left: 8, top: 8 }]}>
-          <Text style={styles.tagText}>{`#${number}`}</Text>
-        </View>
-        {selecting ? null : (
-          <View style={[styles.tag, { right: 8, top: 8 }]}>
-            <Text style={styles.timeText}>{timeOfDay(clip.createdAt, locale)}</Text>
-          </View>
-        )}
-        <View style={[styles.tag, { right: 8, bottom: 8 }]}>
-          <Text style={styles.tagText}>{duration}</Text>
-        </View>
-        {clip.savedAt || clip.sharedAt ? (
-          <View style={[styles.tag, styles.done, { left: 8, bottom: 8 }]}>
-            <CheckIcon color={colors.accent} size={12} />
-            <Text style={styles.tagText}>{clip.savedAt ? t('summary.savedTag') : t('summary.sharedTag')}</Text>
-          </View>
-        ) : null}
-        {selecting ? (
-          <View style={[styles.check, selected && styles.checkOn]}>{selected ? <CheckIcon size={16} /> : null}</View>
-        ) : null}
-      </View>
-      {/* Bottom strip: only how it was saved, centred. */}
-      <View style={styles.source}>
+      ) : null}
+      <View style={styles.shade} />
+      <View style={styles.bottomLeft}>
         <SourceIcon source={clip.source} />
-        <Text style={styles.sourceText} numberOfLines={1}>
-          {sourceLabel(clip.source, locale)}
-        </Text>
+        {clip.savedAt || clip.sharedAt ? <CheckIcon color={colors.accent} size={13} /> : null}
       </View>
+      {selecting ? (
+        <View style={[styles.check, selected && styles.checkOn]}>{selected ? <CheckIcon size={13} /> : null}</View>
+      ) : (
+        <Text style={styles.duration}>{duration}</Text>
+      )}
     </Pressable>
   );
 }
 
+/**
+ * A clip of a received recording that has not arrived yet, in the same grid: its number, "Baixando" on the one coming
+ * now and "Na fila" on the others. With the sender's still once it is here (multi-recording share design §5.4), so the
+ * recording can be seen before it is downloaded; `idle` when nothing is downloading it (not chosen yet, or paused).
+ */
+export function PendingClipTile({
+  number,
+  width,
+  downloading,
+  thumb,
+  idle = false,
+}: {
+  number: number;
+  width: number;
+  downloading: boolean;
+  thumb?: string;
+  idle?: boolean;
+}) {
+  const { t } = useT();
+  const text = downloading ? t('summary.downloading') : idle ? undefined : t('summary.pending');
+  return (
+    <View
+      accessible
+      accessibilityLabel={t(idle ? 'summary.notDownloadedA11y' : 'summary.pendingA11y', { number })}
+      style={[styles.tile, styles.pending, { width, height: Math.round(width * TILE_RATIO) }]}>
+      {thumb !== undefined ? (
+        <>
+          <Image source={{ uri: thumb }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <View style={styles.dim} />
+        </>
+      ) : null}
+      <Text style={[styles.number, thumb === undefined && styles.pendingNumber]}>{number}</Text>
+      <DownloadIcon color={thumb === undefined ? colors.muted : colors.text} size={20} />
+      {text !== undefined ? <Text style={[styles.pendingText, thumb !== undefined && styles.pendingTextOn]}>{text}</Text> : null}
+    </View>
+  );
+}
+
+const shadow = { textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 };
+
 const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    borderRadius: 14,
-    overflow: 'hidden',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  strip: { height: 36, paddingHorizontal: 10, alignItems: 'center', justifyContent: 'center' },
-  labelText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text, textAlign: 'center' },
-  addText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent, textAlign: 'center' },
-  thumb: { height: 120, backgroundColor: colors.ground },
-  tag: {
+  tile: { backgroundColor: colors.surface, overflow: 'hidden' },
+  number: { position: 'absolute', top: 5, left: 7, fontFamily: fonts.display, fontSize: 18, color: colors.text, ...shadow },
+  label: {
     position: 'absolute',
-    backgroundColor: 'rgba(12,12,12,0.85)',
+    top: 6,
+    right: 6,
+    maxWidth: '64%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
     paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 999,
+    paddingLeft: 6,
+    paddingRight: 7,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(10,10,10,0.62)',
   },
-  done: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  tagText: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.text },
-  timeText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.text },
-  unpicked: { opacity: 0.6 },
+  labelText: { flexShrink: 1, fontFamily: fonts.bodyBold, fontSize: 11, color: colors.text },
+  shade: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 34, backgroundColor: 'rgba(0,0,0,0.35)' },
+  bottomLeft: { position: 'absolute', left: 7, bottom: 7, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  duration: { position: 'absolute', right: 7, bottom: 6, fontFamily: fonts.bodyBold, fontSize: 12, color: colors.text, ...shadow },
   check: {
     position: 'absolute',
-    right: 8,
-    top: 8,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    right: 6,
+    bottom: 6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     borderWidth: 2,
     borderColor: colors.text,
-    backgroundColor: 'rgba(12,12,12,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.25)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  source: { height: 34, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  sourceText: { flexShrink: 1, fontFamily: fonts.bodySemi, fontSize: 12, color: colors.soft },
+  checkOn: { backgroundColor: colors.accent },
+  pending: { alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.surface },
+  pendingNumber: { color: colors.muted },
+  pendingText: { fontFamily: fonts.bodySemi, fontSize: 12, color: colors.muted },
+  pendingTextOn: { color: colors.text, ...shadow },
+  dim: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(10,10,10,0.45)' },
 });

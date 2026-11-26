@@ -13,15 +13,11 @@ type Props = {
 /** What a batch ended with when it needs saying: a failure, or clips that did not come out. */
 export function BatchResultCard({ card, onClose }: Props) {
   const { t } = useT();
-  const timing = card.timing;
   return (
     <View style={styles.wrap} pointerEvents="box-none">
       <View accessibilityRole="alert" style={styles.card}>
         <Text style={styles.text}>{card.text}</Text>
         {card.detail ? <Text style={styles.timing}>{card.detail}</Text> : null}
-        {__DEV__ && timing ? (
-          <Text style={styles.timing}>{`${timing.perClipMs.length} exported · ${(timing.totalMs / 1000).toFixed(1)} s · ${timing.concurrency} at a time`}</Text>
-        ) : null}
         <Button label={t('common.close')} variant="secondary" onPress={onClose} />
       </View>
     </View>

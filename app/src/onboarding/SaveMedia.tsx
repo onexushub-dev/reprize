@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { CheckIcon, MicIcon, QrIcon, RemoteIcon, TapIcon, WatchIcon, WaveIcon } from '../components/icons';
+import { CheckIcon, MicIcon, QrIcon, RemoteIcon, SaveLastIcon, WatchIcon, WaveIcon } from '../components/icons';
 import { WavingFigure } from '../components/WavingFigure';
 import type { MessageKey } from '../i18n';
 import { useT } from '../i18n/useT';
@@ -9,17 +9,23 @@ import { colors, fonts, radius } from '../theme/tokens';
 import { PHOTOS } from './photos';
 import { Photo, Reveal } from './motion';
 import type { WayId } from './slides';
+import { WatchMedia } from './WatchMedia';
 
 type IconType = ComponentType<{ color?: string; size?: number }>;
 
-/** `pro`: needs the paid plan. `undo`: a remote save, which the player confirms or undoes on the phone's screen. */
-const WAYS: Record<WayId, { Icon: IconType; source: MessageKey; pro: boolean; undo: boolean }> = {
-  tap: { Icon: TapIcon, source: 'sources.screen', pro: false, undo: false },
-  wave: { Icon: WaveIcon, source: 'sources.gesture', pro: false, undo: false },
-  voice: { Icon: MicIcon, source: 'sources.voice', pro: false, undo: false },
-  phone: { Icon: QrIcon, source: 'sources.phone', pro: false, undo: false },
-  watch: { Icon: WatchIcon, source: 'sources.watch', pro: true, undo: true },
-  bluetooth: { Icon: RemoteIcon, source: 'sources.remote', pro: false, undo: true },
+/** The save button's icon, with the clip length the onboarding shows (15 s). */
+function SaveButtonIcon({ color, size }: { color?: string; size?: number }) {
+  return <SaveLastIcon seconds={15} color={color} size={size} />;
+}
+
+/** `pro`: needs the paid plan. `tap` is the save button on the recording screen (a tap anywhere no longer saves). */
+const WAYS: Record<WayId, { Icon: IconType; source: MessageKey; pro: boolean }> = {
+  tap: { Icon: SaveButtonIcon, source: 'sources.screen', pro: false },
+  wave: { Icon: WaveIcon, source: 'sources.gesture', pro: false },
+  voice: { Icon: MicIcon, source: 'sources.voice', pro: false },
+  phone: { Icon: QrIcon, source: 'sources.phone', pro: false },
+  watch: { Icon: WatchIcon, source: 'sources.watch', pro: true },
+  bluetooth: { Icon: RemoteIcon, source: 'sources.remote', pro: false },
 };
 
 type Props = {
@@ -29,36 +35,64 @@ type Props = {
   onPick: (index: number) => void;
 };
 
-/** The ways to save a play: a photo of the moment with the saved clip confirmed, the options as tabs and the open one as a card. */
+/**
+ * The ways to save a play: the recording screen at the moment of a save (the timer and the count on top, the amber
+ * frame, the saved card with Desfazer, the save button ticked, as RecordingPanel and SavedOverlay draw it), the options
+ * as tabs and the open one as a card.
+ */
 export function SaveMedia({ ways, card, onPick }: Props) {
   const { t } = useT();
   const current = ways[Math.min(card, ways.length - 1)];
-  const { source, pro, undo } = WAYS[current];
+  const { source, pro } = WAYS[current];
 
   return (
     <View style={styles.root} pointerEvents="box-none">
       <View style={styles.photo} pointerEvents="none">
         <Photo photo={PHOTOS.play} />
-        <View style={styles.recording}>
-          <View style={styles.recDot} />
-          <Text style={styles.recordingText}>{t('recording.recording')}</Text>
-        </View>
-        <Reveal key={current} delay={250} style={styles.saved}>
-          <View style={styles.savedInner}>
-            <View style={styles.check}>
-              <CheckIcon size={16} />
-            </View>
-            <View>
-              <Text style={styles.savedTitle}>{t('recording.savedTitle', { number: 1 })}</Text>
-              <Text style={styles.savedVia}>{t('recording.savedVia', { source: t(source), seconds: 15 })}</Text>
-            </View>
-            {undo ? (
-              <View style={styles.undo}>
-                <Text style={styles.undoText}>{t('recording.undo')}</Text>
+        {current === 'watch' ? (
+          // Saving from the wrist: the watch app, not the phone's screen.
+          <>
+            <View style={styles.dim} />
+            <WatchMedia />
+          </>
+        ) : (
+          <>
+            <View style={styles.top}>
+              <View style={styles.pill}>
+                <View style={styles.recDot} />
+                <Text style={styles.elapsed}>00:12:08</Text>
               </View>
-            ) : null}
-          </View>
-        </Reveal>
+              <View style={styles.pill}>
+                <Text style={styles.count}>{t('summary.clips', { count: 1 })}</Text>
+              </View>
+            </View>
+            <Reveal key={current} delay={250} style={styles.saved}>
+              <View style={styles.savedCard}>
+                <View style={styles.savedRow}>
+                  <View style={styles.badge}>
+                    <CheckIcon size={22} />
+                  </View>
+                  <View style={styles.savedText}>
+                    <Text style={styles.savedTitle}>{t('recording.savedTitle', { number: 1 })}</Text>
+                    <Text style={styles.savedVia}>{t('recording.savedVia', { source: t(source), seconds: 15 })}</Text>
+                  </View>
+                </View>
+                <View style={styles.undo}>
+                  <Text style={styles.undoText}>{t('recording.undo')}</Text>
+                </View>
+              </View>
+            </Reveal>
+            <View style={styles.buttonRow}>
+              <View style={styles.saveRing}>
+                <View style={styles.saveFill}>
+                  <CheckIcon size={20} />
+                </View>
+              </View>
+            </View>
+            {/* The frame a save puts around the screen: drawn last, over the picture. */}
+            <View style={styles.frame} />
+          </>
+        )}
       </View>
 
       {/* With a single way (the Pro slide) there is nothing to pick: only its card. */}
@@ -103,41 +137,40 @@ export function SaveMedia({ ways, card, onPick }: Props) {
   );
 }
 
+const glass = 'rgba(12,12,12,0.72)';
+
 const styles = StyleSheet.create({
   root: { flex: 1, gap: 10 },
-  photo: { flex: 1, minHeight: 120, borderRadius: 18, overflow: 'hidden', backgroundColor: '#111111' },
-  recording: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: 'rgba(12,12,12,0.72)',
-  },
-  recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.rec },
-  recordingText: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.text },
-  saved: { position: 'absolute', left: 10, bottom: 10 },
-  savedInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 6,
-    paddingLeft: 6,
-    paddingRight: 10,
-    borderRadius: 14,
-    backgroundColor: 'rgba(12,12,12,0.9)',
-    borderWidth: 2,
-    borderColor: colors.accent,
-  },
-  check: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  savedTitle: { fontFamily: fonts.displayBold, fontSize: 19, lineHeight: 20, color: colors.text },
+  photo: { flex: 1, minHeight: 160, borderRadius: 18, overflow: 'hidden', backgroundColor: '#111111' },
+  dim: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(10,10,10,0.55)' },
+  frame: { ...StyleSheet.absoluteFill, borderRadius: 18, borderWidth: 4, borderColor: colors.accent },
+  top: { position: 'absolute', top: 10, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between' },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 7, height: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: glass },
+  recDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.rec },
+  elapsed: { fontFamily: fonts.display, fontSize: 17, color: colors.text, fontVariant: ['tabular-nums'] },
+  count: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.accent },
+  // Between the top pills and the save button, centred in what is left (short phones squeeze it, never overlap).
+  saved: { position: 'absolute', left: 16, right: 16, top: 50, bottom: 72, justifyContent: 'center' },
+  savedCard: { padding: 12, borderRadius: 16, backgroundColor: 'rgba(12,12,12,0.88)', gap: 10 },
+  savedRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  badge: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  savedText: { flex: 1 },
+  savedTitle: { fontFamily: fonts.displayBold, fontSize: 24, lineHeight: 25, color: colors.text },
   savedVia: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
-  undo: { marginLeft: 4, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  undoText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
+  undo: { height: 40, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  undoText: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.text },
+  buttonRow: { position: 'absolute', left: 0, right: 0, bottom: 12, alignItems: 'center' },
+  saveRing: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    borderWidth: 3,
+    borderColor: colors.accent,
+    backgroundColor: 'rgba(12,12,12,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveFill: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   tabs: { flexDirection: 'row', gap: 8 },
   tab: {
     flex: 1,

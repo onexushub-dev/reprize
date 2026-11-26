@@ -7,6 +7,8 @@ import { forgetAllExportsForTests } from '../../share/exportCache';
 import ClipEditor from '../clip/[id]';
 
 const mockParams = { id: 'c1' };
+// The courtesy sheet signs in (native Apple and Google modules): received recordings have their own tests.
+jest.mock('../../components/useCourtesyGate', () => ({ useCourtesyGate: () => ({ ask: async () => true, sheet: null }) }));
 jest.mock('expo-router', () => ({
   router: { push: jest.fn(), back: jest.fn(), setParams: jest.fn() },
   useLocalSearchParams: () => ({ id: mockParams.id }),
@@ -30,7 +32,14 @@ jest.mock('expo-video', () => {
 });
 const mockListExports = jest.fn(() => []);
 jest.mock('expo-file-system', () => ({
-  File: class { exists = true; delete() {} },
+  // Clips exist; their frames are made by the (mocked) native module, not found on disk.
+  File: class {
+    exists: boolean;
+    constructor(uri: string) {
+      this.exists = !String(uri).endsWith('.thumb.jpg');
+    }
+    delete() {}
+  },
   Directory: class { list() { return mockListExports(); } },
   Paths: { cache: '' },
 }));
@@ -39,6 +48,18 @@ jest.mock('expo-image', () => {
   return { __shown: shown, Image: (p: any) => (shown.push(p.source.uri), null) };
 });
 jest.mock('expo-sharing', () => ({ shareAsync: jest.fn(async () => {}) }));
+jest.mock('react-native-volume-manager', () => {
+  const listeners: ((r: { volume: number }) => void)[] = [];
+  return {
+    __volume: (volume: number) => listeners.forEach((fn) => fn({ volume })),
+    VolumeManager: {
+      addVolumeListener: (fn: (r: { volume: number }) => void) => {
+        listeners.push(fn);
+        return { remove: () => listeners.splice(listeners.indexOf(fn), 1) };
+      },
+    },
+  };
+});
 jest.mock('expo-media-library', () => ({
   requestPermissionsAsync: jest.fn(async () => ({ granted: true })),
   Asset: { create: jest.fn(async () => ({})) },
@@ -50,7 +71,13 @@ jest.mock('../../../modules/replay-camera', () => ({
   videoShape: jest.fn(() => undefined),
   findContentStart: jest.fn(async () => 0),
   isFocusSupported: jest.fn(() => true),
+  cancelExport: jest.fn(),
+  addReplayListener: jest.fn((event: string, cb: (e: unknown) => void) => {
+    if (event === 'onExportProgress') mockExportProgress.emit = cb;
+    return { remove: jest.fn() };
+  }),
 }));
+const mockExportProgress: { emit: (e: unknown) => void } = { emit: () => {} };
 jest.mock('../../analytics', () => ({ track: jest.fn(), sessionSummary: { note: jest.fn() } }));
 jest.mock('../../focus/appBallQueue', () => ({
   ballQueue: { request: jest.fn(), cancel: jest.fn(), progress: jest.fn(() => undefined), subscribe: jest.fn(() => () => {}) },
@@ -183,7 +210,86 @@ test('the clip keeps the number it was saved with, not its place in the list', a
   __setClip({ ...base, number: 5 });
   await open();
   expect(screen.getByLabelText('Etiqueta do clipe').props.placeholder).toBe('Clipe #5 · 19:40');
-  expect(screen.getByText('2 de 2 · deslize para trocar')).toBeTruthy();
+  // The strip under the player: this clip wide and picked, the other one a tap away.
+  expect(screen.getByRole('button', { name: 'Clipe 5' })).toBeSelected();
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Clipe 1' })));
+  expect(router.setParams).toHaveBeenCalledWith({ id: 'c0' });
+});
+
+test('leaving the app pauses the clip, so it comes back paused and one tap plays it (2026-11-21)', async () => {
+  const listeners: ((state: string) => void)[] = [];
+  // Swapped by hand and put back as it was: restoring a spy on react-native's mocked AppState left every later test
+  // with an addEventListener that returns nothing, so no clip screen could unmount.
+  const { AppState } = require('react-native');
+  const original = AppState.addEventListener;
+  AppState.addEventListener = (_: string, fn: (state: string) => void) => {
+    listeners.push(fn);
+    return { remove: jest.fn() };
+  };
+  try {
+    await open();
+    player.pause.mockClear();
+    await act(async () => listeners.forEach((fn) => fn('background')));
+    expect(player.pause).toHaveBeenCalled();
+    player.play.mockClear();
+    await pressAction('Reproduzir');
+    expect(player.play).toHaveBeenCalled();
+    await act(async () => cleanup());
+  } finally {
+    AppState.addEventListener = original;
+  }
+});
+
+test('paused while watching, the disc in the middle plays again (2026-11-20)', async () => {
+  await open();
+  await pressAction('Pausar');
+  expect(player.pause).toHaveBeenCalled();
+  player.play.mockClear();
+  await act(async () => fireEvent.press(screen.getByTestId('paused-play')));
+  expect(player.play).toHaveBeenCalled();
+  expect(screen.queryByTestId('paused-play')).toBeNull();
+});
+
+test('the mute at the end of the player silences the clip while watching, and only while watching (2026-11-20)', async () => {
+  await open();
+  await pressAction('Silenciar');
+  expect(player.muted).toBe(true);
+  await pressAction('Ativar som');
+  expect(player.muted).toBe(false);
+});
+
+test('muted with the player\'s button, a press of the volume buttons gives the sound back (2026-11-21)', async () => {
+  await open();
+  await pressAction('Silenciar');
+  expect(player.muted).toBe(true);
+  await act(async () => jest.requireMock('react-native-volume-manager').__volume(0.7));
+  expect(player.muted).toBe(false);
+  expect(screen.getByRole('button', { name: 'Silenciar' })).toBeTruthy();
+});
+
+test('the volume buttons show the level over the clip, since iOS shows nothing here (2026-11-21)', async () => {
+  await open();
+  expect(screen.queryByTestId('volume-hud', { includeHiddenElements: true })).toBeNull();
+  await act(async () => jest.requireMock('react-native-volume-manager').__volume(0.6));
+  expect(screen.getByLabelText('Volume 60%', { includeHiddenElements: true })).toBeTruthy();
+});
+
+test('watching, the stage around the picture (a landscape clip\'s black sides) takes swipes too; editing, it does not (2026-11-21)', async () => {
+  await open();
+  expect(screen.getByTestId('stage-gestures').props.onResponderRelease).toBeDefined();
+  await pressAction('Editar');
+  expect(screen.queryByTestId('stage-gestures')).toBeNull();
+});
+
+test('a tap on the video while watching hides the controls and leaves the clip playing; the next brings them back', async () => {
+  const { __props: video } = jest.requireMock('../../share/ZoomableVideo');
+  await open();
+  player.pause.mockClear();
+  await act(async () => video.last.onTap());
+  expect(player.pause).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Editar' })).toBeNull();
+  await act(async () => video.last.onTap());
+  expect(screen.getByRole('button', { name: 'Editar' })).toBeTruthy();
 });
 
 test('a named clip shows its name', async () => {
@@ -322,7 +428,7 @@ test('deleting asks first, then removes the file and the clip', async () => {
   expect(router.back).not.toHaveBeenCalled();
 });
 
-test('Compartilhar exports with the cut, speed and zoom, without the app mark on a paid recording, then opens the share sheet', async () => {
+test('Compartilhar exports with the cut, speed and zoom, with the app mark on a paid recording from before 2026-11-25 too (no exception for earlier buyers), then opens the share sheet', async () => {
   const zoom = { scale: 2, cx: 0.25, cy: 0.75 };
   __setClip({ ...base, edit: { speed: 2, muted: false, zoom } });
   await open();
@@ -331,7 +437,7 @@ test('Compartilhar exports with the cut, speed and zoom, without the app mark on
     expect.objectContaining({
       clipPath: '/c1.mp4', startMs: 30000, endMs: 60000, speed: 2, muted: true,
       crop: { x: 0, y: 0.5, width: 0.5, height: 0.5 },
-      width: 1920, height: 1080, overlayPngPath: '/tmp/overlay.png', watermark: false,
+      width: 1920, height: 1080, overlayPngPath: '/tmp/overlay.png', watermark: true,
     }),
   );
   expect(sharing.shareAsync).toHaveBeenCalledWith('file:///exports/e1.mp4', expect.objectContaining({ mimeType: 'video/mp4' }));
@@ -421,6 +527,62 @@ test('while the video is made, a card shows only "Preparando o vídeo…"', asyn
   expect(screen.getByText('Salvo na galeria.')).toBeTruthy();
 });
 
+test('the card shows how far the video is, and Cancelar stops it at once with no error (2026-11-23)', async () => {
+  const { track } = jest.requireMock('../../analytics');
+  let fail: (e: unknown) => void = () => {};
+  camera.exportClip.mockImplementationOnce(() => new Promise((_r, reject) => (fail = reject)));
+  await open();
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Salvar na galeria' })));
+  const exportId = camera.exportClip.mock.calls.at(-1)[0].exportId;
+  expect(typeof exportId).toBe('string');
+  await act(async () => mockExportProgress.emit({ exportId, progress: 0.5 }));
+  expect(screen.getByText('50%')).toBeTruthy();
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cancelar' })));
+  expect(camera.cancelExport).toHaveBeenCalledWith(exportId);
+  expect(screen.getByRole('button', { name: 'Cancelando…' })).toBeDisabled();
+  await act(async () => fail(Object.assign(new Error('export cancelled'), { code: 'CANCELLED' })));
+  expect(screen.queryByText('Preparando o vídeo…')).toBeNull();
+  expect(screen.queryByText('Não foi possível preparar o vídeo. Tente de novo.')).toBeNull();
+  expect(track).not.toHaveBeenCalledWith('export_failed', expect.anything());
+  expect(media.Asset.create).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Salvar na galeria' })).toBeEnabled();
+});
+
+test('Cancelar while the mark is still being drawn: no video is made at all (review 2026-11-23)', async () => {
+  const { captureOverlay } = jest.requireMock('../../share/captureOverlay');
+  let drawn: (path: string) => void = () => {};
+  captureOverlay.mockImplementationOnce(() => new Promise((r) => (drawn = r)));
+  await open();
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Salvar na galeria' })));
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Cancelar' })));
+  await act(async () => drawn('/tmp/overlay.png'));
+  expect(camera.exportClip).not.toHaveBeenCalled();
+  expect(screen.queryByText('Preparando o vídeo…')).toBeNull();
+  expect(screen.queryByText('Não foi possível preparar o vídeo. Tente de novo.')).toBeNull();
+  // The next Salvar works again.
+  await pressAction('Salvar na galeria');
+  expect(camera.exportClip).toHaveBeenCalledTimes(1);
+});
+
+test('leaving the clip while its video is made stops the export (review 2026-11-23)', async () => {
+  camera.exportClip.mockImplementationOnce(() => new Promise(() => {}));
+  const view = await render(<ClipEditor />);
+  await act(async () => {});
+  await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Salvar na galeria' })));
+  const exportId = camera.exportClip.mock.calls.at(-1)[0].exportId;
+  await act(async () => view.unmount());
+  expect(camera.cancelExport).toHaveBeenCalledWith(exportId);
+});
+
+test('a look made before goes out with no card left on screen', async () => {
+  await open();
+  await pressAction('Salvar na galeria');
+  await pressAction('Compartilhar');
+  expect(camera.exportClip).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText('Preparando o vídeo…')).toBeNull();
+  expect(screen.queryByText(/%$/)).toBeNull();
+});
+
 test('a failed export shows the error and re-enables the buttons', async () => {
   camera.exportClip.mockRejectedValueOnce(new Error('disk full'));
   await open();
@@ -504,11 +666,11 @@ describe('watch and edit', () => {
     await act(async () => video.last.onHold(true));
     expect(player.playbackRate).toBe(2);
     expect(player.muted).toBe(true);
-    expect(screen.getByText('2x')).toBeTruthy();
+    expect(screen.getByText('Velocidade: 2x')).toBeTruthy();
     await act(async () => video.last.onHold(false));
     expect(player.playbackRate).toBe(0.5);
     expect(player.muted).toBe(true);
-    expect(screen.queryByText('2x')).toBeNull();
+    expect(screen.queryByText('Velocidade: 2x')).toBeNull();
   });
 
   test('an export right after Concluir has the edits just made, and is made once', async () => {
@@ -800,8 +962,8 @@ describe('Modo Foco', () => {
       expect(camera.exportClip).not.toHaveBeenCalled();
       expect(screen.getByText('Salve seus clipes com qualidade PRO')).toBeTruthy();
       expect(screen.getByText('Seu clipe tem som e Modo Foco')).toBeTruthy();
-      expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD, Com marca d’água')).toBeTruthy();
-      expect(screen.getByLabelText('PRO: Com som, Com Modo Foco, Full HD, Sem marca d’água')).toBeTruthy();
+      expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD')).toBeTruthy();
+      expect(screen.getByLabelText('PRO: Com som, Com Modo Foco, Full HD')).toBeTruthy();
     });
 
     test('"Continuar no plano grátis" exports HD at the chosen speed with the mark, no sound and no framing', async () => {
@@ -845,7 +1007,7 @@ describe('Modo Foco', () => {
       await open();
       await pressAction('Salvar na galeria');
       expect(screen.getByText('Seu clipe tem som')).toBeTruthy();
-      expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD, Com marca d’água')).toBeTruthy();
+      expect(screen.getByLabelText('GRÁTIS: Sem som, Sem Modo Foco, HD')).toBeTruthy();
     });
   });
 
@@ -1193,13 +1355,13 @@ describe('Seguir a Bola', () => {
     expect(screen.queryByText('· identificado')).toBeNull();
   });
 
-  test('the first tap shows what it does; "Seguir o clipe todo" turns it on and remembers the answer', async () => {
+  test('the first tap shows what it does; "Usar o tamanho atual" turns it on and remembers the answer', async () => {
     __setClip({ ...base, focus: focusReady });
     await openEdit('Foco');
     await pick(ballCard());
     expect(repo.updateClip).not.toHaveBeenCalledWith('c1', expect.objectContaining({ edit: expect.anything() }));
     expect(screen.getByText('Corte o lance antes')).toBeTruthy();
-    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Seguir o clipe todo' })));
+    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Usar o tamanho atual' })));
     expect(repo.setPrefs).toHaveBeenCalledWith({ ballIntroSeen: true });
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'ball' } });
     expect(balls.ballQueue.request).toHaveBeenCalledWith('c1');

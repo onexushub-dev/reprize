@@ -13,3 +13,31 @@ verify_jwt = false
 # Called by the app with the user's access token; the function checks it itself (the publishable key is not a JWT).
 [functions.delete-account]
 verify_jwt = false
+
+# Called by the app with the user's access token (checked inside, like delete-account).
+[functions.create-share]
+verify_jwt = false
+
+# Called by the app's upload queue with the user's access token (checked inside).
+[functions.confirm-upload]
+verify_jwt = false
+
+# Called by the app with the user's access token (checked inside): Desligar link.
+[functions.share-off]
+verify_jwt = false
+
+# Public: the link page asks it what a code shows (the code is the secret).
+[functions.share-page]
+verify_jwt = false
+
+# The app opens a shared link (access token optional, checked inside).
+[functions.open-share]
+verify_jwt = false
+
+# TEMP(dev-reset): dev only, checks its own x-reset-key and refuses unless DEV_RESET=on (see supabase/scripts/reset-sharing.sh).
+[functions.dev-reset]
+verify_jwt = false
+
+# Public: anyone holding a link may report it, from the app (access token optional) or the link page.
+[functions.report-share]
+verify_jwt = false

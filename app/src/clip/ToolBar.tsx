@@ -45,7 +45,8 @@ export function ToolBar({
 }
 
 const styles = StyleSheet.create({
-  bar: { paddingHorizontal: 6, gap: 2 },
+  // Few tools for the width: spread evenly over the bar; more than fit: scroll, as before.
+  bar: { flexGrow: 1, justifyContent: 'space-evenly', paddingHorizontal: 6, gap: 2 },
   tool: { width: 66, alignItems: 'center', gap: 6, paddingTop: 6 },
   icon: {
     width: 46,

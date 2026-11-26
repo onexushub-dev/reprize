@@ -91,6 +91,15 @@ final class GestureDetector {
     }
   }
 
+  /// The latest accelerometer reading (g, device axes: x to the right edge, y to the top, z out of the screen), nil
+  /// before the first one. The setup screen turns its controls only when the phone is truly on its side (2026-11-20).
+  func currentGravity() -> (x: Double, y: Double, z: Double)? {
+    lock.withLock {
+      guard let g = motion.accelerometerData?.acceleration else { return nil }
+      return (g.x, g.y, g.z)
+    }
+  }
+
   /// Call from the capture queue with every video frame; most are skipped.
   func consider(_ buffer: CMSampleBuffer) {
     let t = CMSampleBufferGetPresentationTimeStamp(buffer).seconds

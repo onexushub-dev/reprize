@@ -152,11 +152,65 @@ test('a horizontal drag is followed as it happens, and a short one is let go', a
   await act(async () => void handlers.onResponderRelease(event([])));
   expect(calls.swipe).toEqual([]);
   expect(calls.cancel).toBe(1);
-  // A quarter of the width or more changes the clip.
+  // About a fifth of the width or more changes the clip (2026-11-21: was a quarter).
   calls.drag = [];
   await act(async () => void handlers.onResponderGrant(event([at(200)])));
   for (const x of [170, 140, 120]) await act(async () => void handlers.onResponderMove(event([at(x)])));
   await act(async () => void handlers.onResponderRelease(event([])));
   expect(calls.swipe).toEqual([1]);
   expect(calls.cancel).toBe(1);
+});
+
+test('a drag that only leans sideways (not flat) still changes the clip (2026-11-21)', async () => {
+  const swipes: number[] = [];
+  const view = await renderHook(() =>
+    useZoomGesture({
+      zoom: NO_ZOOM,
+      pinch: false,
+      box: { left: 0, top: 0, width: 300, height: 200 },
+      onChange: () => {},
+      onCommit: () => {},
+      onTap: () => {},
+      onSwipe: (step) => void swipes.push(step),
+    }),
+  );
+  const handlers = view.result.current as any;
+  const at = (x: number, y: number) => ({ pageX: x, pageY: y, locationX: x, locationY: y });
+  await act(async () => void handlers.onResponderGrant(event([at(100, 100)])));
+  // 60 to the right, 40 down: with the old rule (twice as sideways) this stayed put.
+  for (const [x, y] of [[120, 113], [140, 127], [160, 140]]) await act(async () => void handlers.onResponderMove(event([at(x, y)])));
+  await act(async () => void handlers.onResponderRelease(event([])));
+  expect(swipes).toEqual([-1]);
+});
+
+test('a drag that starts downward follows the finger and closes when far enough; sideways still pages (2026-11-21)', async () => {
+  const downs: [number, number][] = [];
+  const ends: boolean[] = [];
+  const swipes: number[] = [];
+  const view = await renderHook(() =>
+    useZoomGesture({
+      zoom: NO_ZOOM,
+      pinch: false,
+      box: { left: 0, top: 0, width: 300, height: 600 },
+      onChange: () => {},
+      onCommit: () => {},
+      onTap: () => {},
+      onSwipe: (step) => void swipes.push(step),
+      onDown: (dx, dy) => void downs.push([dx, dy]),
+      onDownEnd: (close) => void ends.push(close),
+    }),
+  );
+  const handlers = view.result.current as any;
+  const at = (x: number, y: number) => ({ pageX: x, pageY: y, locationX: x, locationY: y });
+  await act(async () => void handlers.onResponderGrant(event([at(150, 200)])));
+  for (const y of [215, 260, 340]) await act(async () => void handlers.onResponderMove(event([at(155, y)])));
+  await act(async () => void handlers.onResponderRelease(event([])));
+  expect(downs.at(-1)).toEqual([5, 140]);
+  expect(ends).toEqual([true]);
+  expect(swipes).toEqual([]);
+  // A short one settles back.
+  await act(async () => void handlers.onResponderGrant(event([at(150, 200)])));
+  for (const y of [215, 240]) await act(async () => void handlers.onResponderMove(event([at(150, y)])));
+  await act(async () => void handlers.onResponderRelease(event([])));
+  expect(ends).toEqual([true, false]);
 });

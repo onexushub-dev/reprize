@@ -25,12 +25,12 @@ type Props = {
   layout: { video: Box; top: Box; bottom: Box };
   /** Screen points per frame pixel: 1/PixelRatio for the capture, smaller for the on-screen preview. */
   scale: number;
-  /** Draw the mark (the R and @reprize.app). Free exports carry it; paid ones (pass, pro) do not. Bands and layout are unchanged. */
+  /** Draw the mark (the R and @reprize.app). Every export carries it (share/exportOptions.ts). Bands and layout are unchanged. */
   watermark?: boolean;
 };
 
 /**
- * What every exported clip carries: dark bands where the video leaves room (landscape) and, on the free plan, the
+ * What every exported clip carries: dark bands where the video leaves room (landscape) and, on every plan, the
  * Reprize R with our Instagram in the video's bottom-right corner, so whoever sees a shared clip knows which app made it
  * and where to find us. No gradient over the video (2026-11-08 spec §2): the mark's own dark pill keeps it readable.
  * The same component draws the preview and, captured to PNG, the export overlay.

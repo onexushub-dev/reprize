@@ -1,12 +1,15 @@
 import type { Quality, RemotePairFailure, ThermalLevel } from '../../modules/replay-camera/src/ReplayCamera.types';
 import type { ModeId, TriggerSource } from '../data/schema';
-import type { Offering } from '../payments/types';
+import type { PartnerSource } from '../partner/store';
+import type { Offering, PartnerOffering } from '../payments/types';
 
-/** Where the paywall was opened from; `locked_feature` is a tap on something Pro-only (see pro_feature_blocked). */
-export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature';
+/** Where the paywall was opened from (`partner`: the referral code screens); `locked_feature` is a tap on something Pro-only (see pro_feature_blocked). */
+export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature' | 'received_export' | 'settings' | 'partner';
 
 /** A count sent as a range, so the number of distinct values stays small and nothing is a precise tally. */
 export type CountBucket = '0' | '1' | '2-5' | '6-20' | '21+';
+/** Recordings in one link (multi-recording share design §9). */
+export type RecordingsBucket = '1' | '2-3' | '4-6' | '7-10';
 export type DurationBucket = '<1m' | '1-5m' | '5-30m' | '>30m';
 /** A recording (a game) runs much longer than an app session, so it gets wider ranges. */
 export type RecordingDurationBucket = '<5m' | '5-15m' | '15-30m' | '30-60m' | '>60m';
@@ -42,6 +45,8 @@ export type AnalyticsEvents = {
 
   // Recording
   /** A game began: what it records with. `plan` is fixed at the start (a Single Pass is spent later, on export). */
+  /** An ended recording continued within its hour (2026-11-23): how long it waited, and its plan. */
+  recording_continued: { pause: '<10min' | '10-30min' | '30-60min'; plan: 'pro' | 'free' };
   recording_started: {
     mode: ModeId;
     quality: Quality;
@@ -70,18 +75,64 @@ export type AnalyticsEvents = {
   pairing_completed: { method: 'qr' | 'code'; kind: 'remote' };
   pairing_failed: { reason: RemotePairFailure | 'invalid_link' };
 
+  // Sharing (sharing design §9)
+  /**
+   * A link was created; `clips` is how many it carries (all its recordings together), `wait` the time from the tap to the
+   * QR code, `recordings` how many recordings it holds (1 for a single recording's link).
+   */
+  /** `picked`: a link with only some clips of the recording (2026-11-23). */
+  share_created: { clips: CountBucket; wait: '<2s' | '2-5s' | '5-10s' | '>10s'; recordings: RecordingsBucket; picked: 'yes' | 'no' };
+  /** Every clip of a link reached the cloud; `duration` from the link's creation. */
+  share_upload_done: { clips: CountBucket; duration: DurationBucket };
+  /**
+   * A link was opened in the app for the first time on this phone; `new_user`: the phone had no recording of its own;
+   * `recordings`: how many the link holds.
+   */
+  share_received: { clips: CountBucket; new_user: boolean; recordings: RecordingsBucket };
+  /** Baixar on a recording of a group link: its place in the link (does the recipient want their own match only?). */
+  share_group_download: { position: number; recordings: RecordingsBucket };
+  /** Every clip of a received recording is on the phone; `duration` from the first opening. */
+  share_downloaded: { clips: CountBucket; duration: DurationBucket };
+  /** Someone who came by a link made their first own recording (once per phone). */
+  received_user_first_recording: undefined;
+  /** The server refused or the request failed; never the error text. */
+  share_failed: { reason: 'sign_in' | 'not_pro' | 'notice' | 'too_many' | 'failed' };
+  /** The liability notice was accepted (once per account and notice version). */
+  share_notice_accepted: undefined;
+  /** The owner turned a link off (Desligar link). */
+  share_turned_off: undefined;
+  /** A received recording was kept out of a screenshot or a screen recording (capture protection, §8.2). */
+  capture_blocked: { kind: 'screenshot' | 'recording' };
+  /** A courtesy was spent on a received recording; `remaining` after it (0 with one courtesy per account). */
+  courtesy_used: { remaining: number };
+  /** Save or Send of a received recording with no courtesy left and no Pro: the panel offers Pro only. */
+  courtesy_exhausted: undefined;
+  /** A received link was reported from the app (the server takes it down until reviewed). */
+  share_reported: { category: 'not_authorized' | 'minor' | 'inappropriate' | 'other' };
+
   // Monetization
   /** `offering` is the paywall shown: Pro (`default`) or the Single Pass (`pass`). */
-  paywall_viewed: { source: PaywallSource; offering: Offering };
-  purchase_completed: { offering: Offering };
+  /** `partner` is a directory-validated partner code, present when a referral discount is in play. */
+  paywall_viewed: { source: PaywallSource; offering: Offering; partner?: string };
+  /** `source`: where the paywall was opened (`received_export`: Save or Send of a received recording). */
+  purchase_completed: { offering: Offering; source: PaywallSource; partner?: string };
   /** The paywall ended in a restore of an earlier purchase. */
   purchase_restored: { offering: Offering };
   /** A Single Pass kept from before was spent on a recording (one bought for it is purchase_completed). */
   pass_used: undefined;
   purchase_failed: { reason: 'error' };
-  pro_feature_blocked: { feature: 'quality_4k' | 'clip_length' | 'watch' | 'compile' };
+  pro_feature_blocked: { feature: 'quality_4k' | 'clip_length' | 'watch' | 'compile' | 'share' };
   free_export_limit_hit: undefined;
   /** What the player picked on the free-plan sheet: from an export (`save`/`share`) or from the recording's PRO card (`unlock`). */
+  /**
+   * A partner code: the one deliberate exception to "no free text" (it names a partner, never a person, and only a code found in
+   * the partner directory is ever sent). `source` is where it came from.
+   */
+  partner_code_applied: { code: string; source: PartnerSource };
+  /** Never carries what was typed. */
+  partner_code_rejected: { source: PartnerSource; reason: 'invalid' | 'locked' };
+  /** The player went for the discount: the paywall of the partner's price tier opened. */
+  partner_offer_opened: { code: string; via: 'paywall'; offering?: PartnerOffering };
   free_export_choice: { choice: 'pro' | 'pass' | 'go' | 'cancel'; kind: 'save' | 'share' | 'unlock' };
 };
 

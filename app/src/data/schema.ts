@@ -43,7 +43,60 @@ export type ModeSettings = {
 /** What was saved for a mode: before zoom existed it held `lens` (read, never written). */
 export type StoredModeSettings = Partial<ModeSettings> & { lens?: 'ultraWide' | 'wide' };
 
-export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean; /** Seguir a Bola: whether the recording looks like basketball (test 43). */ ballSport?: BallSport };
+export type Session = { id: string; sport: Sport; startedAt: number; endedAt?: number; name?: string; /** Fixed at start: true if Pro or a Single Pass unlocked this game; absent on games recorded before the free plan. */ paid?: boolean; /** RevenueCat transaction id of the single pass that unlocked this game; absent = no pass. */ passTransactionId?: string; /** True once a free export of this recording showed the full panel; later exports get the short notice. */ freeNoticeShown?: boolean; /** Seguir a Bola: whether the recording looks like basketball (test 43). */ ballSport?: BallSport; /** The link this recording was shared with (sharing design §5.3); absent = never shared. */ shared?: SessionShare; /** Set on a recording received through a link (sharing design §5.3): never `paid`, never a pass. */ received?: SessionReceived; /** Continued recordings (2026-11-23): the time between its ends and its continuations, left out of its duration. */ pausedMs?: number; /** When it was last continued. */ resumedAt?: number };
+
+/** A recording someone shared with this phone. `code` opens the link again to fetch what is missing (until `expiresAt`, ms). */
+export type SessionReceived = {
+  shareId: string;
+  code: string;
+  from?: string;
+  receivedAt: number;
+  expiresAt: number;
+  total: number;
+  /** How long the recording ran on the sender's phone (ms); absent for links made before it was sent. */
+  recordedMs?: number;
+  /** A courtesy was spent on it (the server said so, `use_courtesy`): its clips leave in Full HD with the mark. */
+  courtesy?: boolean;
+  /**
+   * Came in a group link (multi-recording share design §5.1): the group's id. `code` is the group's and `shareId` this
+   * recording's own; `open-share` is called with both.
+   */
+  groupId?: string;
+  /** What the person chose (§5.4); absent: `on`, as every link opened before the choice existed. */
+  download?: ReceivedDownload;
+  /** The size of all its clips (bytes), as the group link listed it. */
+  bytes?: number;
+  /**
+   * The link is over (turned off, expired early, reported), as the server said when the app last asked (2026-11-22):
+   * kept, so nothing asks again and an empty recording can leave the phone.
+   */
+  ended?: ReceivedEnd;
+};
+
+export type ReceivedEnd = 'off' | 'expired' | 'removed';
+
+/**
+ * Whether a received recording downloads: `on`; `waiting` (a group's recording until Baixar, or after Cancelar);
+ * `paused` (Pausar, until Continuar).
+ */
+export type ReceivedDownload = 'on' | 'waiting' | 'paused';
+
+/** The sender's link for a recording: what the share sheet shows again until it expires. Times in ms. */
+export type SessionShare = {
+  shareId: string;
+  url: string;
+  createdAt: number;
+  expiresAt: number;
+  clips: number;
+  state: 'active' | 'off';
+  /** A link with only these clips of the recording (picked-clips link, 2026-11-23); absent = all of them. */
+  clipIds?: string[];
+  /**
+   * Shared in a group link (multi-recording share design §5.1): `url` is the group's link, `shareId` the recording's own
+   * share (its uploads and progress), and this the group's id (`cloud/shareGroups.ts`).
+   */
+  groupId?: string;
+};
 
 /**
  * The recording's sport (spec 2026-11-11 §5), stored under its historical name. `sport`: the sport the player chose
@@ -168,10 +221,20 @@ export type Clip = {
   ball?: ClipBall;
   /** Optional name the player gives the clip (like a recording's name). */
   name?: string;
+  /** On a received recording: the clip's place in the share it came from (sharing design §5.5). */
+  sharePosition?: number;
+  /**
+   * On a received clip: what the sender's edit fixed (2026-11-22, `cloud/shareCut.ts`). `sound`: the file has no sound,
+   * so it cannot be turned on. The cut is fixed by the file itself (nothing outside it was sent).
+   */
+  locked?: { sound?: true };
   /** When the edited video was last saved to Photos / sent through the share sheet (the clip itself stays inside the app). */
   savedAt?: number;
   sharedAt?: number;
 };
+
+/** A Bluetooth remote the app has learnt (see `Prefs.remotes`). */
+export type KnownRemote = { id: string; name?: string };
 
 export type Prefs = {
   onboardingDone: boolean;
@@ -186,9 +249,12 @@ export type Prefs = {
   /** When a press of the Bluetooth remote was first heard; the app cannot see the iOS pairing, only presses. */
   remoteTestedAt?: number;
   /**
-   * The Bluetooth remote as iOS shows it (BLE remotes only): its peripheral id and name, learnt at a press when exactly
-   * one connected device could be it. Then the app sees it connect and go without a press.
+   * The Bluetooth remotes as iOS shows them (BLE remotes only): each one's peripheral id and name, learnt at a press when
+   * exactly one connected device could be it. Then the app sees them connect and go without a press. Since 2026-11-22;
+   * absent: read the one remote kept before (`remoteBleId`).
    */
+  remotes?: KnownRemote[];
+  /** Before 2026-11-22 the app kept one remote: read once into `remotes`, then cleared. */
   remoteBleId?: string;
   remoteBleName?: string;
   /** The Modo Foco introduction (the first framed clip) was shown. */
@@ -209,6 +275,8 @@ export type Prefs = {
   modeSettings?: Partial<Record<ModeId, StoredModeSettings>>;
   /** "Prepare o celular" (no case, out of the sun) was dismissed for good before a recording. */
   prepareTipSeen?: boolean;
+  /** The first-time tour of the camera was finished or skipped (Ajustes > Tutorial turns it back off). */
+  cameraTourSeen?: boolean;
   /** The recording opened last: "Visto por último" in Minhas gravações. */
   lastOpenedSessionId?: string;
   /**

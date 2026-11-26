@@ -38,7 +38,10 @@ test('opens on the Record story, with only the bars on top: no step names and no
   expect(screen.getByText('Grave o jogo com o celular parado.')).toBeTruthy();
   for (const label of ['1 Grave', '2 Salve', '3 Edite', '4 Envie']) expect(screen.queryByText(label)).toBeNull();
   expect(screen.queryByLabelText('Reprize')).toBeNull();
-  expect(screen.getByText('Começar gravação')).toBeTruthy();
+  // The camera as it opens: zoom on top, clip length first among the settings.
+  expect(screen.getByText('1x')).toBeTruthy();
+  expect(screen.getByText('15s')).toBeTruthy();
+  expect(screen.queryByText('Começar gravação')).toBeNull();
 });
 
 test('the Pro Save story has no supporting line and no tabs, only the Apple Watch card', async () => {
@@ -47,6 +50,9 @@ test('the Pro Save story has no supporting line and no tabs, only the Apple Watc
   await fireEvent.press(next());
   expect(screen.getByText('Salve pelo pulso com o PRO.')).toBeTruthy();
   expect(screen.getByText('Apple Watch')).toBeTruthy();
+  // The watch app open during a recording, with Save filling the screen.
+  expect(screen.getByText('Parar')).toBeTruthy();
+  expect(screen.getByText('Salvar')).toBeTruthy();
   expect(screen.queryByLabelText('Formas de salvar o lance')).toBeNull();
 });
 
@@ -54,7 +60,11 @@ test('the Edit story does not talk about PRO', async () => {
   await render(<Onboarding />);
   for (let i = 0; i < 3; i++) await fireEvent.press(next());
   expect(screen.getByText('EDITE.')).toBeTruthy();
-  expect(screen.getByText('O clipe é cortado automaticamente no momento do lance.')).toBeTruthy();
+  expect(
+    screen.getByText('Recorte o clipe como quiser, mude a Velocidade de reprodução e use o Modo Foco para deixar o clipe pronto para postar.'),
+  ).toBeTruthy();
+  expect(screen.getByText('Modo Foco: Jogadores')).toBeTruthy();
+  for (const framing of ['Original', 'Jogadores', 'Bola']) expect(screen.getByText(framing)).toBeTruthy();
   expect(screen.queryByText('PRO')).toBeNull();
 });
 
@@ -109,7 +119,9 @@ test('Continue goes to the next story and Skip jumps to the last one', async () 
 test('the Save story shows its ways, and tapping one opens it', async () => {
   await render(<Onboarding />);
   await fireEvent.press(next());
-  expect(screen.getByText('Toque na tela')).toBeTruthy();
+  expect(screen.getByText('Botão Salvar')).toBeTruthy();
+  expect(screen.getByText('É rápido e prático. Toque no botão Salvar para garantir o seu clipe.')).toBeTruthy();
+  expect(screen.getByText('Desfazer')).toBeTruthy();
   await fireEvent.press(screen.getByLabelText('Voz'));
   expect(screen.getByText('Diga “salvar”.')).toBeTruthy();
   await run(10_000);
@@ -119,7 +131,12 @@ test('the Save story shows its ways, and tapping one opens it', async () => {
 test('the last story explains the camera and asking for it ends the onboarding', async () => {
   await render(<Onboarding />);
   await fireEvent.press(screen.getByText('Pular'));
-  expect(screen.getByText('Grátis, sem cadastro e com gravações ilimitadas. A seguir, o Reprize pede acesso à câmera.')).toBeTruthy();
+  expect(screen.getByText('A seguir, o Reprize pede acesso à câmera.')).toBeTruthy();
+  // The PRO card for sending the whole recording by link, with no button of its own.
+  expect(screen.getByText('Link da gravação')).toBeTruthy();
+  expect(screen.getByText('Todos os clipes, para quem quiser.')).toBeTruthy();
+  expect(screen.queryByText('Enviar link')).toBeNull();
+  expect(screen.queryByText(/reprizeapp\.com/)).toBeNull();
   await act(async () => fireEvent.press(screen.getByText('Continuar')));
   expect(repo.setPrefs).toHaveBeenCalledWith({ onboardingDone: true });
   expect(router.replace).toHaveBeenCalledWith('/setup');

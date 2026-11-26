@@ -29,10 +29,11 @@ All app code talks to a thin `track()` wrapper, never to the PostHog SDK directl
   - **Screen views** (`$screen`): one per route change, named by the route pattern (`clip/[id]`), never by the ids in the URL; capped at 100 per session.
   - Opting out also calls the SDK's `optOut()`, so its lifecycle events stop too. Country stays unknown (no IP, no GeoIP); `$locale` and `$timezone`, which the SDK adds to every event, tell Brazil from the US.
 - Properties are enumerated values or bucketed numbers (for example duration in ranges). Never video, file names, device names, free text, or error message strings.
+  - **One exception (2026-11-15, partner codes):** the `partner_code_applied`, `partner_offer_opened` events and the `partner` property carry a partner code such as `PROFJOAO`. It names a partner, never a person, and only a code found in the partner directory is sent; what a player typed that is not in the directory is never sent (`partner_code_rejected` has no code). See `docs/superpowers/specs/2026-11-15-partner-codes-design.md`.
 - User-facing opt-out in Settings; when off, `track()` is a no-op and nothing is queued.
 - Verify at implementation time that these option names match the installed `posthog-react-native` version.
 
-## Event catalogue (27)
+## Event catalogue (30)
 
 Updated 2026-11-02 for main's freemium/PRO/Pass model, thermal stops and trigger guides.
 
@@ -57,13 +58,16 @@ Updated 2026-11-02 for main's freemium/PRO/Pass model, thermal stops and trigger
 | Output | `clip_shared` | `destination` |
 | Devices | `pairing_completed` | `method`, `kind` |
 | Devices | `pairing_failed` | `reason` |
-| Monetization | `paywall_viewed` | `source`, `offering` (`default`/`pass`) |
-| Monetization | `purchase_completed` | `offering` |
+| Monetization | `paywall_viewed` | `source`, `offering` (`default`/`pass`/`partner`), `partner` (optional) |
+| Monetization | `purchase_completed` | `offering`, `partner` (optional) |
 | Monetization | `purchase_restored` | `offering` |
 | Monetization | `pass_used` | (a Pass kept from before, spent on a recording) |
 | Monetization | `purchase_failed` | `reason` |
 | Monetization | `pro_feature_blocked` | `feature` |
 | Monetization | `free_export_limit_hit` | |
+| Monetization | `partner_code_applied` | `code`, `source` (`link`/`install_referrer`/`typed`) |
+| Monetization | `partner_code_rejected` | `source`, `reason` (`invalid`/`locked`) |
+| Monetization | `partner_offer_opened` | `code`, `via` (`paywall`/`offer_code`) |
 | Monetization | `free_export_choice` | `choice` (`pro`/`pass`/`go`/`cancel`), `kind` (`save`/`share`/`unlock`) |
 
 `purchase_started` is not in the catalogue: the RevenueCat paywall performs the purchase itself and `showPaywall()` only reports the outcome, so "started" cannot be told apart from `paywall_viewed`.

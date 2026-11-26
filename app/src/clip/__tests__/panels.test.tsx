@@ -23,6 +23,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
     chooseSport: jest.fn(),
     resetZoom: jest.fn(),
     turn: jest.fn(),
+    locks: {},
     ...over,
   };
 }
@@ -230,4 +231,23 @@ test('on a free recording the speed works and goes into the video: no Pro note, 
   await fireEvent.press(screen.getByRole('button', { name: 'Velocidade 2x' }));
   expect(c.setEdit).toHaveBeenCalledWith({ speed: 2 });
   expect(c.unlock).not.toHaveBeenCalled();
+});
+
+describe('a received clip (2026-11-22): only the sound of a clip sent without it is fixed', () => {
+  test('came on Jogadores: every framing is offered, the Original too', async () => {
+    const Focus = panel('focus');
+    await render(<Focus ctx={ctx({ edit: { ...readEdit(undefined), framing: 'focus', focus: true }, focus: 'on' })} />);
+    expect(screen.getByText('Original')).toBeTruthy();
+    expect(screen.getByText('Jogadores')).toBeTruthy();
+    expect(screen.getByText('Bola')).toBeTruthy();
+  });
+
+  test('sent without sound: the switch is off for good and says why', async () => {
+    const setEdit = jest.fn();
+    const Sound = panel('sound');
+    await render(<Sound ctx={ctx({ edit: { ...readEdit(undefined), muted: true }, setEdit, locks: { sound: true } })} />);
+    expect(screen.getByText('Quem enviou tirou o som deste clipe.')).toBeTruthy();
+    await fireEvent.press(screen.getByRole('button', { name: 'Som' }));
+    expect(setEdit).not.toHaveBeenCalled();
+  });
 });

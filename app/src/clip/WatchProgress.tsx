@@ -2,10 +2,11 @@ import type { useVideoPlayer } from 'expo-video';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { PauseIcon, PlayIcon } from '../components/icons';
+import { MutedIcon, PauseIcon, PlayIcon, SoundIcon } from '../components/icons';
 import { seconds } from '../components/format';
 import { useT } from '../i18n/useT';
 import { colors, fonts } from '../theme/tokens';
+import { GlassButton } from '../components/GlassButton';
 
 type Props = {
   player: ReturnType<typeof useVideoPlayer>;
@@ -16,10 +17,14 @@ type Props = {
   /** The finger on the bar: where in the clip (kept inside the cut). */
   onSeek: (ms: number) => void;
   onSeekEnd: () => void;
+  /** The sound is off: the clip's own (an edit) or the player's mute. */
+  muted?: boolean;
+  /** The player's mute, at the row's end (2026-11-20, like Photos); none when the clip itself has no sound. */
+  onToggleMute?: () => void;
 };
 
 /** Watch mode's thin bar over the cut: play/pause, where the video is, drag to move through it. */
-export function WatchProgress({ player, trim, speed, playing, onTogglePlay, onSeek, onSeekEnd }: Props) {
+export function WatchProgress({ player, trim, speed, playing, onTogglePlay, onSeek, onSeekEnd, muted = false, onToggleMute }: Props) {
   const { t } = useT();
   const [atMs, setAtMs] = useState(trim.startMs);
   useEffect(() => {
@@ -58,13 +63,13 @@ export function WatchProgress({ player, trim, speed, playing, onTogglePlay, onSe
   const share = span > 0 ? Math.min(Math.max((atMs - trim.startMs) / span, 0), 1) : 0;
   return (
     <View style={styles.row}>
-      <Pressable
+      <GlassButton
         accessibilityRole="button"
         accessibilityLabel={playing ? t('clip.pause') : t('clip.play')}
         onPress={onTogglePlay}
         style={styles.play}>
         {playing ? <PauseIcon size={18} /> : <PlayIcon size={18} />}
-      </Pressable>
+      </GlassButton>
       <View
         {...pan.panHandlers}
         accessibilityLabel={t('clip.positionInClip')}
@@ -76,6 +81,17 @@ export function WatchProgress({ player, trim, speed, playing, onTogglePlay, onSe
         <View pointerEvents="none" style={[styles.knob, { left: share * width - 7 }]} />
       </View>
       <Text style={styles.time}>{seconds(Math.max(0, atMs - trim.startMs) / speed)}</Text>
+      {onToggleMute ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={muted ? t('clip.unmuteWatch') : t('clip.muteWatch')}
+          accessibilityState={{ selected: muted }}
+          hitSlop={8}
+          onPress={onToggleMute}
+          style={styles.mute}>
+          {muted ? <MutedIcon size={20} /> : <SoundIcon size={20} />}
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -86,7 +102,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -94,5 +109,6 @@ const styles = StyleSheet.create({
   track: { height: 4, borderRadius: 2, backgroundColor: colors.border, overflow: 'hidden' },
   fill: { height: 4, backgroundColor: colors.text },
   knob: { position: 'absolute', width: 14, height: 14, borderRadius: 7, backgroundColor: colors.text, top: 9 },
+  mute: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   time: { fontFamily: fonts.body, fontSize: 12, color: colors.soft, minWidth: 34, textAlign: 'right' },
 });

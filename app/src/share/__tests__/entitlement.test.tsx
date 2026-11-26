@@ -1,17 +1,18 @@
 import { act, renderHook } from '@testing-library/react-native';
 
-import { usePlan } from '../entitlement';
+import { exportTierOf, usePlan } from '../entitlement';
 
 const mockStore = {
   v: 0,
   decision: null as null | { kind: string },
   plan: 'free' as 'free' | 'paid',
+  snapshot: { proActive: false, passTransactions: [] } as { proActive: boolean; passTransactions: never[]; proSince?: number },
   listeners: new Set<() => void>(),
 };
 
 const mockRepo = {
   v: 0,
-  sessions: {} as Record<string, { paid?: boolean; passTransactionId?: string }>,
+  sessions: {} as Record<string, { paid?: boolean; passTransactionId?: string; startedAt?: number }>,
   listeners: new Set<() => void>(),
 };
 
@@ -22,6 +23,7 @@ jest.mock('../../payments', () => ({
       return () => mockStore.listeners.delete(l);
     },
     version: () => mockStore.v,
+    getSnapshot: () => mockStore.snapshot,
     nextPlan: jest.fn(() =>
       mockStore.decision ? jest.requireActual('../../payments/rules').planOf(mockStore.decision) : mockStore.plan,
     ),
@@ -42,6 +44,7 @@ jest.mock('../../data/mmkv', () => ({
 beforeEach(() => {
   mockStore.plan = 'free';
   mockStore.decision = null;
+  mockStore.snapshot = { proActive: false, passTransactions: [] };
   mockRepo.sessions = { s1: { paid: true }, s2: { paid: false }, old: { passTransactionId: 'tx' } };
 });
 
@@ -82,4 +85,12 @@ test('re-renders when the repo notifies (a credit spent)', async () => {
     mockRepo.listeners.forEach((l) => l());
   });
   expect(result.current).toBe('free');
+});
+
+test('exportTierOf: a received recording without Pro is a courtesy; a paid export stays paid (the mark on every plan)', () => {
+  expect(exportTierOf('free', undefined)).toBe('free');
+  expect(exportTierOf('paid', undefined)).toBe('paid');
+  expect(exportTierOf('free', 'courtesy')).toBe('courtesy');
+  expect(exportTierOf('free', 'locked')).toBe('courtesy');
+  expect(exportTierOf('paid', 'pro')).toBe('paid');
 });

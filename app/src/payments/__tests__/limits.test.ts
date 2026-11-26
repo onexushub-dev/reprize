@@ -1,6 +1,6 @@
 import type { ModeSettings } from '../../data/schema';
 import { modeById } from '../../modes/registry';
-import { canCompile, captureConfig, qualityAllowed, triggerAllowed } from '../limits';
+import { canCompile, canShare, captureConfig, qualityAllowed, triggerAllowed } from '../limits';
 
 const court = modeById('quadra').defaults;
 const gym: ModeSettings = { zoom: 1, gestureEnabled: false, voiceEnabled: true, bufferSeconds: 60, cutSeconds: 60, quality: '1080p30', audio: true };
@@ -35,6 +35,11 @@ test('triggerAllowed: the Apple Watch is paid; every other trigger, the Bluetoot
 
 test('captureConfig free: a clip length shorter than 15 s is kept', () => {
   expect(captureConfig({ ...court, cutSeconds: 10 }, 'free').cutSeconds).toBe(10);
+});
+
+test('sharing a recording is paid', () => {
+  expect(canShare('free')).toBe(false);
+  expect(canShare('paid')).toBe(true);
 });
 
 test('compiling clips is paid', () => {

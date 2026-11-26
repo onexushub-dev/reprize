@@ -1,6 +1,7 @@
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { router, useIsFocused } from "expo-router";
 import {
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -8,14 +9,15 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
-  ActivityIndicator,
   Alert,
+  Animated,
   AppState,
-  PanResponder,
+  Easing,
   Platform,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -33,57 +35,54 @@ import {
   remoteHostControllers,
   ReplayCameraView,
   requestSpeechPermission,
-  setCameraIdle,
-  setScreenEconomy,
   signalAction,
+  signalSaved,
   signalSaveFailed,
   supportsQuality,
 } from "../../modules/replay-camera";
-import type {
-  RemotePeer,
-  ReplayErrorCode,
-} from "../../modules/replay-camera/src/ReplayCamera.types";
+import type { RemotePeer, ReplayErrorCode } from "../../modules/replay-camera/src/ReplayCamera.types";
 import { useCameraPinch } from "../camera/useCameraPinch";
-import { useDeviceLandscape } from "../camera/useDeviceLandscape";
-import { AboutLinks } from "../components/AboutLinks";
-import { Button } from "../components/Button";
-import { Chip } from "../components/Chip";
-import { CompactDock } from "../components/CompactDock";
+import { useLandscapeTurn } from "../camera/useDeviceLandscape";
+import { BAR_GAP, CameraBar, type CameraPanel, type TourTargets, type TriggerKey } from "../components/CameraBar";
+import { CameraTour, type TourStep } from "../components/CameraTour";
+import { cameraTourSeen, finishCameraTour } from "../onboarding/cameraTour";
+import { PhoneRemotePanel } from "../components/PhoneRemotePanel";
 import { PrepareSheet } from "../components/PrepareSheet";
-import { EconomyButton } from "../components/EconomyButton";
-import { EconomyToast } from "../components/EconomyToast";
-import { GestureSheet, VoiceSheet } from "../components/PracticeSheet";
 import { modeTip } from "../components/format";
 import { sourceLabel } from "../components/sourceLabel";
 import { sessionSummary, track } from "../analytics";
 import { PositionGuide } from "../components/PositionGuide";
 import { RecordingPanel } from "../components/RecordingPanel";
-import { ProBadge } from "../components/ProBadge";
 import {
+  PanelAction,
+  PanelGroup,
+  PanelInfo,
+  PanelOption,
+  panelColors,
+  ProGroup,
+  SetupPanel,
+  TriggerCircle,
+} from "../components/SetupPanel";
+import { TriggerTestPanel } from "../components/TriggerTestPanel";
+import {
+  BoltIcon,
   MicIcon,
-  QrIcon,
+  PhoneIcon,
   RemoteIcon,
-  StarIcon,
-  TapIcon,
+  SoundIcon,
   WatchIcon,
   WaveIcon,
 } from "../components/icons";
-import { TriggerTile } from "../components/TriggerTile";
-import { UpdateCard } from "../components/UpdateCard";
-import { ZoomBubble } from "../components/ZoomBubble";
 import { ZoomButton } from "../components/ZoomButton";
 import { repo } from "../data/mmkv";
-import {
-  diagSetupPaused,
-  diagSetupResumed,
-  useSetupDiag,
-} from "../diag/useSetupDiag"; // TEMP(diag)
-import { useIdlePause } from "../session/useIdlePause";
-import {
-  dismissUpdateNotice,
-  openUpdateInStore,
-  useUpdateNotice,
-} from "../update/updateNotice";
+import { ContinueBadge } from "../components/ContinueBadge";
+import { showDialog } from "../components/dialog";
+import { sessionLabel } from "../components/format";
+import { canContinue } from "../session/continueRule";
+import { continueIntent, setContinueIntent, subscribeContinueIntent } from "../session/continueIntent";
+import { useSetupDiag } from "../diag/useSetupDiag"; // TEMP(diag)
+import { UpdateCard } from "../components/UpdateCard";
+import { dismissUpdateNotice, openUpdateInStore, useUpdateNotice } from "../update/updateNotice";
 import { openPaywall } from "../payments/feedback";
 import {
   FREE_MAX_SECONDS,
@@ -116,18 +115,14 @@ import {
 } from "../modes/registry";
 import { clampZoom, hasZoomChoice, lensFor, nextZoomStep } from "../modes/zoom";
 import { useSession } from "../session/SessionContext";
-import { colors, fonts, radius } from "../theme/tokens";
+import { colors, fonts } from "../theme/tokens";
 import { useBluetoothRemote } from "../triggers/useBluetoothRemote";
-
-/** How long the zoom value stays over the preview after the last pinch move. */
-const BUBBLE_MS = 800;
 
 const START_ERRORS: Partial<Record<ReplayErrorCode, MessageKey>> = {
   LOW_STORAGE: "setup.lowStorage",
   CAMERA_PERMISSION: "common.cameraDenied",
 };
 
-/** Under "Conectar um celular controle": how many remotes are linked right now. Nothing when none is. */
 /** The watch link as the native side sees it now. Read on every render, not only on events: WatchConnectivity
  * activates when the module loads, and an activation that finishes before this screen listens is never heard. */
 function subscribeWatch(onChange: () => void): () => void {
@@ -135,6 +130,7 @@ function subscribeWatch(onChange: () => void): () => void {
   return () => sub.remove();
 }
 
+/** Under "Conectar um celular": how many remotes are linked right now. Nothing when none is. */
 function controllersStatus(t: TFunction, linked: number): string | undefined {
   if (linked <= 0) return undefined;
   return linked === 1
@@ -143,21 +139,24 @@ function controllersStatus(t: TFunction, linked: number): string | undefined {
 }
 
 /**
- * Under "Usar este celular como controle": the camera phone this one is paired with. It says "Pareado", not
- * "Conectado": this screen cannot tell if the link is up, because the remote side only connects while its own screen is open.
+ * Under "Usar este celular": the camera phone this one is paired with. It says "Pareado", not "Conectado": this screen
+ * cannot tell if the link is up, because the remote side only connects while its own screen is open.
  */
-function cameraStatus(
-  t: TFunction,
-  host: { name: string } | null,
-): string | undefined {
+function cameraStatus(t: TFunction, host: { name: string } | null): string | undefined {
   if (host === null) return undefined;
-  return host.name.length > 0
-    ? t("setup.pairedWith", { name: host.name })
-    : t("setup.paired");
+  return host.name.length > 0 ? t("setup.pairedWith", { name: host.name }) : t("setup.paired");
 }
 
 /** How long the battery-saving notice stays after a tap on its button. */
-const ECONOMY_TOAST_MS = 3000;
+
+/** How long the buttons' contents take to turn upright after the phone turns. */
+const TURN_SPIN_MS = 280;
+
+/** How long the zoom button stays amber after the zoom changed. */
+const ZOOM_LIT_MS = 900;
+
+/** The camera opening says so only past this (a quick reopen, coming back from another screen, only flashed). */
+const OPENING_NOTE_MS = 700;
 
 export default function Setup() {
   const session = useSession();
@@ -172,7 +171,10 @@ export default function Setup() {
   const update = (patch: Partial<Prefs>) => setPrefsState(repo.setPrefs(patch));
   // What this mode runs with (defaults + the player's changes for this mode).
   // A sport saved before the two modes opens as its group (Quadra or Academia).
-  const modeId = offeredMode(prefs.sport);
+  // Continuing a recording (2026-11-23): the camera opens with its sport, which a continuation cannot change.
+  const intentId = useSyncExternalStore(subscribeContinueIntent, continueIntent, continueIntent);
+  const intentSession = intentId !== undefined ? repo.getSession(intentId) : undefined;
+  const modeId = offeredMode(intentSession !== undefined ? intentSession.sport : prefs.sport);
   const settings = effectiveSettings(modeId, prefs);
   const updateMode = (patch: Partial<ModeSettings>) =>
     update(withModeOverride(prefs, modeId, patch));
@@ -184,33 +186,36 @@ export default function Setup() {
   const zoom = liveZoom !== null ? liveZoom : savedZoom;
   // With two fixed lenses (Android) crossing 1x means opening the other lens; with continuous zoom the session ignores it.
   const lens = lensFor(savedZoom);
-  const [bubble, setBubble] = useState(false);
-  const bubbleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
-  const showBubble = () => {
-    setBubble(true);
-    if (bubbleTimer.current !== undefined) clearTimeout(bubbleTimer.current);
-    bubbleTimer.current = setTimeout(() => setBubble(false), BUBBLE_MS);
-  };
-  useEffect(() => () => clearTimeout(bubbleTimer.current), []);
   const pinch = useCameraPinch({
     zoom,
     range: zoomRange,
     onChange: (next) => {
       setLiveZoom(next);
       session.setZoom(next, false);
-      showBubble();
     },
     onCommit: (next) => {
       setLiveZoom(null);
+      lightZoom();
       if (Math.abs(next - savedZoom) > 1e-6) {
         updateMode({ zoom: next });
         sessionSummary.note("zoom");
       }
     },
   });
+  // The zoom button turns amber while the zoom changes, and a moment after (2026-11-22): the eye finds the new value.
+  const [zoomLit, setZoomLit] = useState(false);
+  const [zoomTouches, setZoomTouches] = useState(0);
+  const lightZoom = () => {
+    setZoomLit(true);
+    setZoomTouches((n) => n + 1);
+  };
+  useEffect(() => {
+    if (zoomTouches === 0) return;
+    const timer = setTimeout(() => setZoomLit(false), ZOOM_LIT_MS);
+    return () => clearTimeout(timer);
+  }, [zoomTouches]);
   const cycleZoom = () => {
+    lightZoom();
     const next = nextZoomStep(zoom, zoomRange);
     session.setZoom(next, true);
     updateMode({ zoom: next });
@@ -233,26 +238,17 @@ export default function Setup() {
   // tell (2026-11-01 field test). So its icon and tile light up only once a press is heard; the recording still listens
   // to it either way.
   const remoteReady = remoteView.state === "connected";
-  // The sheet opens collapsed so the camera and its guide stay visible; mode and triggers sit behind the summary.
-  const [expanded, setExpanded] = useState(false);
-  // A trigger's "?" (the wave gesture, voice): how to use it, and practice with the live camera.
-  const [practice, setPractice] = useState<"gesture" | "voice" | undefined>(
-    undefined,
-  );
-  /** Opens a trigger's guide; each opening counts as a guide in the session summary. */
-  const openPractice = (kind: "gesture" | "voice") => {
-    sessionSummary.note("guide");
-    setPractice(kind);
-  };
-  const [sheetHeight, setSheetHeight] = useState(0);
-  // Swipe up on the sheet opens it, swipe down closes it; taps still reach the controls inside.
-  const [swipe] = useState(() =>
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) =>
-        Math.abs(g.dy) > 12 && Math.abs(g.dy) > Math.abs(g.dx),
-      onPanResponderRelease: (_, g) => setExpanded(g.dy < 0),
-    }),
-  );
+  // Upright (2026-11-22): the panel open over the camera (clip length, quality, triggers or their test), and the height
+  // of the button bar under the picture, which the panels, the zoom and the positioning guide sit above.
+  const [panel, setPanel] = useState<CameraPanel | undefined>(undefined);
+  const closePanel = () => setPanel(undefined);
+  const [barHeight, setBarHeight] = useState(0);
+  // The trigger test: a remote press heard since it opened. The remote's listener reads the open panel from a ref.
+  const [remoteHeard, setRemoteHeard] = useState(false);
+  const testing = useRef(false);
+  useEffect(() => {
+    testing.current = panel === "test";
+  }, [panel]);
   const [speechDenied, setSpeechDenied] = useState(false);
   // Offline recognition only: court audio is never streamed to a server.
   // Asked again if the language changes: the on-device model is per language.
@@ -310,28 +306,15 @@ export default function Setup() {
   const [has4k] = useState(() => supportsQuality("2160p30"));
   const fourKAllowed = qualityAllowed("2160p30", plan);
   const is4k = has4k && fourKAllowed && settings.quality === "2160p30";
-  // Battery saving: the round button beside the zoom; each tap says for a moment what it now does.
-  const [economyToast, setEconomyToast] = useState(0);
-  useEffect(() => {
-    if (economyToast === 0) return;
-    const hide = setTimeout(() => setEconomyToast(0), ECONOMY_TOAST_MS);
-    return () => clearTimeout(hide);
-  }, [economyToast]);
-  const toggleEconomy = () => {
-    update({ screenEconomy: !prefs.screenEconomy });
-    setEconomyToast((n) => n + 1);
-  };
-  // The phone remote (a second iPhone that taps Salvar for this one). The camera phone waits for its paired remotes for
-  // as long as the app is open (see the root layout); pairing happens on its own sheet (/pairing).
-  // Android is only a remote for now (no camera side yet): each tile shows where its side exists.
+  // The phone remote (a second iPhone that taps Salvar for this one; back in the triggers panel 2026-11-22). The camera
+  // phone waits for its paired remotes for as long as the app is open (see the root layout); pairing happens on its own
+  // sheet (/pairing). Android is only a remote for now (no camera side yet): each button shows where its side exists.
   const [remoteSupported] = useState(() => isRemoteSupported());
   const [controllerSupported] = useState(() => isRemoteControllerSupported());
   const [controlHost, setControlHost] = useState<RemotePeer | null>(() =>
     isRemoteControllerSupported() ? remoteControllerHost() : null,
   );
-  const [remoteLinked, setRemoteLinked] = useState(() =>
-    remoteHostControllers(),
-  );
+  const [remoteLinked, setRemoteLinked] = useState(() => remoteHostControllers());
   useEffect(() => {
     if (!remoteSupported) return;
     const sub = addReplayListener("onRemoteStatus", (e) => {
@@ -343,14 +326,24 @@ export default function Setup() {
   // Coming back to this screen, read the remote again (adjusting state during render, not in an effect): it may have
   // been paired or forgotten on the remote screen, and the status events of a remote that connected meanwhile were not
   // heard.
+  // The first-time tour (2026-11-22, model A): read again on coming back, as Ajustes > Tutorial turns it back on.
+  const [tourSeen, setTourSeen] = useState(cameraTourSeen);
+  const [tourTargets, setTourTargets] = useState<TourTargets | undefined>(undefined);
   const [remoteReadFocused, setRemoteReadFocused] = useState(focused);
   if (remoteReadFocused !== focused) {
     setRemoteReadFocused(focused);
     if (focused) {
+      setTourSeen(cameraTourSeen());
       if (controllerSupported) setControlHost(remoteControllerHost());
       if (remoteSupported) setRemoteLinked(remoteHostControllers());
     }
   }
+  // The phone remote (2026-11-22): one of the triggers, "Celular", under Mais opções; a tap opens its own panel.
+  const phoneOffered = remoteSupported || controllerSupported;
+  const linkedStatus = controllersStatus(t, remoteLinked);
+  const pairedStatus = cameraStatus(t, controlHost);
+  const phoneStatus = linkedStatus !== undefined ? linkedStatus : controlHost !== null ? t("setup.paired") : t("setup.phoneNone");
+  const openPhoneRemote = () => setPanel("phone");
   const disconnectControl = () => {
     const name = controlHost === null ? "" : controlHost.name;
     Alert.alert(t("remote.forgetTitle", { name }), t("remote.forgetBody"), [
@@ -377,13 +370,6 @@ export default function Setup() {
           ? t("setup.voiceDenied")
           : t("setup.tapToAllow");
 
-  /** The voice practice asks for the permission on its own (the trigger stays as the player set it). */
-  async function allowSpeech() {
-    const granted = await requestSpeechPermission();
-    track("permission_result", { kind: "speech", granted });
-    setSpeech(granted ? "granted" : "denied");
-  }
-
   async function toggleVoice() {
     if (voiceOn) return updateMode({ voiceEnabled: false });
     let granted = speechGranted;
@@ -396,70 +382,16 @@ export default function Setup() {
     if (granted) updateMode({ voiceEnabled: true });
   }
 
-  const summary = t("setup.summary", {
-    items: [
-      t("setup.summaryClip", { seconds: clipSeconds }),
-      ...(is4k ? [t("setup.summary4k")] : []),
-      ...(voiceOffered
-        ? [t(voiceOn ? "setup.summaryVoiceOn" : "setup.summaryVoiceOff")]
-        : []),
-      t(
-        settings.gestureEnabled
-          ? "setup.summaryGestureOn"
-          : "setup.summaryGestureOff",
-      ),
-      t(
-        !remoteAllowed
-          ? "setup.summaryRemoteNotConnected"
-          : remoteView.state === "connected"
-            ? "setup.summaryRemoteConnected"
-            : remoteLink === "bluetoothOff"
-              ? "setup.summaryBluetoothOff"
-              : remoteLink === "missing"
-                ? "setup.summaryRemoteMissing"
-                : remoteView.state === "offline"
-                  ? "setup.summaryRemotePaired"
-                  : "setup.summaryRemoteNotConnected",
-      ),
-      ...(watchOn ? [t("setup.summaryWatchReady")] : []),
-    ].join(", "),
-  });
-
   const { phase, error, camera } = session.state;
-  // The practice belongs to the setup: a game starting closes it.
-  if (practice !== undefined && phase !== "idle") setPractice(undefined);
+  if (panel !== undefined && phase !== "idle") setPanel(undefined);
   const { prepare, release } = session;
 
   // Before a recording, until the player turns it off: how to keep the iPhone steady (no case, out of the sun).
   const [preparing, setPreparing] = useState(false);
 
-  // 35 s without a touch or a remote press pause the preview, dim the screen and drop the camera to ~5 fps, with a
-  // countdown in the last 5 s (2026-11-08 spec §3.2). The camera keeps running (same format, no buffer): iOS only sends the remote's capture events, and so
-  // its hold, to an app whose camera runs, so a hold starts the recording straight from the pause. Not while a sheet that needs the camera
-  // (practice, "Prepare o celular") or the Dispositivos sheet is open.
-  const idle = useIdlePause(
-    focused &&
-      !sheetOpen &&
-      phase === "idle" &&
-      practice === undefined &&
-      !preparing,
-    { onPause: diagSetupPaused, onResume: diagSetupResumed },
-  );
-  const paused = idle.paused;
-  // The pause's hint about the remote only when one is paired here.
-  const remotePaired =
-    remoteAllowed &&
-    (remoteView.state === "connected" || remoteView.state === "offline");
-  useEffect(() => {
-    if (!paused) return;
-    setScreenEconomy(true);
-    setCameraIdle(true);
-    return () => {
-      setCameraIdle(false);
-      setScreenEconomy(false);
-    };
-  }, [paused]);
-  useSetupDiag(focused && phase === "idle", paused);
+  // No rest on this screen (2026-11-20): the setup keeps the camera on while the player positions the phone; the
+  // screen rests (battery saving) only once a recording starts.
+  useSetupDiag(focused && phase === "idle", false);
 
   // Live preview while positioning: a preview only (30 fps, no buffer, 2026-11-08 spec §3.1); "Começar gravação"
   // starts the buffer on the open camera.
@@ -468,15 +400,28 @@ export default function Setup() {
     else void release();
   }, [live, prepare, release, modeId, lens, plan]);
 
+  // Back on the camera after a game (2026-11-22: Gravações has no "Nova gravação", the player just goes back): a game
+  // that ended still holds the live session, so it starts clean, as that button did. Only on coming back: the moment a
+  // game ends here, the screen is still on top while it moves on to the game's clips.
+  const wasFocused = useRef(focused);
+  useEffect(() => {
+    const back = focused && !wasFocused.current;
+    wasFocused.current = focused;
+    if (back && phase === "ended" && error === undefined) session.reset();
+  }, [focused, phase, error, session]);
+
   // A recording ended from the remote leaves the player on this screen: the camera comes back for the next hold.
   useEffect(() => {
     if (live && phase === "idle" && camera === "off") void prepare(modeId, plan);
   }, [live, phase, camera, prepare, modeId, plan]);
 
-  /** A remote press here: the connection test, and it wakes a paused camera. */
+  /** A remote press here: the connection test, and a "Funcionou" in the trigger test (with the saved-clip chime). */
   const remotePress = () => {
-    idle.activity("controle");
     remoteTest.press();
+    if (testing.current) {
+      setRemoteHeard(true);
+      signalSaved({ sound: true, flash: false });
+    }
   };
 
   useEffect(() => {
@@ -512,10 +457,35 @@ export default function Setup() {
     if (busy.current) return;
     busy.current = true;
     try {
-      await session.start(modeId); // the plan never stops a start
+      await beginGame(); // the plan never stops a start
     } finally {
       busy.current = false;
     }
+  }
+
+  /**
+   * Gravar: a new recording, or the recording chosen to continue while its hour lasts (2026-11-23). Once the hour is
+   * over it asks, and only a new recording can start.
+   */
+  async function beginGame(): Promise<string | void> {
+    const id = continueIntent();
+    if (id === undefined) return session.start(modeId);
+    if (canContinue(id, repo.allSessions(), Date.now())) {
+      const result = await session.continueRecording(id);
+      if (result === "started") setContinueIntent(undefined);
+      return result;
+    }
+    showDialog({
+      title: t("continue.expiredTitle"),
+      body: t("continue.expiredBody"),
+      cancel: t("common.cancel"),
+      confirm: t("continue.newRecording"),
+      onConfirm: () => {
+        setContinueIntent(undefined);
+        void session.start(offeredMode(repo.getPrefs().sport));
+      },
+    });
+    return undefined;
   }
 
   function askThenStart() {
@@ -537,7 +507,7 @@ export default function Setup() {
     if (busy.current) return;
     busy.current = true;
     try {
-      const result = await session.start(modeId);
+      const result = await beginGame();
       const prefs = repo.getPrefs();
       if (result === "started")
         signalAction("started", {
@@ -553,112 +523,143 @@ export default function Setup() {
 
   const opening = camera === "starting";
   const starting = phase === "starting" || opening;
+  // Back from another screen the camera reopens in a moment, and saying so only flashed on screen (2026-11-22): the
+  // note and the waiting look show only once it takes longer than OPENING_NOTE_MS. The buttons wait for it either way;
+  // a tap on Gravar shows its wait at once.
+  const [slowOpen, setSlowOpen] = useState(false);
+  useEffect(() => {
+    if (!opening) return;
+    const timer = setTimeout(() => setSlowOpen(true), OPENING_NOTE_MS);
+    return () => {
+      clearTimeout(timer);
+      setSlowOpen(false);
+    };
+  }, [opening]);
+  const showOpening = opening && slowOpen;
+  const waiting = phase === "starting" || showOpening;
   const errorText = error
     ? t(START_ERRORS[error] ?? "setup.cameraFailed")
     : null;
 
   // On its side the phone shows only two small buttons (the settings open on demand), so the sheet does not cover the camera.
-  const landscape = useDeviceLandscape(live && phase === "idle");
-  const compact = landscape && !expanded;
+  // On its side, the buttons' contents turn upright (the app itself stays in portrait).
+  const turn = useLandscapeTurn(live && phase === "idle");
+  const landscape = turn !== 0;
+  // In the turned frame: the phone's bottom edge (the column, as in the Camera app) and the notch's side.
+  const columnSide = turn === 90 ? "right" : "left";
+  const notchSide = turn === 90 ? "left" : "right";
+  // Turning the phone turns what is in the buttons, as in the Camera app (2026-11-22): animated, from where it was.
+  const [spin] = useState(() => new Animated.Value(turn));
+  useEffect(() => {
+    Animated.timing(spin, {
+      toValue: turn,
+      duration: TURN_SPIN_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [turn, spin]);
+  const spinDeg = spin.interpolate({ inputRange: [-90, 90], outputRange: ["-90deg", "90deg"] });
+  const screen = useWindowDimensions();
+
+  // What the triggers' button draws: the ones on right now (a remote only once a press proved it works).
+  const triggersOn: TriggerKey[] = [
+    ...(remoteReady && remoteAllowed ? (["remote"] as const) : []),
+    ...(watchOn ? (["watch"] as const) : []),
+    ...(voiceOn ? (["voice"] as const) : []),
+    ...(settings.gestureEnabled ? (["wave"] as const) : []),
+    ...(remoteLinked > 0 ? (["phone"] as const) : []),
+  ];
+
+  const updateAvailable = useUpdateNotice();
 
   const inGame =
     phase === "recording" ||
     phase === "stopping" ||
     (phase === "ended" && error !== undefined);
 
-  // The new-version card waits for a calm setup screen: never over a recording, the open settings or another message.
-  const updateAvailable = useUpdateNotice();
-  const showUpdate =
-    updateAvailable &&
-    phase === "idle" &&
-    !opening &&
-    !expanded &&
-    !compact &&
-    !paused &&
-    idle.warning === undefined &&
-    !bubble &&
-    economyToast === 0;
-
   // One camera view for the whole game: setup and recording only swap the controls drawn over it.
   return (
-    <View
-      testID="setup-root"
-      style={styles.root}
-      onTouchStart={() => idle.activity("toque")}
-    >
+    <View testID="setup-root" style={styles.root}>
       <ReplayCameraView style={StyleSheet.absoluteFill} />
       {inGame ? (
         <RecordingPanel
           clipSeconds={settings.cutSeconds}
           gesture={settings.gestureEnabled}
           voice={voiceOn}
+          // Continuous zoom only: a fixed lens cannot change while the camera records.
+          zoom={
+            zoomRange.continuous
+              ? { value: zoom, onPress: cycleZoom, pinch }
+              : undefined
+          }
         />
       ) : (
         renderSetupControls()
       )}
-      {idle.warning !== undefined && !inGame ? (
-        <View
-          testID="idle-warning"
-          pointerEvents="none"
-          accessibilityLiveRegion="polite"
-          style={styles.idleWarnWrap}
-        >
-          <View style={styles.idleWarn}>
-            <Text style={styles.idleWarnTitle}>
-              {t("setup.idleWarnTitle", { seconds: idle.warning })}
-            </Text>
-            <Text style={styles.idleWarnBody}>{t("setup.idleWarnBody")}</Text>
-          </View>
-        </View>
-      ) : null}
-      {paused && !inGame ? (
-        <Pressable
-          testID="camera-paused"
-          accessibilityRole="button"
-          accessibilityLabel={`${t("setup.idlePausedTitle")}. ${t("setup.idlePausedBody")}`}
-          onPress={() => idle.activity("toque")}
-          style={styles.paused}
-        >
-          <Text style={styles.pausedTitle}>{t("setup.idlePausedTitle")}</Text>
-          <Text style={styles.pausedText}>{t("setup.idlePausedBody")}</Text>
-          {remotePaired ? (
-            <Text style={styles.pausedHint}>
-              {t("setup.idlePausedRemote")}
-            </Text>
-          ) : null}
-        </Pressable>
-      ) : null}
-      {showUpdate ? (
-        <UpdateCard
-          bottom={sheetHeight + 12}
-          onUpdate={openUpdateInStore}
-          onClose={dismissUpdateNotice}
-        />
-      ) : null}
       <PrepareSheet
         visible={preparing}
         onStart={startPrepared}
         onClose={() => setPreparing(false)}
       />
-      {practice === "gesture" ? (
-        <GestureSheet
-          visible={live && phase === "idle"}
-          onClose={() => setPractice(undefined)}
-        />
-      ) : null}
-      {practice === "voice" ? (
-        <VoiceSheet
-          visible={live && phase === "idle"}
-          onClose={() => setPractice(undefined)}
-          locale={locale}
-          speech={speech}
-          onAllow={() => void allowSpeech()}
-        />
-      ) : null}
     </View>
   );
 
   function renderSetupControls() {
+    // What is going on sits over the camera beside the buttons: the camera opening (once slow), or why a start failed.
+    const message = errorText !== null ? errorText : showOpening ? t("setup.openingCamera") : null;
+    const showZoom = hasZoomChoice(zoomRange) && panel === undefined && message === null;
+    const bar = (
+      <CameraBar
+        clipSeconds={clipSeconds}
+        quality={is4k ? t("setup.quality4k") : t("setup.qualityFullHd")}
+        qualityFixed={!has4k}
+        triggers={triggersOn}
+        panel={panel}
+        onPanel={(kind) => setPanel(panel === kind ? undefined : kind)}
+        busy={starting}
+        waiting={waiting}
+        onRecord={() => {
+          closePanel();
+          askThenStart();
+        }}
+        onRecordings={() => router.push("/games")}
+        onSettings={() => router.push("/account")}
+        onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}
+        spin={spinDeg}
+        turned={landscape}
+        reversed={landscape && turn === 90}
+        onTargets={tourSeen ? undefined : (next) => setTourTargets((prev) => (sameTargets(prev, next) ? prev : next))}
+      />
+    );
+    // The tour waits for a quiet camera, upright: nothing open, nothing loading, no note over the camera.
+    const showTour =
+      !tourSeen && !landscape && focused && phase === "idle" && panel === undefined && message === null && !waiting && !preparing;
+    // The new-version card waits for a calm camera, upright: no recording, nothing open or loading, no other note over
+    // the camera and not during the tour.
+    const showUpdate =
+      updateAvailable &&
+      !landscape &&
+      phase === "idle" &&
+      panel === undefined &&
+      message === null &&
+      intentSession === undefined &&
+      !waiting &&
+      !preparing &&
+      !showTour;
+    // A tap on the camera around an open panel closes it.
+    const backdrop =
+      panel === undefined ? null : (
+        <Pressable testID="panel-backdrop" accessible={false} onPress={closePanel} style={StyleSheet.absoluteFill} />
+      );
+    const messageText =
+      message === null ? null : (
+        <Text
+          accessibilityRole={errorText !== null ? "alert" : "text"}
+          style={[styles.message, errorText !== null && styles.messageError]}
+        >
+          {message}
+        </Text>
+      );
     return (
       <>
         {zoomRange.continuous ? (
@@ -668,453 +669,393 @@ export default function Setup() {
             {...pinch}
           />
         ) : null}
-        {bubble ? (
-          <ZoomBubble value={zoom} bottom={(compact ? 72 : sheetHeight) + 16} />
-        ) : null}
-        {economyToast > 0 && !bubble ? (
-          <EconomyToast
-            on={prefs.screenEconomy}
-            bottom={(compact ? 72 : sheetHeight) + 16}
-          />
-        ) : null}
         <View
           testID="guide-area"
           pointerEvents="none"
-          style={[styles.guideArea, { bottom: compact ? 72 : sheetHeight }]}
+          style={[styles.guideArea, { bottom: barHeight }]}
         >
           <PositionGuide guide={mode.guide} />
         </View>
 
-        <SafeAreaView edges={["top"]} style={styles.top}>
-          <View style={styles.topRow}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("setup.myRecordings")}
-              onPress={() => router.push("/games")}
-              style={[styles.pill, styles.pillButton]}
-            >
-              <Text style={styles.pillText}>{t("setup.myRecordings")}</Text>
-            </Pressable>
-            <View style={styles.cameraButtons}>
-              <EconomyButton on={prefs.screenEconomy} onPress={toggleEconomy} />
-              {hasZoomChoice(zoomRange) ? <ZoomButton value={zoom} onPress={cycleZoom} /> : null}
+        <SafeAreaView edges={["top"]} pointerEvents="box-none" style={styles.top}>
+          {/* The zoom at the top of the screen (2026-11-22), upright and on its side in the same place: on its side
+              only its text turns to stand upright. */}
+          {showZoom ? (
+            <View testID="zoom-dock" pointerEvents="box-none" style={styles.zoomTop}>
+              <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
+                <ZoomButton value={zoom} onPress={cycleZoom} lit={liveZoom !== null || zoomLit} />
+              </Animated.View>
             </View>
-          </View>
-          {mode.tip && !compact ? (
+          ) : null}
+          {mode.tip && !landscape ? (
             <View style={styles.tip}>
               <Text style={styles.tipText}>{modeTip(mode.group, locale)}</Text>
             </View>
           ) : null}
         </SafeAreaView>
 
-        {compact ? (
-          <CompactDock
-            busy={starting}
-            error={errorText}
-            onSettings={() => setExpanded(true)}
-            onStart={askThenStart}
-          />
-        ) : (
+        {landscape ? (
+          // On its side (2026-11-22): the panels and the notes are drawn in a frame turned a quarter to stand upright
+          // (the app itself stays in portrait), beside the bar, which is on the phone's bottom edge.
           <View
-            testID="setup-sheet"
-            style={styles.sheet}
-            onLayout={(e) => setSheetHeight(e.nativeEvent.layout.height)}
+            testID="landscape-frame"
+            pointerEvents="box-none"
+            style={[
+              styles.landscapeFrame,
+              {
+                width: screen.height,
+                height: screen.width,
+                left: (screen.width - screen.height) / 2,
+                top: (screen.height - screen.width) / 2,
+                transform: [{ rotate: `${turn}deg` }],
+              },
+            ]}
           >
-            <SafeAreaView
-              edges={["bottom"]}
-              style={styles.sheetBody}
-              {...swipe.panHandlers}
-            >
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  expanded ? t("setup.closeSettings") : t("setup.openSettings")
-                }
-                onPress={() => setExpanded(!expanded)}
-                hitSlop={12}
-                style={styles.handleArea}
+            {messageText === null ? null : (
+              <View
+                pointerEvents="none"
+                style={[styles.landscapeMessage, { [columnSide]: barHeight + 14, [notchSide]: LANDSCAPE_NOTCH }]}
               >
-                <View style={styles.handle} />
-              </Pressable>
-              {expanded ? renderSettings() : renderSummary()}
-
-              {errorText ? <Text style={styles.error}>{errorText}</Text> : null}
-              <Button
-                label={opening ? t("setup.openingCamera") : t("setup.start")}
-                icon={
-                  starting ? (
-                    <ActivityIndicator color={colors.onAccent} />
-                  ) : undefined
-                }
-                disabled={starting}
-                onPress={askThenStart}
-              />
-              <AboutLinks />
-            </SafeAreaView>
+                {messageText}
+              </View>
+            )}
+            {backdrop}
+            {panel === undefined ? null : (
+              <View
+                pointerEvents="box-none"
+                style={[styles.landscapePanel, { [columnSide]: barHeight + BAR_GAP, [notchSide]: LANDSCAPE_NOTCH }]}
+              >
+                {renderPanel()}
+              </View>
+            )}
           </View>
+        ) : (
+          <>
+            {messageText === null ? null : (
+              <View pointerEvents="none" style={[styles.messageDock, { bottom: barHeight + 14 }]}>
+                {messageText}
+              </View>
+            )}
+            {/* The recording about to go on (2026-11-23), with an ✕ to start a new one instead. */}
+            {intentSession !== undefined && messageText === null && panel === undefined ? (
+              <View pointerEvents="box-none" style={[styles.messageDock, { bottom: barHeight + 14 }]}>
+                <ContinueBadge name={sessionLabel(intentSession, undefined, locale)} onDrop={() => setContinueIntent(undefined)} />
+              </View>
+            ) : null}
+            {showUpdate ? (
+              <UpdateCard bottom={barHeight + 14} onUpdate={openUpdateInStore} onClose={dismissUpdateNotice} />
+            ) : null}
+            {backdrop}
+            {renderPanel()}
+          </>
         )}
+        {/* The same bar either way (2026-11-22): on its side it stays where it is on the phone and only its contents
+            turn, so nothing moves or flashes when the phone turns. */}
+        {bar}
+        {showTour && tourTargets !== undefined ? (
+          <CameraTour
+            steps={tourSteps(tourTargets)}
+            onDone={() => {
+              finishCameraTour();
+              setTourSeen(true);
+            }}
+          />
+        ) : null}
       </>
     );
   }
 
-  function renderSummary() {
-    const iconColor = (on: boolean) => (on ? colors.accent : colors.muted);
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={summary}
-        onPress={() => setExpanded(true)}
-        style={styles.summary}
-      >
-        <View style={styles.summaryHead}>
-          <Text style={styles.section}>{t("setup.howToSave")}</Text>
-        </View>
-        <View style={styles.summaryIcons}>
-          {voiceOffered ? (
-            <MicIcon color={iconColor(voiceOn)} size={32} />
-          ) : null}
-          <WaveIcon color={iconColor(settings.gestureEnabled)} size={32} />
-          <RemoteIcon
-            color={iconColor(remoteReady && remoteAllowed)}
-            size={32}
-          />
-          {watchSupported ? (
-            <WatchIcon color={iconColor(watchOn)} size={32} />
-          ) : null}
-          {remoteSupported ? (
-            <QrIcon color={iconColor(remoteLinked > 0)} size={32} />
-          ) : null}
-        </View>
-      </Pressable>
-    );
+  /** The tour's four tips, on the controls as they are now (the clip length chosen, the quality this phone has). */
+  function tourSteps(targets: TourTargets): TourStep[] {
+    const quality = !has4k ? "cameraTour.qualityBodyFixed" : fourKAllowed ? "cameraTour.qualityBodyPaid" : "cameraTour.qualityBody";
+    const chip = (icon: (color: string) => ReactNode, label: string) => ({ label, icon: icon(colors.text) });
+    return [
+      { key: "clip", target: targets.clip, title: t("cameraTour.clipTitle"), body: t("cameraTour.clipBody") },
+      { key: "quality", target: targets.quality, title: t("cameraTour.qualityTitle"), body: t(quality) },
+      {
+        key: "triggers",
+        target: targets.triggers,
+        title: t("cameraTour.triggersTitle"),
+        body: t("cameraTour.triggersBody"),
+        chips: [
+          chip((color) => <RemoteIcon size={15} color={color} />, t("setup.remoteShort")),
+          chip((color) => <WaveIcon size={15} color={color} />, t("setup.waveShort")),
+          chip((color) => <MicIcon size={15} color={color} />, sourceLabel("voice", locale)),
+        ],
+      },
+      { key: "record", target: targets.record, round: true, title: t("cameraTour.recordTitle"), body: t("cameraTour.recordBody") },
+    ];
   }
 
-  function renderSettings() {
-    return (
-      <>
-        <View style={styles.clipLength}>
-          <Text style={styles.section}>{t("setup.clipLength")}</Text>
-          <View style={styles.chips}>
-            {CLIP_SECONDS_OPTIONS.filter(
-              (seconds) => !showPro || seconds <= FREE_MAX_SECONDS,
-            ).map((seconds) => (
-              <Chip
-                key={seconds}
-                label={`${seconds}s`}
-                selected={clipSeconds === seconds}
-                onPress={() => updateMode({ cutSeconds: seconds })}
-              />
-            ))}
-            {showPro ? (
-              // The paid lengths share one outline and one "Pro" badge instead of one each.
-              <View style={styles.proGroup}>
-                {proSeconds.map((seconds) =>
-                  isAllowed(seconds) ? (
-                    <Chip
-                      key={seconds}
-                      label={`${seconds}s`}
-                      grouped
-                      selected={clipSeconds === seconds}
-                      onPress={() => updateMode({ cutSeconds: seconds })}
-                    />
-                  ) : (
-                    <Chip
-                      key={seconds}
-                      label={`${seconds}s`}
-                      grouped
-                      lockedHint={t("setup.proOnly")}
-                      onPress={() => lockedFeature("clip_length")}
-                    />
-                  ),
-                )}
-                <ProBadge label={t("setup.proBadge")} right={6} />
-              </View>
-            ) : null}
-          </View>
-        </View>
-
-        {has4k ? (
-          <View style={styles.clipLength}>
-            <Text style={styles.section}>{t("setup.quality")}</Text>
-            <View style={styles.chips}>
-              <Chip
+  /** The panel open over the camera: upright just above the bar's buttons; on its side beside the column, centred. */
+  function renderPanel() {
+    const place = landscape
+      ? { maxHeight: screen.width - 16 }
+      : // Above the settings by the same distance as the settings sit above the black (2026-11-22).
+        { position: "absolute" as const, left: 8, right: 8, bottom: barHeight + BAR_GAP, maxHeight: Math.max(260, screen.height - barHeight - 70) };
+    // A sideways swipe on a panel goes through the settings in their order (2026-11-22); no quality without 4K.
+    const order: CameraPanel[] = has4k ? ["clip", "quality", "triggers"] : ["clip", "triggers"];
+    const swipeTo = (to: "next" | "previous") => {
+      const at = panel === undefined ? -1 : order.indexOf(panel);
+      if (at < 0) return;
+      const next = order[at + (to === "next" ? 1 : -1)];
+      if (next !== undefined) setPanel(next);
+    };
+    const swipe = (kind: CameraPanel) => ({
+      onSwipe: swipeTo,
+      page: { index: order.indexOf(kind), count: order.length },
+    });
+    if (panel === "clip") {
+      const freeSeconds = CLIP_SECONDS_OPTIONS.filter((seconds) => seconds <= FREE_MAX_SECONDS);
+      return (
+        <SetupPanel key="clip" testID="clip-panel" {...swipe("clip")} title={t("setup.clipTitle")} onClose={closePanel} place={place} turn={turn}>
+          <PanelGroup label={t("setup.clipQuestion")}>
+            <View style={styles.optionRow}>
+              {showPro ? freeSeconds.map(renderClipOption) : CLIP_SECONDS_OPTIONS.map(renderClipOption)}
+              {/* The paid lengths together under one outline and one "Pro" mark (2026-11-22). */}
+              {showPro ? <ProGroup label={t("setup.proBadge")}>{proSeconds.map(renderClipOption)}</ProGroup> : null}
+            </View>
+          </PanelGroup>
+          <PanelInfo text={t("setup.clipInfo")} />
+        </SetupPanel>
+      );
+    }
+    if (panel === "quality") {
+      const fourKLocked = showPro && !fourKAllowed;
+      return (
+        <SetupPanel key="quality" testID="quality-panel" {...swipe("quality")} title={t("setup.qualityTitle")} onClose={closePanel} place={place} turn={turn}>
+          {/* Rectangles like the clip lengths (2026-11-22, trying it instead of the two circles); 4K under the "Pro" mark. */}
+          <PanelGroup label={t("setup.qualityQuestion")}>
+            <View style={styles.optionRow}>
+              <PanelOption
                 label={t("setup.qualityFullHd")}
+                sub={t("setup.fps60")}
                 selected={!is4k}
                 onPress={() => updateMode({ quality: "1080p60" })}
               />
-              {!showPro ? (
-                <Chip
-                  label={t("setup.quality4k")}
-                  selected={is4k}
-                  onPress={() => updateMode({ quality: "2160p30" })}
-                />
-              ) : (
-                <View style={styles.proGroup}>
-                  {fourKAllowed ? (
-                    <Chip
-                      label={t("setup.quality4k")}
-                      grouped
-                      selected={is4k}
-                      onPress={() => updateMode({ quality: "2160p30" })}
-                    />
-                  ) : (
-                    <Chip
-                      label={t("setup.quality4k")}
-                      grouped
-                      lockedHint={t("setup.proOnly")}
-                      onPress={() => lockedFeature("quality_4k")}
-                    />
-                  )}
-                  <ProBadge label={t("setup.proBadge")} right={6} />
-                </View>
-              )}
+              {showPro ? <ProGroup label={t("setup.proBadge")} flex={1}>{renderFourK(fourKLocked)}</ProGroup> : renderFourK(fourKLocked)}
             </View>
-            <Text style={styles.clipLengthHint}>
-              {t(is4k ? "setup.quality4kHint" : "setup.qualityFullHdHint")}
-            </Text>
-          </View>
-        ) : null}
-
-        {/* The Bluetooth remote and the Apple Watch save a lance best (no false triggers, any distance): they come
-            first, under their own title that says why (2026-11-02). The watch keeps its "Pro" outline on the free plan. */}
-        <View style={styles.recommendedHead}>
-          <View style={styles.recommendedTitle}>
-            <StarIcon size={12} />
-            <Text style={[styles.section, styles.recommended]}>
-              {t("setup.recommendedTriggers")}
-            </Text>
-          </View>
-          <Text style={styles.recommendedHint}>
-            {t("setup.recommendedHint")}
-          </Text>
-        </View>
-        <View testID="recommended-triggers" style={styles.proTriggers}>
-          <View style={styles.gridRow}>
-            <TriggerTile
-              icon={<RemoteIcon />}
-              title={t("setup.bluetoothRemote")}
-              status={remoteView.statusText}
-              active={remoteReady && remoteAllowed}
-              lockedHint={remoteAllowed ? undefined : t("setup.proOnly")}
-              onPress={
-                remoteAllowed
-                  ? () => {
-                      openingRemoteSheet(); // the camera stays on under the sheet (presses are heard through it)
-                      router.push({
-                        pathname: "/devices",
-                        params: { kind: "remote" },
-                      });
-                    }
-                  : () => void openPaywall(t, "locked_feature")
-              }
-            />
-            {/* The paid trigger: in the free plan the Apple Watch tile alone carries the outline and the "Pro" badge.
-                iPhone only: elsewhere there is no tile at all. */}
-            {watchSupported ? (
-              <View style={styles.proTile}>
-                {showPro ? (
-                  <View pointerEvents="none" style={styles.proOutline} />
-                ) : null}
-                <TriggerTile
-                  icon={<WatchIcon />}
-                  title={sourceLabel("watch", locale)}
-                  status={watchStatus}
-                  active={watchOn}
-                  lockedHint={watchLocked ? t("setup.watchProOnly") : undefined}
-                  onPress={
-                    watchLocked ? () => lockedFeature("watch") : watchHelp
-                  }
-                />
-                {showPro ? (
-                  <ProBadge label={t("setup.proBadge")} top={-9} right={6} />
-                ) : null}
-              </View>
-            ) : null}
-          </View>
-        </View>
-        <Text style={styles.section}>{t("setup.otherTriggers")}</Text>
-        <View style={styles.grid}>
-          <View style={styles.gridRow}>
-            {voiceOffered ? (
-              <TriggerTile
-                icon={<MicIcon />}
-                title={sourceLabel("voice", locale)}
-                status={voiceStatus}
-                active={voiceOn}
-                disabled={!voiceSupported}
-                onPress={voiceSupported ? () => void toggleVoice() : undefined}
-                help={
-                  voiceSupported
-                    ? {
-                        label: t("voiceGuide.help"),
-                        onPress: () => openPractice("voice"),
-                      }
-                    : undefined
-                }
+          </PanelGroup>
+          <PanelInfo text={t(is4k ? "setup.quality4kInfo" : "setup.qualityFullHdInfo")} />
+        </SetupPanel>
+      );
+    }
+    if (panel === "triggers") {
+      const triggerIcon = 24;
+      // On its side the two groups share a line: each takes room for its triggers, so every circle is as wide.
+      const recommendedCount = watchSupported ? 2 : 1;
+      const moreCount = (voiceOffered ? 1 : 0) + 1 + (phoneOffered ? 1 : 0);
+      return (
+        <SetupPanel key="triggers" testID="triggers-panel" {...swipe("triggers")} title={t("setup.triggersTitle")} onClose={closePanel} place={place} turn={turn}>
+          <View style={landscape ? styles.wideRow : styles.tallColumn}>
+          <PanelGroup label={t("setup.recommendedShort")} style={landscape ? { ...styles.wideGroup, flex: recommendedCount } : undefined}>
+            <View testID="recommended-triggers" style={styles.circleRow}>
+              <TriggerCircle
+                icon={(color) => <RemoteIcon size={triggerIcon} color={color} />}
+                title={t("setup.remoteShort")}
+                status={remoteView.statusText}
+                on={remoteReady && remoteAllowed}
+                ok={remoteReady && remoteAllowed}
+                onPress={remoteAllowed ? openRemoteSheet : () => void openPaywall(t, "locked_feature")}
               />
-            ) : null}
-            <TriggerTile
-              icon={<WaveIcon />}
-              title={sourceLabel("gesture", locale)}
-              status={settings.gestureEnabled ? t("setup.on") : t("setup.off")}
-              active={settings.gestureEnabled}
-              onPress={() =>
-                updateMode({ gestureEnabled: !settings.gestureEnabled })
-              }
-              help={{
-                label: t("gestureGuide.help"),
-                onPress: () => openPractice("gesture"),
+              {watchSupported ? (
+                <TriggerCircle
+                  icon={(color) => <WatchIcon size={triggerIcon} color={color} />}
+                  title={sourceLabel("watch", locale)}
+                  status={watchLocked ? t("setup.watchProOnly") : watchStatus}
+                  on={watchOn}
+                  ok={watchOn}
+                  pro={showPro ? t("setup.proBadge") : undefined}
+                  onPress={watchLocked ? () => lockedFeature("watch") : watchHelp}
+                />
+              ) : null}
+            </View>
+          </PanelGroup>
+          <PanelGroup label={t("setup.othersShort")} style={landscape ? { ...styles.wideGroup, flex: moreCount } : undefined}>
+            <View testID="more-triggers" style={styles.circleRow}>
+              {voiceOffered ? (
+                <TriggerCircle
+                  icon={(color) => <MicIcon size={triggerIcon} color={color} />}
+                  title={sourceLabel("voice", locale)}
+                  status={voiceStatus}
+                  on={voiceOn}
+                  ok={voiceOn}
+                  disabled={!voiceSupported}
+                  onPress={voiceSupported ? () => void toggleVoice() : undefined}
+                />
+              ) : null}
+              <TriggerCircle
+                icon={(color) => <WaveIcon size={triggerIcon} color={color} />}
+                title={t("setup.waveShort")}
+                status={settings.gestureEnabled ? t("setup.on") : t("setup.off")}
+                on={settings.gestureEnabled}
+                ok={settings.gestureEnabled}
+                onPress={() => updateMode({ gestureEnabled: !settings.gestureEnabled })}
+              />
+              {phoneOffered ? (
+                <TriggerCircle
+                  icon={(color) => <PhoneIcon size={triggerIcon} color={color} />}
+                  title={sourceLabel("phone", locale)}
+                  status={phoneStatus}
+                  on={remoteLinked > 0}
+                  ok={remoteLinked > 0}
+                  onPress={openPhoneRemote}
+                />
+              ) : null}
+            </View>
+            {speechDenied ? <Text style={styles.error}>{t("setup.speechDenied")}</Text> : null}
+          </PanelGroup>
+          </View>
+          <View style={landscape ? styles.wideRow : styles.tallColumn}>
+          {/* One short line (2026-11-22): the label and two small toggles. */}
+          <View style={[styles.alertRow, landscape && styles.wideGroup]}>
+            <Text style={styles.alertLabel}>{t("setup.saveAlert")}</Text>
+            <View style={styles.alertOptions}>
+              <PanelOption
+                small
+                label={t("setup.sound")}
+                selected={prefs.soundOnSave}
+                icon={(color) => <SoundIcon size={16} color={color} />}
+                onPress={() => update({ soundOnSave: !prefs.soundOnSave })}
+              />
+              <PanelOption
+                small
+                label={t("setup.flash")}
+                selected={prefs.flashOnSave}
+                icon={(color) => <BoltIcon size={16} color={color} />}
+                onPress={() => update({ flashOnSave: !prefs.flashOnSave })}
+              />
+            </View>
+          </View>
+          <View style={landscape ? styles.wideAction : undefined}>
+            <PanelAction
+              label={t("setup.testTriggers")}
+              icon={<BoltIcon size={19} color={colors.accent} />}
+              onPress={() => {
+                setRemoteHeard(false);
+                setPanel("test");
               }}
             />
           </View>
-        </View>
-
-        <View style={styles.triggerPlain}>
-          {remoteSupported || controllerSupported ? (
-            <>
-              <View style={styles.gridRow}>
-                {remoteSupported ? (
-                  <TriggerTile
-                    icon={<QrIcon />}
-                    title={t("setup.connectPhoneRemote")}
-                    status={controllersStatus(t, remoteLinked)}
-                    active={remoteLinked > 0}
-                    onPress={() => router.push("/pairing")}
-                  />
-                ) : null}
-                <TriggerTile
-                  icon={<TapIcon />}
-                  title={t("setup.useAsRemote")}
-                  status={cameraStatus(t, controlHost)}
-                  active={controlHost !== null}
-                  onPress={() => router.push("/remote")}
-                />
-              </View>
-              {controlHost !== null ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={t("setup.disconnectThisPhone")}
-                  hitSlop={8}
-                  onPress={disconnectControl}
-                  style={styles.remoteLinkBox}
-                >
-                  <Text style={styles.remoteLink}>
-                    {t("setup.disconnectThisPhone")}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </>
-          ) : null}
-        </View>
-
-        {speechDenied ? (
-          <Text style={styles.error}>{t("setup.speechDenied")}</Text>
-        ) : null}
-
-        <View style={styles.feedbackRow}>
-          <Text style={styles.section}>{t("setup.saveAlerts")}</Text>
-          <View style={styles.chips}>
-            <Chip
-              label={t("setup.sound")}
-              selected={prefs.soundOnSave}
-              onPress={() => update({ soundOnSave: !prefs.soundOnSave })}
-            />
-            <Chip
-              label={t("setup.flash")}
-              selected={prefs.flashOnSave}
-              onPress={() => update({ flashOnSave: !prefs.flashOnSave })}
-            />
           </View>
-        </View>
-      </>
+        </SetupPanel>
+      );
+    }
+    if (panel === "phone") {
+      return (
+        <PhoneRemotePanel
+          title={sourceLabel("phone", locale)}
+          canHost={remoteSupported}
+          linkedStatus={linkedStatus}
+          pairedStatus={pairedStatus}
+          place={place}
+          onConnect={() => router.push("/pairing")}
+          onUseAsRemote={() => router.push("/remote")}
+          onDisconnect={disconnectControl}
+          onDone={() => setPanel("triggers")}
+        />
+      );
+    }
+    if (panel === "test") {
+      return (
+        <TriggerTestPanel
+          // The remote takes part once it was ever heard on this phone (one never set up would wait forever).
+          remote={remoteAllowed && remoteView.state !== "setup"}
+          watch={watchOn}
+          voice={voiceOn}
+          wave={settings.gestureEnabled}
+          remoteHeard={remoteHeard}
+          locale={locale}
+          place={place}
+          onDone={() => setPanel("triggers")}
+        />
+      );
+    }
+    return null;
+  }
+
+  function renderFourK(locked: boolean) {
+    return (
+      <PanelOption
+        label={t("setup.quality4k")}
+        sub={t("setup.fps30")}
+        selected={is4k}
+        locked={locked}
+        lockedHint={t("setup.proOnly")}
+        onPress={locked ? () => lockedFeature("quality_4k") : () => updateMode({ quality: "2160p30" })}
+      />
     );
+  }
+
+  function renderClipOption(seconds: number) {
+    return isAllowed(seconds) ? (
+      <PanelOption
+        key={seconds}
+        label={`${seconds}s`}
+        selected={clipSeconds === seconds}
+        onPress={() => updateMode({ cutSeconds: seconds })}
+      />
+    ) : (
+      <PanelOption
+        key={seconds}
+        label={`${seconds}s`}
+        locked
+        lockedHint={t("setup.proOnly")}
+        onPress={() => lockedFeature("clip_length")}
+      />
+    );
+  }
+
+  function openRemoteSheet() {
+    openingRemoteSheet(); // the camera stays on under the sheet (presses are heard through it)
+    router.push({ pathname: "/devices", params: { kind: "remote" } });
   }
 }
 
+/** The tour's targets moved (a layout pass measures them again and again: only a real change re-renders). */
+function sameTargets(a: TourTargets | undefined, b: TourTargets): boolean {
+  if (a === undefined) return false;
+  return (["clip", "quality", "triggers", "record"] as const).every(
+    (k) => Math.round(a[k].x) === Math.round(b[k].x) && Math.round(a[k].y) === Math.round(b[k].y) && Math.round(a[k].width) === Math.round(b[k].width),
+  );
+}
+
+/** On its side: room left on the notch's side (landscape points). */
+const LANDSCAPE_NOTCH = 52;
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.ground },
-  paused: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: colors.ground,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 10,
-  },
-  pausedTitle: {
-    fontFamily: fonts.display,
-    fontSize: 30,
-    color: colors.text,
-    textAlign: "center",
-  },
-  pausedText: {
-    fontFamily: fonts.body,
-    fontSize: 16,
-    lineHeight: 23,
-    color: colors.soft,
-    textAlign: "center",
-  },
-  pausedHint: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.accent,
-    textAlign: "center",
-    marginTop: 8,
-  },
-  idleWarnWrap: {
-    ...StyleSheet.absoluteFill,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-  },
-  idleWarn: {
-    maxWidth: 340,
-    gap: 4,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderRadius: 16,
-    backgroundColor: "rgba(10,10,10,0.88)",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  idleWarnTitle: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 16,
-    color: colors.text,
-    textAlign: "center",
-  },
-  idleWarnBody: {
-    fontFamily: fonts.body,
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.soft,
-    textAlign: "center",
-  },
   top: { position: "absolute", top: 0, left: 16, right: 16, gap: 8 },
-  topRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 8,
-  },
-  pill: {
-    backgroundColor: "rgba(12,12,12,0.75)",
-    paddingVertical: 10,
+  messageDock: { position: "absolute", left: 16, right: 16, alignItems: "center" },
+  message: {
+    overflow: "hidden",
+    backgroundColor: "rgba(12,12,12,0.88)",
+    borderRadius: 16,
+    paddingVertical: 9,
     paddingHorizontal: 14,
-    borderRadius: 999,
+    fontFamily: fonts.bodySemi,
+    fontSize: 13.5,
+    lineHeight: 18,
+    color: colors.text,
+    textAlign: "center",
   },
-  pillButton: {
-    minHeight: 48,
-    justifyContent: "center",
-    paddingHorizontal: 18,
-    backgroundColor: colors.accent,
+  messageError: { color: colors.warning },
+  optionRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  circleRow: { flexDirection: "row" },
+  alertRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: panelColors.GROUP,
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingRight: 8,
+    paddingLeft: 14,
   },
-  pillText: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 15,
-    color: colors.onAccent,
-  },
+  alertLabel: { flex: 1, fontFamily: fonts.bodySemi, fontSize: 13.5, color: colors.muted },
+  alertOptions: { flexDirection: "row", gap: 6, width: 190 },
+  zoomTop: { alignItems: "center", marginTop: 8 },
+  landscapeFrame: { position: "absolute" },
   tip: {
     alignSelf: "flex-start",
     backgroundColor: "rgba(12,12,12,0.8)",
@@ -1123,91 +1064,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
   },
   tipText: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.ground,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-  },
-  sheetBody: { paddingHorizontal: 20, paddingTop: 8, gap: 12 },
   guideArea: { position: "absolute", top: 0, left: 0, right: 0 },
-  handleArea: {
-    alignSelf: "center",
-    paddingVertical: 6,
-    paddingHorizontal: 40,
-    minHeight: 24,
-    justifyContent: "center",
-  },
-  handle: {
-    width: 40,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: colors.muted,
-  },
-  summary: { gap: 8, minHeight: 44 },
-  summaryHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  summaryChevron: { fontSize: 12, color: colors.muted },
-  summaryIcons: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-evenly",
-    minHeight: 48,
-  },
-  clipLength: { gap: 8 },
-  clipLengthHint: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
-  section: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 12,
-    letterSpacing: 1,
-    color: colors.muted,
-  },
-  proGroup: {
-    flexDirection: "row",
-    borderWidth: 1,
-    borderColor: colors.accent,
-    borderRadius: radius.chip,
-  },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  remoteLinkBox: { minHeight: 48, justifyContent: "center" },
-  remoteLink: {
-    fontFamily: fonts.bodySemi,
-    fontSize: 14,
-    color: colors.soft,
-    textDecorationLine: "underline",
-  },
-  // The outline is drawn around the tiles, out in the sheet's side padding, so the tiles keep the width of the free ones.
-  proTriggers: { marginTop: 8, marginBottom: 4 }, // room for the badge under the section title
-  recommendedHead: { gap: 2 },
-  recommendedTitle: { flexDirection: "row", alignItems: "center", gap: 5 },
-  recommended: { color: colors.accent },
-  recommendedHint: { fontFamily: fonts.body, fontSize: 12, color: colors.soft },
-  proTile: { flex: 1, flexDirection: "row" },
-  proOutline: {
-    position: "absolute",
-    top: -4,
-    left: -4,
-    right: -4,
-    bottom: -4,
-    borderWidth: 1,
-    borderColor: colors.accent,
-    borderRadius: 15,
-  },
-  triggerPlain: { gap: 8 },
-  grid: { gap: 8 },
-  gridRow: { flexDirection: "row", gap: 8 },
   error: { fontFamily: fonts.bodySemi, fontSize: 14, color: colors.warning },
-  cameraButtons: { flexDirection: "row", alignItems: "center", gap: 10 },
-  feedbackRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
+  // On its side (2026-11-22, L1): beside the column, in the middle of the height.
+  landscapeMessage: { position: "absolute", top: 0, bottom: 0, alignItems: "center", justifyContent: "center" },
+  landscapePanel: { position: "absolute", top: 8, bottom: 8, justifyContent: "center" },
+  // The triggers on its side: the two groups side by side, then the alert line and the test on one line.
+  wideRow: { flexDirection: "row", gap: 8, alignItems: "center" },
+  tallColumn: { gap: 14 },
+  wideGroup: { flex: 1, minWidth: 0 },
+  wideAction: { width: 210 },
 });
