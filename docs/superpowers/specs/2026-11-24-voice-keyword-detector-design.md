@@ -267,3 +267,17 @@ checks. Files and provenance: `docs/voice-lab/MODELS.md`.
   `detector.json` drives both platforms and a retrain only swaps the classifier.
 - Queue sizes, how buffers are batched into 80 ms steps, and thread priorities.
 - Where the model folder sits in each native project (next to the ball models is the obvious place).
+
+## Android: salvar-v2-rc4 in Portuguese too (Victor, 2026-11-27)
+
+- **What ships:** Portuguese listens with `salvar-v2-rc4` on every Android (no Android 12 floor, no language pack);
+  English stays on ML Kit dictation (Android 12+). If the model fails to load, Portuguese falls back to dictation where
+  the phone has it and Diagnóstico says `voz: modelo indisponível … usando ditado`.
+- **Code:** `core/voice/` is a port of ReplayCore's Voice sources (Resampler, MelFrontend, KeywordModel with the veto,
+  FiringRule, DropCounter, VoiceEngine) plus `KeywordPipeline`; `voice/KeywordDetector.kt` runs it on its own thread with
+  the speech embedding on LiteRT (CPU). `VoiceTrigger.kt` picks the engine as on iOS; the remote phone uses the same.
+- **Model files:** `android/src/main/assets/voice/salvar-v2-rc4/` (copies of `ios/Models/voice/salvar-v2-rc4/`) and
+  `voice_embedding.tflite`. `salvar-v1` is a test fixture only.
+- **Tests:** the iOS cases on the JVM against the same golden (`VoiceKeywordTest`, `KeywordPipelineTest`), and on a phone
+  `VoiceDetectorDeviceTest` (the LiteRT embedding matches the lab; the bundled rc4 hears both golden "salvar"s fed as
+  48 kHz 20 ms chunks). Field test pending.
