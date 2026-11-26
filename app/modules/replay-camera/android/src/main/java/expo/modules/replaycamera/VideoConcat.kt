@@ -109,7 +109,7 @@ object VideoConcat {
     }
   }
 
-  private fun rotationOf(path: String): Int? {
+  internal fun rotationOf(path: String): Int? {
     val retriever = MediaMetadataRetriever()
     return try {
       retriever.setDataSource(path)

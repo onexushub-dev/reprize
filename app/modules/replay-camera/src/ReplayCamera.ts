@@ -349,8 +349,8 @@ export async function withBackgroundTime<T>(name: string, work: () => Promise<T>
 }
 
 /**
- * The part of a clip to share (the sender's cut, and no sound track when muted), copied without re-encoding. Undefined
- * where the platform cannot (Android: sharing is iOS only for now).
+ * The part of a clip to share (the sender's cut, and no sound track when muted), copied without re-encoding (iOS
+ * ClipCut.swift, Android ClipCut.kt). Undefined where the build has no cut.
  */
 export function cutClip(
   inPath: string,

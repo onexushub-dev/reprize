@@ -326,6 +326,16 @@ class ReplayCameraModule : Module() {
       }
     }
 
+    // A shared clip's file (sharing, 2026-11-22): the sender's cut, without sound when muted, copied without re-encoding.
+    AsyncFunction("cutClip") { inPath: String, outPath: String, startMs: Double, endMs: Double, muted: Boolean ->
+      try {
+        val (path, ms) = ClipCut.cut(inPath, outPath, startMs, endMs, muted)
+        mapOf("path" to path, "durationMs" to ms)
+      } catch (e: Exception) {
+        throw ReplayException("CUT_FAILED", "$e")
+      }
+    }
+
     // Modo Foco: people found with an on-device detector, the framing written next to the clip (see FocusAnalyzer).
     // On its own thread: an analysis lasts as long as the clip, and on the module's shared queue it held up every other
     // call (the thumbnail that tells the screen the clip's shape waited for it: 8 s, 2026-11-10 field log).
