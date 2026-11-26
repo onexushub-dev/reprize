@@ -561,6 +561,12 @@ export const en = {
     sectionPackages: 'Libraries',
     noText: 'The package ships no license text; the license named above applies.',
   },
+  update: {
+    title: 'New version available',
+    body: 'Update Reprize to get the latest features and improvements.',
+    action: 'Update',
+    close: 'Close notice',
+  },
   games: {
     title: 'RECORDINGS',
     emptyTitle: 'No recordings yet',
@@ -987,6 +993,19 @@ export const en = {
     paywallError: "Couldn't open the store. Try again in a moment.",
     restored: 'Purchases restored.',
     nothingToRestore: 'No purchases to restore.',
+  },
+  partner: {
+    link: 'I have a referral code',
+    title: 'REFERRAL CODE',
+    placeholder: 'Enter the code',
+    apply: 'Apply code',
+    appliedTitle: 'Code applied',
+    appliedText: 'You have %{percent}% off PRO, referred by %{name}.',
+    activate: 'Get the discount',
+    later: 'Not now',
+    pendingText: "No connection right now. We'll confirm the code as soon as you're back online.",
+    invalidText: 'Code not found. Check it with the person who referred you.',
+    lockedText: 'This code is not valid for people who already have PRO or already used another code.',
   },
   cameraTour: {
     count: '%{n} of %{total}',

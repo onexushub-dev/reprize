@@ -4,16 +4,18 @@ type Filter = { action: string; autoVerify?: boolean; data: { scheme: string; ho
 
 const expo = appJson.expo;
 
-test('shared links (/v/<code>) open the app on both platforms, on the same two domains', () => {
+test('shared links (/v/<code>) and partner links (/p/<code>) open the app on both platforms, on the same two domains', () => {
   const iosHosts = expo.ios.associatedDomains.map((d) => d.replace('applinks:', '')).sort();
   const filters = (expo.android as { intentFilters: Filter[] }).intentFilters;
-  const links = filters.find((f) => f.autoVerify === true);
-  expect(links).toBeDefined();
-  if (links === undefined) return;
-  expect(links.action).toBe('VIEW');
-  expect([...links.category].sort()).toEqual(['BROWSABLE', 'DEFAULT']);
+  const verified = filters.filter((f) => f.autoVerify === true);
   // Android App Links are verified against reprizeapp.com/.well-known/assetlinks.json (the reprize-lp site), as iOS
   // checks the apple-app-site-association file there: same hosts, https only, only the link pages.
-  expect(links.data.map((d) => d.host).sort()).toEqual(iosHosts);
-  for (const d of links.data) expect([d.scheme, d.pathPrefix]).toEqual(['https', '/v/']);
+  for (const links of verified) {
+    expect(links.action).toBe('VIEW');
+    expect([...links.category].sort()).toEqual(['BROWSABLE', 'DEFAULT']);
+    expect([...new Set(links.data.map((d) => d.host))].sort()).toEqual(iosHosts);
+    for (const d of links.data) expect(d.scheme).toBe('https');
+  }
+  const prefixes = new Set(verified.flatMap((f) => f.data.map((d) => d.pathPrefix)));
+  expect([...prefixes].sort()).toEqual(['/p/', '/v/']);
 });

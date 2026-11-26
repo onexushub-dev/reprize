@@ -69,7 +69,7 @@ Nos outros países, o preço vem da equivalência automática da loja a partir d
 
 | Unidade | Função |
 |---|---|
-| `client.ts` | `PaymentsClient`: `configure`, `getSnapshot`, `onSnapshot`, `restore`, `showPaywall(offering)`. |
+| `client.ts` | `PaymentsClient`: `configure`, `getSnapshot`, `onSnapshot`, `restore`, `showPaywall(offering)` (`default`, `pass` or `partner`), `partners`, `setPartner`, `redeemOfferCode` (see the partner codes spec of 2026-11-15). |
 | `revenuecatClient.ts` | Implementação com `react-native-purchases` e `-ui`. Único arquivo que importa o SDK. O PRO é o entitlement `pro`; o Passe é `single_pass`. |
 | `fakeClient.ts` | Cliente falso para Jest e desenvolvimento sem loja. |
 | `snapshot.ts` | `customerInfo` → `Snapshot { proActive, passTransactions[{id, productId, purchasedAt}] }`. |

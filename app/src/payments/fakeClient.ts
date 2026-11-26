@@ -1,5 +1,6 @@
+import type { PartnerDirectory } from '../partner/directory';
 import type { PaymentsClient, PaywallOutcome } from './client';
-import { EMPTY_SNAPSHOT, type Offering, type Snapshot } from './types';
+import { EMPTY_SNAPSHOT, type Offering, type PartnerOffering, type Snapshot } from './types';
 
 export function createFakeClient() {
   const listeners = new Set<(s: Snapshot) => void>();
@@ -13,6 +14,10 @@ export function createFakeClient() {
     lastOffering: undefined as Offering | undefined,
     /** When set, showPaywall waits for it (lets tests emit during the paywall). */
     paywallGate: undefined as Promise<void> | undefined,
+    /** What `partners()` answers; null = could not be read. */
+    directory: {} as PartnerDirectory | null,
+    /** The (code, source, offering) of every setPartner call. */
+    partnerCalls: [] as [string, string, PartnerOffering][],
     configure() {},
     async getSnapshot(): Promise<Snapshot> {
       if (fake.failSnapshot) throw new Error('snapshot unavailable');
@@ -31,6 +36,15 @@ export function createFakeClient() {
     async restore(): Promise<Snapshot> {
       if (fake.failRestore || fake.failSnapshot) throw new Error('snapshot unavailable');
       return fake.snapshot;
+    },
+    async appUserId(): Promise<string | null> {
+      return fake.identified ?? 'anonymous';
+    },
+    async setPartner(code: string, source: string, offering: PartnerOffering, _appliedAt: number): Promise<void> {
+      fake.partnerCalls.push([code, source, offering]);
+    },
+    async partners(): Promise<PartnerDirectory | null> {
+      return fake.directory;
     },
     /** The last identify call: undefined = never called. */
     identified: undefined as string | null | undefined,

@@ -101,7 +101,9 @@
           "autoVerify": true,
           "data": [
             { "scheme": "https", "host": "reprizeapp.com", "pathPrefix": "/v/" },
-            { "scheme": "https", "host": "www.reprizeapp.com", "pathPrefix": "/v/" }
+            { "scheme": "https", "host": "www.reprizeapp.com", "pathPrefix": "/v/" },
+            { "scheme": "https", "host": "reprizeapp.com", "pathPrefix": "/p/" },
+            { "scheme": "https", "host": "www.reprizeapp.com", "pathPrefix": "/p/" }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
         }

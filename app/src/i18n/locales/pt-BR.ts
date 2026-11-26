@@ -559,6 +559,12 @@ export const ptBR: Messages = {
     sectionPackages: 'Bibliotecas',
     noText: 'O pacote não traz o texto da licença; vale a licença indicada acima.',
   },
+  update: {
+    title: 'Nova versão disponível',
+    body: 'Atualize o Reprize para acessar os novos recursos e melhorias.',
+    action: 'Atualizar',
+    close: 'Fechar aviso',
+  },
   games: {
     title: 'GRAVAÇÕES',
     emptyTitle: 'Nenhuma gravação ainda',
@@ -985,6 +991,19 @@ export const ptBR: Messages = {
     paywallError: 'Não deu para abrir a loja. Tente de novo em instantes.',
     restored: 'Compras restauradas.',
     nothingToRestore: 'Nenhuma compra para restaurar.',
+  },
+  partner: {
+    link: 'Tenho um código de indicação',
+    title: 'CÓDIGO DE INDICAÇÃO',
+    placeholder: 'Digite o código',
+    apply: 'Aplicar código',
+    appliedTitle: 'Código aplicado',
+    appliedText: 'Você tem %{percent}% de desconto no PRO, por indicação de %{name}.',
+    activate: 'Ativar desconto',
+    later: 'Agora não',
+    pendingText: 'Sem conexão no momento. Confirmamos o código assim que a internet voltar.',
+    invalidText: 'Código não encontrado. Confira com quem indicou.',
+    lockedText: 'Este código não vale para quem já tem o PRO ou já usou outro código.',
   },
   cameraTour: {
     count: '%{n} de %{total}',

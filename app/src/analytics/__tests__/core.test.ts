@@ -85,6 +85,23 @@ describe('analytics core', () => {
     expect(adapter.calls).toHaveLength(21);
   });
 
+  test('the partner events carry the code and the partner property', () => {
+    const { adapter, analytics } = setup();
+    analytics.track('partner_code_applied', { code: 'PROFJOAO', source: 'link' });
+    analytics.track('partner_code_rejected', { source: 'typed', reason: 'invalid' });
+    analytics.track('partner_offer_opened', { code: 'PROFJOAO', via: 'paywall' });
+    analytics.track('paywall_viewed', { source: 'upgrade_card', offering: 'partner_p20', partner: 'PROFJOAO' });
+    analytics.track('purchase_completed', { offering: 'partner_p20', source: 'upgrade_card', partner: 'PROFJOAO' });
+    expect(adapter.calls.map((c) => c.name)).toEqual([
+      'partner_code_applied',
+      'partner_code_rejected',
+      'partner_offer_opened',
+      'paywall_viewed',
+      'purchase_completed',
+    ]);
+    expect(adapter.calls[3].props).toEqual({ source: 'upgrade_card', offering: 'partner_p20', partner: 'PROFJOAO' });
+  });
+
   test('clip_saved and trigger_failed allow 50 sends per session', () => {
     const { adapter, analytics } = setup();
     for (let i = 0; i < 60; i++) analytics.track('clip_saved', { trigger: 'phone', mode: 'quadra' });

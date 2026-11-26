@@ -428,7 +428,7 @@ test('deleting asks first, then removes the file and the clip', async () => {
   expect(router.back).not.toHaveBeenCalled();
 });
 
-test('Compartilhar exports with the cut, speed and zoom, without the app mark on a paid recording from before the mark rule, then opens the share sheet', async () => {
+test('Compartilhar exports with the cut, speed and zoom, with the app mark on a paid recording from before 2026-11-25 too (no exception for earlier buyers), then opens the share sheet', async () => {
   const zoom = { scale: 2, cx: 0.25, cy: 0.75 };
   __setClip({ ...base, edit: { speed: 2, muted: false, zoom } });
   await open();
@@ -437,7 +437,7 @@ test('Compartilhar exports with the cut, speed and zoom, without the app mark on
     expect.objectContaining({
       clipPath: '/c1.mp4', startMs: 30000, endMs: 60000, speed: 2, muted: true,
       crop: { x: 0, y: 0.5, width: 0.5, height: 0.5 },
-      width: 1920, height: 1080, overlayPngPath: '/tmp/overlay.png', watermark: false,
+      width: 1920, height: 1080, overlayPngPath: '/tmp/overlay.png', watermark: true,
     }),
   );
   expect(sharing.shareAsync).toHaveBeenCalledWith('file:///exports/e1.mp4', expect.objectContaining({ mimeType: 'video/mp4' }));

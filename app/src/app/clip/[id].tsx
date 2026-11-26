@@ -74,7 +74,7 @@ import { clipWindow } from '../../share/trim';
 import { unlockRecording } from '../../payments/unlock';
 import { accessPlan } from '../../payments/rules';
 import { clipExportJob } from '../../share/clipExport';
-import { exportTierOf, useMarkExempt, useReceivedAccess, useViewPlan } from '../../share/entitlement';
+import { exportTierOf, useReceivedAccess, useViewPlan } from '../../share/entitlement';
 import { cachedExport, rememberExport } from '../../share/exportCache';
 import { createExportTracker, type ExportTracker, isCancelled } from '../../share/exportTracker';
 import { exportChoices, type ShortSide } from '../../share/exportSize';
@@ -254,9 +254,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const plan = useViewPlan(clip?.sessionId);
   // A received recording (sharing §2.8–10): Pro as one's own, else the courtesy look and the courtesy gate on export.
   const access = useReceivedAccess(clip?.sessionId);
-  // Paid exports carry the app mark too, unless what paid for them predates that rule (payments/watermarkRule.ts).
-  const noMark = useMarkExempt(clip ? clip.sessionId : undefined);
-  const tier = exportTierOf(plan, access, noMark);
+  // Every plan's exports carry the app mark (2026-11-25).
+  const tier = exportTierOf(plan, access);
   const freeGate = useFreeExportGate();
   const courtesyGate = useCourtesyGate();
   // A 4K clip leaves the app as 4K, 2K or Full HD (asked at each Salvar/Enviar); every other clip as Full HD.

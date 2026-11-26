@@ -25,7 +25,7 @@ type Props = {
   layout: { video: Box; top: Box; bottom: Box };
   /** Screen points per frame pixel: 1/PixelRatio for the capture, smaller for the on-screen preview. */
   scale: number;
-  /** Draw the mark (the R and @reprize.app). Every export carries it except a `legacy` one (share/exportOptions.ts). Bands and layout are unchanged. */
+  /** Draw the mark (the R and @reprize.app). Every export carries it (share/exportOptions.ts). Bands and layout are unchanged. */
   watermark?: boolean;
 };
 

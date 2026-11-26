@@ -131,11 +131,16 @@ export default function SettingsScreen() {
               onPress={() => void Linking.openURL(MANAGE_URL)}
             />
           ) : (
-            <View style={styles.padded}>
-              <Text style={styles.rowLabel}>{t('account.planFree')}</Text>
-              <Text style={styles.small}>{t('account.planFreeBody')}</Text>
-              <Button label={t('sharing.subscribe')} onPress={() => void openPaywall(t, 'settings')} />
-            </View>
+            <>
+              <View style={styles.padded}>
+                <Text style={styles.rowLabel}>{t('account.planFree')}</Text>
+                <Text style={styles.small}>{t('account.planFreeBody')}</Text>
+                <Button label={t('sharing.subscribe')} onPress={() => void openPaywall(t, 'settings')} />
+              </View>
+              {/* The referral code entry (partner codes, 2026-11-24): only before PRO, since a code never changes a paid plan. */}
+              <Separator />
+              <Row icon={<GiftIcon size={18} color={colors.text} />} label={t('partner.link')} onPress={() => router.push('/partner')} />
+            </>
           )}
         </Section>
 

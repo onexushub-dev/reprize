@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import Purchases, { type CustomerInfo, type PurchasesOffering } from 'react-native-purchases';
 import RevenueCatUI from 'react-native-purchases-ui';
 
+import { type PartnerDirectory, parsePartnerOfferings } from '../partner/directory';
 import type { PaymentsClient, PaywallOutcome } from './client';
 import { toSnapshot } from './snapshot';
 import { EMPTY_SNAPSHOT } from './types';
@@ -27,6 +28,8 @@ export function outcomeFor(result: string): PaywallOutcome {
 export function createRevenueCatClient(): PaymentsClient {
   let configured = false;
   let attempted = false;
+  // The partner writes go one after the other: two quick ones must not leave attributes from different codes.
+  let partnerWrites: Promise<void> = Promise.resolve();
 
   return {
     configure(): void {
@@ -86,6 +89,45 @@ export function createRevenueCatClient(): PaymentsClient {
     async restore() {
       if (!configured) return EMPTY_SNAPSHOT;
       return toSnapshot(await Purchases.restorePurchases());
+    },
+
+    setPartner(code, source, offering, appliedAt) {
+      if (!configured) return Promise.resolve();
+      partnerWrites = partnerWrites.then(async () => {
+        try {
+          await Purchases.setAttributes({
+            partner_code: code,
+            partner_source: source,
+            partner_offering: offering,
+            partner_applied_at: new Date(appliedAt).toISOString(),
+          });
+          await Purchases.setMediaSource('partner');
+          await Purchases.setCampaign(code);
+        } catch (e) {
+          if (__DEV__) console.warn('[payments] setPartner failed', e);
+          // retried at the next start while the attribution exists
+        }
+      });
+      return partnerWrites;
+    },
+
+    async appUserId() {
+      if (!configured) return null;
+      try {
+        return await Purchases.getAppUserID();
+      } catch {
+        return null;
+      }
+    },
+
+    async partners(): Promise<PartnerDirectory | null> {
+      if (!configured) return null;
+      try {
+        const offerings = await Purchases.getOfferings();
+        return parsePartnerOfferings(offerings.all);
+      } catch {
+        return null;
+      }
     },
 
     async identify(appUserId) {

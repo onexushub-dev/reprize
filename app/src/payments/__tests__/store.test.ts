@@ -911,3 +911,24 @@ describe('unlockOption', () => {
     expect(store.unlockOption()).toEqual({ kind: 'none' });
   });
 });
+
+describe('refresh', () => {
+  it('applies a fresh snapshot and notifies', async () => {
+    const { client, store } = await setup();
+    const fn = jest.fn();
+    store.subscribe(fn);
+    client.snapshot = snap({ proActive: true });
+    const after = await store.refresh();
+    expect(after.proActive).toBe(true);
+    expect(store.getSnapshot().proActive).toBe(true);
+    expect(fn).toHaveBeenCalled();
+  });
+
+  it('returns what is known when the read fails', async () => {
+    const { client, store } = await setup(snap({ proActive: true }));
+    client.failSnapshot = true;
+    const after = await store.refresh();
+    expect(after.proActive).toBe(true);
+  });
+});
+

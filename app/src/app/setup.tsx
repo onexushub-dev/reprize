@@ -81,6 +81,8 @@ import { sessionLabel } from "../components/format";
 import { canContinue } from "../session/continueRule";
 import { continueIntent, setContinueIntent, subscribeContinueIntent } from "../session/continueIntent";
 import { useSetupDiag } from "../diag/useSetupDiag"; // TEMP(diag)
+import { UpdateCard } from "../components/UpdateCard";
+import { dismissUpdateNotice, openUpdateInStore, useUpdateNotice } from "../update/updateNotice";
 import { openPaywall } from "../payments/feedback";
 import {
   FREE_MAX_SECONDS,
@@ -568,6 +570,8 @@ export default function Setup() {
     ...(remoteLinked > 0 ? (["phone"] as const) : []),
   ];
 
+  const updateAvailable = useUpdateNotice();
+
   const inGame =
     phase === "recording" ||
     phase === "stopping" ||
@@ -630,6 +634,18 @@ export default function Setup() {
     // The tour waits for a quiet camera, upright: nothing open, nothing loading, no note over the camera.
     const showTour =
       !tourSeen && !landscape && focused && phase === "idle" && panel === undefined && message === null && !waiting && !preparing;
+    // The new-version card waits for a calm camera, upright: no recording, nothing open or loading, no other note over
+    // the camera and not during the tour.
+    const showUpdate =
+      updateAvailable &&
+      !landscape &&
+      phase === "idle" &&
+      panel === undefined &&
+      message === null &&
+      intentSession === undefined &&
+      !waiting &&
+      !preparing &&
+      !showTour;
     // A tap on the camera around an open panel closes it.
     const backdrop =
       panel === undefined ? null : (
@@ -725,6 +741,9 @@ export default function Setup() {
               <View pointerEvents="box-none" style={[styles.messageDock, { bottom: barHeight + 14 }]}>
                 <ContinueBadge name={sessionLabel(intentSession, undefined, locale)} onDrop={() => setContinueIntent(undefined)} />
               </View>
+            ) : null}
+            {showUpdate ? (
+              <UpdateCard bottom={barHeight + 14} onUpdate={openUpdateInStore} onClose={dismissUpdateNotice} />
             ) : null}
             {backdrop}
             {renderPanel()}

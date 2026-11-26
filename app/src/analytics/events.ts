@@ -1,9 +1,10 @@
 import type { Quality, RemotePairFailure, ThermalLevel } from '../../modules/replay-camera/src/ReplayCamera.types';
 import type { ModeId, TriggerSource } from '../data/schema';
-import type { Offering } from '../payments/types';
+import type { PartnerSource } from '../partner/store';
+import type { Offering, PartnerOffering } from '../payments/types';
 
-/** Where the paywall was opened from; `locked_feature` is a tap on something Pro-only (see pro_feature_blocked). */
-export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature' | 'received_export' | 'settings';
+/** Where the paywall was opened from (`partner`: the referral code screens); `locked_feature` is a tap on something Pro-only (see pro_feature_blocked). */
+export type PaywallSource = 'onboarding' | 'export_limit' | 'upgrade_card' | 'locked_feature' | 'received_export' | 'settings' | 'partner';
 
 /** A count sent as a range, so the number of distinct values stays small and nothing is a precise tally. */
 export type CountBucket = '0' | '1' | '2-5' | '6-20' | '21+';
@@ -111,9 +112,10 @@ export type AnalyticsEvents = {
 
   // Monetization
   /** `offering` is the paywall shown: Pro (`default`) or the Single Pass (`pass`). */
-  paywall_viewed: { source: PaywallSource; offering: Offering };
+  /** `partner` is a directory-validated partner code, present when a referral discount is in play. */
+  paywall_viewed: { source: PaywallSource; offering: Offering; partner?: string };
   /** `source`: where the paywall was opened (`received_export`: Save or Send of a received recording). */
-  purchase_completed: { offering: Offering; source: PaywallSource };
+  purchase_completed: { offering: Offering; source: PaywallSource; partner?: string };
   /** The paywall ended in a restore of an earlier purchase. */
   purchase_restored: { offering: Offering };
   /** A Single Pass kept from before was spent on a recording (one bought for it is purchase_completed). */
@@ -122,6 +124,15 @@ export type AnalyticsEvents = {
   pro_feature_blocked: { feature: 'quality_4k' | 'clip_length' | 'watch' | 'compile' | 'share' };
   free_export_limit_hit: undefined;
   /** What the player picked on the free-plan sheet: from an export (`save`/`share`) or from the recording's PRO card (`unlock`). */
+  /**
+   * A partner code: the one deliberate exception to "no free text" (it names a partner, never a person, and only a code found in
+   * the partner directory is ever sent). `source` is where it came from.
+   */
+  partner_code_applied: { code: string; source: PartnerSource };
+  /** Never carries what was typed. */
+  partner_code_rejected: { source: PartnerSource; reason: 'invalid' | 'locked' };
+  /** The player went for the discount: the paywall of the partner's price tier opened. */
+  partner_offer_opened: { code: string; via: 'paywall'; offering?: PartnerOffering };
   free_export_choice: { choice: 'pro' | 'pass' | 'go' | 'cancel'; kind: 'save' | 'share' | 'unlock' };
 };
 

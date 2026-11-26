@@ -16,11 +16,13 @@ import { startReceiveQueue } from '../cloud/receive';
 import { GlassDialogHost } from '../components/GlassDialog';
 import { startFocusQueue } from '../focus/appFocusQueue';
 import { useLocaleSync } from '../i18n/useT';
+import { startPartner } from '../partner';
 import { payments } from '../payments';
 import { RemoteStartListener } from '../session/RemoteStartListener';
 import { SessionProvider } from '../session/SessionContext';
 import { clearExportsFolder } from '../share/exportCache';
 import { colors } from '../theme/tokens';
+import { startUpdateNotice } from '../update/updateNotice';
 
 SplashScreen.preventAutoHideAsync();
 // Exports from the last run (a crash or a kill leaves them) go once per start; within a run they are reused.
@@ -45,6 +47,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     payments.start();
+    void startPartner();
   }, []);
 
   // Metrics: the session ends when the app leaves the front; coming back starts a new one (the cold start's was begun
@@ -72,6 +75,8 @@ export default function RootLayout() {
   // Modo Foco in the background: clips are analysed while the app is open and no recording runs.
   useEffect(() => startFocusQueue(), []);
 
+  // A new version in the store: checked when the app opens, shown by the setup screen.
+  useEffect(() => startUpdateNotice(), []);
   // Shared recordings upload in the background; the queue starts again what a swiped-away app left (sharing design §5.4).
   useEffect(() => startUploadQueue(), []);
   useEffect(() => startSharePrep(), []);
