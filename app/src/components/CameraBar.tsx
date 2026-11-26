@@ -1,5 +1,5 @@
 import { type ComponentRef, type ReactNode, useContext, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, type LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, type LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaInsetsContext, SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
@@ -59,7 +59,8 @@ export const BAR_GAP = 16;
 
 /**
  * How far the row of Gravar sits into the bottom safe area (points): more = lower, more camera. Never more than the
- * area itself: an Android with on-screen buttons has none (the window ends above them), and the row went under them.
+ * area itself. iPhone only: there the area is the home indicator. On Android it is the system's buttons or gesture bar
+ * (the window is drawn behind them, edge-to-edge), and the row went under the buttons (build 12, 2026-11-25).
  */
 const DOCK_LOWER = 12;
 
@@ -76,6 +77,7 @@ export function CameraBar(props: Props) {
   const waiting = props.waiting ?? busy;
   const { t, locale } = useT();
   const bottomInset = useContext(SafeAreaInsetsContext)?.bottom ?? 0;
+  const sink = Platform.OS === 'ios' ? Math.min(DOCK_LOWER, bottomInset) : 0;
   const active = (kind: 'clip' | 'quality' | 'triggers') => panel === kind || (kind === 'triggers' && (panel === 'test' || panel === 'phone'));
   const tint = (kind: 'clip' | 'quality' | 'triggers') => (active(kind) ? colors.onAccent : colors.text);
   const triggerItems = triggers.map((key) => sourceLabel(TRIGGER_SOURCE[key], locale));
@@ -202,7 +204,7 @@ export function CameraBar(props: Props) {
       <View testID="camera-settings" style={[styles.pills, reversed && styles.pillsReversed, waiting && styles.busy]}>
         {pills}
       </View>
-      <SafeAreaView edges={['bottom']} testID="camera-dock" style={[styles.ground, { marginBottom: -Math.min(DOCK_LOWER, bottomInset) }]}>
+      <SafeAreaView edges={['bottom']} testID="camera-dock" style={[styles.ground, { marginBottom: -sink }]}>
         <View style={styles.row}>{buttons}</View>
       </SafeAreaView>
     </View>
