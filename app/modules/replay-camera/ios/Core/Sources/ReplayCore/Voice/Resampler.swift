@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Accelerate)
+import Accelerate
+#endif
 
 /// Any capture format to the voice detector's 16 kHz mono (plan 2026-11-24 voice keyword detector, Task 2).
 ///
@@ -19,6 +22,10 @@ public final class Resampler {
   private var buffer: [Float] = []  // mono input still needed (absolute index bufferStart + i)
   private var bufferStart = 0
   private var nextOut = 0           // absolute index of the next output sample
+  /// Integer ratio (48 kHz → 16 kHz): every output sits on an input sample, so the kernel is the same fixed taps each
+  /// time (taps[i] for input k = centre - half + 1 + i) and the sum of weights is constant. nil otherwise.
+  private let fixedTaps: [Float]?
+  private let fixedWeight: Double
 
   public init(fromRate: Double, channels: Int, toRate: Double = 16000, cutoffHz: Double = 7200,
               halfWidthOut: Int = 16) {
@@ -31,8 +38,22 @@ public final class Resampler {
     half = halfWidth
     cutoff = cyclesPerSample
     passThrough = fromRate == toRate && max(1, channels) == 1
-    table = (0...(halfWidth * Resampler.tableSteps + 1)).map { i in
+    let table = (0...(halfWidth * Resampler.tableSteps + 1)).map { i in
       Resampler.exactKernel(Double(i) / Double(Resampler.tableSteps), half: halfWidth, cutoff: cyclesPerSample)
+    }
+    self.table = table
+    let r = fromRate / toRate
+    if !(fromRate == toRate && max(1, channels) == 1) && r == r.rounded() {
+      // x = p - k = (half - 1) - i for i in 0..<2·half: the table holds the exact kernel at integer distances.
+      let taps = (0..<(2 * halfWidth)).map { i -> Double in
+        let d = abs(halfWidth - 1 - i) * Resampler.tableSteps
+        return d < table.count - 1 ? table[d] : 0
+      }
+      fixedTaps = taps.map { Float($0) }
+      fixedWeight = taps.reduce(0, +)
+    } else {
+      fixedTaps = nil
+      fixedWeight = 0
     }
   }
 
@@ -59,6 +80,12 @@ public final class Resampler {
       let p = Double(nextOut) * ratio
       let centre = Int(p.rounded(.down))
       if centre + half >= available { break }
+      let first = centre - half + 1
+      if let taps = fixedTaps, fixedWeight != 0, first >= bufferStart {
+        out.append(Float(Double(Resampler.dot(buffer, from: first - bufferStart, taps)) / fixedWeight))
+        nextOut += 1
+        continue
+      }
       var acc = 0.0
       var weight = 0.0
       var k = centre - half + 1
@@ -82,6 +109,21 @@ public final class Resampler {
       bufferStart += drop
     }
     return out
+  }
+
+  /// `taps.count` samples of `x` from `start`, times `taps` (vDSP where available).
+  static func dot(_ x: [Float], from start: Int, _ taps: [Float]) -> Float {
+    var result: Float = 0
+    #if canImport(Accelerate)
+    x.withUnsafeBufferPointer { xs in
+      taps.withUnsafeBufferPointer { ts in
+        vDSP_dotpr(xs.baseAddress! + start, 1, ts.baseAddress!, 1, &result, vDSP_Length(ts.count))
+      }
+    }
+    #else
+    for i in 0..<taps.count { result += x[start + i] * taps[i] }
+    #endif
+    return result
   }
 
   /// Windowed sinc at distance `x` input samples from the output instant, from the table (linear interpolation).

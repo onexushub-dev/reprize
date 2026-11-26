@@ -33,6 +33,8 @@ final class KeywordDetector {
   private var backlog = DropCounter(capacitySeconds: 2)
   private var stepCount = 0
   private var stepSeconds = 0.0
+  private var fireLag = 0.0          // seconds between the audio arriving and the step that fired on it
+  private var currentArrival = 0.0   // on `queue`: when the buffer being processed arrived
 
   // State on `queue`.
   private var resampler: Resampler?
@@ -59,6 +61,14 @@ final class KeywordDetector {
     mel = MelFrontend(filterbank: loaded.filterbank, nFft: loaded.config.nFft, winLength: loaded.config.winLength,
                       hop: loaded.config.hop, nMels: loaded.config.nMels)
     rule = FiringRule(config: loaded.config)
+  }
+
+  /// How far behind real time the detector was at its last "salvar" (ms): the audio that completed the word arrived
+  /// this long before the detector fired. Grows when the phone is slow or hot; drops start at 2 s.
+  var lastFireLagMs: Double {
+    lock.lock()
+    defer { lock.unlock() }
+    return fireLag * 1000
   }
 
   var stats: Stats {
@@ -158,11 +168,13 @@ final class KeywordDetector {
   private func submit(_ samples: [Float], rate: Double, channels: Int) {
     guard rate > 0 else { return }
     let seconds = Double(samples.count / channels) / rate
+    let arrived = CACurrentMediaTime()
     lock.lock()
     let accepted = backlog.offer(seconds)
     lock.unlock()
     guard accepted else { return }
     queue.async {
+      self.currentArrival = arrived
       self.process(samples, rate: rate, channels: channels)
       self.lock.lock()
       self.backlog.release(seconds)
@@ -220,6 +232,10 @@ final class KeywordDetector {
       let score = scorer.score(Array(embeddings.joined()))
       let seconds = config.scoreTime(index: index - (config.windows - 1))
       if rule.feed(score: score, at: seconds) {
+        let lag = CACurrentMediaTime() - currentArrival
+        lock.lock()
+        fireLag = lag
+        lock.unlock()
         let callback = onCommand
         DispatchQueue.main.async { callback?(score) }
       }
@@ -229,5 +245,31 @@ final class KeywordDetector {
     stepCount += 1
     stepSeconds += took
     lock.unlock()
+  }
+}
+
+extension KeywordDetector {
+  /// The model shipped with the app (plan 2026-11-24, Phase 2): the files of `ios/Models/voice/<version>/` and
+  /// `voice_embedding.mlmodelc`, in the pod's resource bundle `ReplayCameraModels` (or the main bundle, as in
+  /// VoiceBench). nil, with a `voz:` line, when something is missing or broken; the caller then stays on dictation.
+  static func loadBundled(log: ((String) -> Void)?) -> KeywordDetector? {
+    var bundles = [Bundle.main, Bundle(for: KeywordDetector.self)]
+    for b in [Bundle.main, Bundle(for: KeywordDetector.self)] {
+      if let u = b.url(forResource: "ReplayCameraModels", withExtension: "bundle"), let inner = Bundle(url: u) {
+        bundles.append(inner)
+      }
+    }
+    for b in bundles {
+      guard let config = b.url(forResource: "detector", withExtension: "json"),
+            let model = b.url(forResource: "voice_embedding", withExtension: "mlmodelc") else { continue }
+      do {
+        return try KeywordDetector(directory: config.deletingLastPathComponent(), embeddingModel: model)
+      } catch {
+        log?("voz: modelo indisponível (\(error)) — usando ditado")
+        return nil
+      }
+    }
+    log?("voz: modelo indisponível (arquivos não encontrados) — usando ditado")
+    return nil
   }
 }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Accelerate)
+import Accelerate
+#endif
 
 /// 16 kHz mono samples to the voice detector's mel frames (plan 2026-11-24 voice keyword detector, Task 2), exactly as
 /// `docs/voice-lab/lab/tools/export_detector.py` computes them: samples ×32767, frames of `nFft` every `hop` (no
@@ -11,6 +14,7 @@ public final class MelFrontend {
   public let nMels: Int
   private let bins: Int
   private let filterbank: [Float]   // bins × nMels, row-major
+  private let filterbankD: [Double]  // the same in Double, for the vDSP product
   private let window: [Double]
   private let fft: RealFFT
   private var pending: [Float] = []
@@ -24,6 +28,7 @@ public final class MelFrontend {
     bins = nFft / 2 + 1
     precondition(filterbank.count == bins * nMels, "filterbank must be \(bins)×\(nMels)")
     self.filterbank = filterbank
+    filterbankD = filterbank.map { Double($0) }
     var w = [Double](repeating: 0, count: nFft)
     let offset = (nFft - winLength) / 2
     for n in 0..<winLength {
@@ -51,11 +56,17 @@ public final class MelFrontend {
       }
       fft.power(re, into: &power)
       var frame = [Float](repeating: 0, count: nMels)
+      #if canImport(Accelerate)
+      var energy = [Double](repeating: 0, count: nMels)
+      vDSP_mmulD(power, 1, filterbankD, 1, &energy, 1, 1, vDSP_Length(nMels), vDSP_Length(bins))
+      for m in 0..<nMels { frame[m] = Float(log10(max(energy[m], 1e-10)) + 2) }
+      #else
       for m in 0..<nMels {
         var e = 0.0
         for k in 0..<bins { e += power[k] * Double(filterbank[k * nMels + m]) }
         frame[m] = Float(log10(max(e, 1e-10)) + 2)
       }
+      #endif
       frames.append(frame)
       pendingStart += hop
     }

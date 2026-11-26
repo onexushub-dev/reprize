@@ -322,6 +322,7 @@ public class ReplayCameraModule: Module {
 
     Function("signalSaved") { (sound: Bool, flash: Bool) in
       self.engine.feedback.saved(sound: sound, flash: flash, activeCamera: self.engine.capture.camera)
+      if let ms = self.engine.takeVoiceCommandAge() { self.engine.diag("voz: aviso \(Int(ms.rounded())) ms após o comando") }
     }
 
     // "started" | "ended": a recording started or ended from the remote's hold, with its own sound and torch pattern.
@@ -519,6 +520,12 @@ public class ReplayCameraModule: Module {
 
     Function("setVoiceEnabled") { (enabled: Bool, locale: String) in
       self.engine.voice.setEnabled(enabled, locale: VoiceLocale(rawValue: locale) ?? .enUS)
+    }
+
+    // Which engine listens for "salvar" (Diagnóstico switch, plan 2026-11-24 Phase 2): "dictation" or "keyword".
+    // Anything else is dictation; English is always dictation.
+    Function("setVoiceEngine") { (engine: String) in
+      VoiceTrigger.setPreferred(VoiceEngine(rawValue: engine) ?? .dictation)
     }
 
     AsyncFunction("requestSpeechPermission") { (promise: Promise) in

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Accelerate)
+import Accelerate
+#endif
 
 /// The "salvar" detector's numbers, read from `detector.json` (plan 2026-11-24 voice keyword detector, Task 3).
 /// Field names match the file exactly; nothing here is a code constant.
@@ -101,6 +104,22 @@ public final class KeywordScorer {
   /// `window`: the last `windows` embeddings concatenated, oldest first (`inputSize` values).
   public func score(_ window: [Float]) -> Double {
     precondition(window.count == inputSize, "classifier input must be \(inputSize) values")
+    #if canImport(Accelerate)
+    // hidden = window (1×inputSize) · w1 (inputSize×hidden) + b1, ReLU, then · w2 + b2 (vDSP, Float accumulation).
+    var h = [Float](repeating: 0, count: hidden)
+    let n = vDSP_Length(hidden)
+    h.withUnsafeMutableBufferPointer { hp in
+      let p = hp.baseAddress!
+      vDSP_mmul(window, 1, w1, 1, p, 1, 1, n, vDSP_Length(inputSize))
+      vDSP_vadd(p, 1, b1, 1, p, 1, n)
+      var zero: Float = 0
+      vDSP_vthr(p, 1, &zero, p, 1, n)
+    }
+    var dot: Float = 0
+    vDSP_dotpr(h, 1, w2, 1, &dot, vDSP_Length(hidden))
+    let zf = Double(dot) + Double(b2)
+    return 1 / (1 + exp(-zf))
+    #else
     var acc = b1.map { Double($0) }
     for i in 0..<inputSize {
       let x = window[i]
@@ -111,6 +130,7 @@ public final class KeywordScorer {
     var z = Double(b2)
     for j in 0..<hidden where acc[j] > 0 { z += acc[j] * Double(w2[j]) }
     return 1 / (1 + exp(-z))
+    #endif
   }
 }
 

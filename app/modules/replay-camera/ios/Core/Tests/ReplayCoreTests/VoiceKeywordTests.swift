@@ -253,4 +253,34 @@ final class VoiceKeywordTests: XCTestCase {
     used.reset()
     XCTAssertEqual(used.push(Array(samples[0..<16000])), fresh)
   }
+
+  // MARK: Phase 2: engine choice and the shipped candidate model
+
+  func testEngineChoice() {
+    XCTAssertEqual(VoiceEngine.choose(preferred: .keyword, locale: .ptBR, keywordAvailable: true), .keyword)
+    XCTAssertEqual(VoiceEngine.choose(preferred: .keyword, locale: .enUS, keywordAvailable: true), .dictation)
+    XCTAssertEqual(VoiceEngine.choose(preferred: .keyword, locale: .ptBR, keywordAvailable: false), .dictation)
+    XCTAssertEqual(VoiceEngine.choose(preferred: .dictation, locale: .ptBR, keywordAvailable: true), .dictation)
+  }
+
+  /// `salvar-v2-rc1` (1536 → 256 → 1), the model the app ships behind the Diagnóstico switch: it loads, and on the
+  /// golden audio's embeddings it fires where the lab says (it waits for the word to end, so later than salvar-v1).
+  func testCandidateModelLoadsAndFiresOnGolden() throws {
+    let dir = Self.modelDir.deletingLastPathComponent().appendingPathComponent("salvar-v2-rc1")
+    let (config, filterbank, scorer) = try KeywordConfig.load(directory: dir)
+    XCTAssertEqual(config.version, "salvar-v2-rc1")
+    XCTAssertEqual(config.hidden, 256)
+    XCTAssertEqual(scorer.hidden, 256)
+    XCTAssertEqual(filterbank.count, 257 * 32)
+    let g = try golden()
+    var rule = FiringRule(config: config)
+    var fires: [Double] = []
+    for (j, s) in goldenScores(g, scorer, config).enumerated() {
+      XCTAssertTrue(s.isFinite)
+      let t = config.scoreTime(index: j)
+      if rule.feed(score: s, at: t) { fires.append(t) }
+    }
+    XCTAssertEqual(fires.count, 2)
+    for (a, b) in zip(fires, [2.702, 4.702]) { XCTAssertEqual(a, b, accuracy: 0.08) }
+  }
 }
