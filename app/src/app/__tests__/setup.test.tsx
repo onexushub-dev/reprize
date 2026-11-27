@@ -530,14 +530,17 @@ describe("the first-time tour of the camera (2026-11-22)", () => {
    * Every host view answers where it is (the jest mock of measureInWindow answers nothing), then the screen renders
    * again so the bar measures its controls.
    */
-  async function measured(view: { rerender: (ui: React.ReactElement) => Promise<void> }) {
+  async function measured(
+    view: { rerender: (ui: React.ReactElement) => Promise<void> },
+    rect: [number, number, number, number] = [20, 630, 80, 44],
+  ) {
     for (const el of screen.container.queryAll(() => true)) {
       let fiber = el.unstable_fiber as FiberLike;
       while (fiber !== null) {
         const node = fiber.stateNode as { measureInWindow?: unknown } | null;
         if (node !== null && typeof node === "object" && jest.isMockFunction(node.measureInWindow)) {
           (node.measureInWindow as jest.Mock).mockImplementation((cb: (x: number, y: number, w: number, h: number) => void) =>
-            cb(20, 630, 80, 44),
+            cb(...rect),
           );
           break;
         }
@@ -549,23 +552,53 @@ describe("the first-time tour of the camera (2026-11-22)", () => {
     });
   }
 
-  test("a new player gets four tips over the real controls, then never again", async () => {
+  test("a new player gets four tips over the real controls and an extra one, then never again", async () => {
     repo.setPrefs({ cameraTourSeen: undefined });
     session({});
     const view = await render(<Setup />);
     await measured(view);
     expect(screen.getByTestId("camera-tour")).toBeTruthy();
-    expect(screen.getByText("1 de 4")).toBeTruthy();
+    expect(screen.getByText("1 de 5")).toBeTruthy();
     expect(screen.getByText("Defina o tamanho do clipe")).toBeTruthy();
     await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
     expect(screen.getByText("Qualidade da imagem")).toBeTruthy();
     await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
     expect(screen.getByText("Salve sem tocar no celular")).toBeTruthy();
+    // The Apple Watch comes first, in amber (2026-11-27), and the text names it.
+    const highlighted = screen.getByTestId("camera-tour-chip-highlight");
+    expect(within(highlighted).getByText("Apple Watch")).toBeTruthy();
+    expect(screen.getByText(/um toque no Apple Watch/)).toBeTruthy();
     await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
-    expect(screen.getByText("4 de 4")).toBeTruthy();
+    expect(screen.getByText("4 de 5")).toBeTruthy();
+    await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
+    // The extra tip (2026-11-27) points at nothing: the whole camera dims, no ring.
+    expect(screen.getByText("Dica extra · 5 de 5")).toBeTruthy();
+    expect(screen.getByText("Vire o celular e grave deitado")).toBeTruthy();
+    expect(screen.queryByTestId("camera-tour-ring")).toBeNull();
     await fireEvent.press(screen.getByRole("button", { name: "Entendi" }));
     expect(screen.queryByTestId("camera-tour")).toBeNull();
     expect(repo.getPrefs().cameraTourSeen).toBe(true);
+  });
+
+  test("on Android the triggers' tip has no Apple Watch chip and keeps the old text", async () => {
+    const os = Platform.OS;
+    Platform.OS = "android";
+    try {
+      repo.setPrefs({ cameraTourSeen: undefined });
+      session({});
+      const view = await render(<Setup />);
+      await measured(view);
+      await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
+      if (screen.queryByText("Qualidade da imagem") !== null) {
+        await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
+      }
+      expect(screen.getByText("Salve sem tocar no celular")).toBeTruthy();
+      expect(screen.queryByTestId("camera-tour-chip-highlight")).toBeNull();
+      expect(screen.queryByText("Apple Watch")).toBeNull();
+      expect(screen.getByText(/^Escolha um gatilho: o controle Bluetooth/)).toBeTruthy();
+    } finally {
+      Platform.OS = os;
+    }
   });
 
   test("Pular ends it for good", async () => {
@@ -573,6 +606,84 @@ describe("the first-time tour of the camera (2026-11-22)", () => {
     session({});
     const view = await render(<Setup />);
     await measured(view);
+    await fireEvent.press(screen.getByRole("button", { name: "Pular" }));
+    expect(screen.queryByTestId("camera-tour")).toBeNull();
+    expect(repo.getPrefs().cameraTourSeen).toBe(true);
+  });
+
+  /** The settings' buttons laid out (jest lays out nothing): on its side the ring stands their size in their slot. */
+  async function laidOut() {
+    // The tour, once open, hides the bar from the screen reader (accessibilityViewIsModal): look past it.
+    const hidden = { includeHiddenElements: true };
+    const buttons = [/^Tamanho do clipe:/, /^Qualidade:/, /^Gatilhos:/].map((name) => screen.getByRole("button", { name, ...hidden }));
+    for (const button of buttons) {
+      // On the view around the button, which listens ("layout" does not bubble).
+      let node: typeof button | null = button;
+      while (node !== null && node.props.onLayout === undefined) node = node.parent;
+      await fireEvent(node ?? button, "layout", { nativeEvent: { layout: { x: 0, y: 0, width: 80, height: 44 } } });
+    }
+  }
+  const { StyleSheet: RNStyleSheet } = jest.requireActual("react-native");
+  const ringStyle = () => RNStyleSheet.flatten(screen.getByTestId("camera-tour-ring").props.style);
+  /** Long enough for the phone's turn to be read twice and its animation to land. */
+  async function turnSettles() {
+    await act(async () => jest.advanceTimersByTime(700)); // read twice the same
+    await act(async () => jest.advanceTimersByTime(700)); // the buttons' turn lands
+  }
+
+  test("turning the phone keeps the tour on the same tip, upright in the turned frame, and back upright the ring is measured again (2026-11-27)", async () => {
+    jest.useFakeTimers();
+    try {
+      repo.setPrefs({ cameraTourSeen: undefined });
+      session({});
+      const view = await render(<Setup />);
+      await laidOut();
+      await measured(view);
+      await fireEvent.press(screen.getByRole("button", { name: "Próximo" }));
+      expect(screen.getByText("2 de 5")).toBeTruthy();
+      expect(ringStyle()).toMatchObject({ left: 14, top: 624, width: 92, height: 56 });
+
+      // On its side: still the second tip, its card in the turned frame; the ring around the button where it is now.
+      camera().getDeviceUpright.mockReturnValue("landscapeLeft");
+      await turnSettles();
+      await laidOut();
+      await measured(view);
+      expect(screen.getByText("2 de 5")).toBeTruthy();
+      const frame = screen.getByTestId("camera-tour-frame");
+      expect(RNStyleSheet.flatten(frame.props.style).transform).toEqual([{ rotate: "90deg" }]);
+      expect(within(frame).getByText("Qualidade da imagem")).toBeTruthy();
+      expect(screen.queryByTestId("camera-tour-caret")).toBeNull();
+      // The 80×44 button stood on its end in the middle of its slot: 44 wide, 80 tall, round ends.
+      expect(ringStyle()).toMatchObject({ left: 32, top: 606, width: 56, height: 92, borderRadius: 28 });
+
+      // Back upright, the controls are somewhere else: the ring follows the fresh rects, not the ones from before.
+      camera().getDeviceUpright.mockReturnValue("portrait");
+      await act(async () => jest.advanceTimersByTime(700));
+      // While the buttons turn back: no ring where they were.
+      expect(screen.getByText("2 de 5")).toBeTruthy();
+      expect(screen.queryByTestId("camera-tour-ring")).toBeNull();
+      await turnSettles();
+      await measured(view, [30, 600, 90, 44]);
+      expect(screen.queryByTestId("camera-tour-frame")).toBeNull();
+      expect(screen.getByText("2 de 5")).toBeTruthy();
+      expect(ringStyle()).toMatchObject({ left: 24, top: 594, width: 102, height: 56, borderRadius: 28 });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("opened with the phone already on its side, the tour shows, upright in the turned frame (2026-11-27)", async () => {
+    camera().getDeviceUpright.mockReturnValue("landscapeRight");
+    repo.setPrefs({ cameraTourSeen: undefined });
+    session({});
+    const view = await render(<Setup />);
+    await laidOut();
+    await measured(view);
+    expect(screen.getByTestId("camera-tour")).toBeTruthy();
+    const frame = screen.getByTestId("camera-tour-frame");
+    expect(RNStyleSheet.flatten(frame.props.style).transform).toEqual([{ rotate: "-90deg" }]);
+    expect(within(frame).getByText("1 de 5")).toBeTruthy();
+    expect(screen.getByTestId("camera-tour-ring")).toBeTruthy();
     await fireEvent.press(screen.getByRole("button", { name: "Pular" }));
     expect(screen.queryByTestId("camera-tour")).toBeNull();
     expect(repo.getPrefs().cameraTourSeen).toBe(true);

@@ -45,6 +45,7 @@ import { useCameraPinch } from "../camera/useCameraPinch";
 import { useLandscapeTurn } from "../camera/useDeviceLandscape";
 import { BAR_GAP, CameraBar, type CameraPanel, type TourTargets, type TriggerKey } from "../components/CameraBar";
 import { CameraTour, type TourStep } from "../components/CameraTour";
+import { TurnPhoneArt } from "../components/PhoneDrawings";
 import { cameraTourSeen, finishCameraTour } from "../onboarding/cameraTour";
 import { PhoneRemotePanel } from "../components/PhoneRemotePanel";
 import { PrepareSheet } from "../components/PrepareSheet";
@@ -151,6 +152,8 @@ function cameraStatus(t: TFunction, host: { name: string } | null): string | und
 
 /** How long the buttons' contents take to turn upright after the phone turns. */
 const TURN_SPIN_MS = 280;
+/** After the turn's animation, a moment more before the tour measures the controls again (a frame or two to land). */
+const TURN_SETTLE_MS = 60;
 
 /** How long the zoom button stays amber after the zoom changed. */
 const ZOOM_LIT_MS = 900;
@@ -328,7 +331,10 @@ export default function Setup() {
   // heard.
   // The first-time tour (2026-11-22, model A): read again on coming back, as Ajustes > Tutorial turns it back on.
   const [tourSeen, setTourSeen] = useState(cameraTourSeen);
-  const [tourTargets, setTourTargets] = useState<TourTargets | undefined>(undefined);
+  // Where the controls were measured, and for which turn of the phone: a turn makes them stale (2026-11-27).
+  const [tourTargets, setTourTargets] = useState<{ turn: number; targets: TourTargets } | undefined>(undefined);
+  // The tip shown, kept here: the tour is drawn again when the phone turns and comes back on the same tip (2026-11-27).
+  const [tourIndex, setTourIndex] = useState(0);
   const [remoteReadFocused, setRemoteReadFocused] = useState(focused);
   if (remoteReadFocused !== focused) {
     setRemoteReadFocused(focused);
@@ -559,6 +565,14 @@ export default function Setup() {
     }).start();
   }, [turn, spin]);
   const spinDeg = spin.interpolate({ inputRange: [-90, 90], outputRange: ["-90deg", "90deg"] });
+  // The turn once its animation is over (2026-11-27): the tour's ring is measured only then, as the buttons measured
+  // while they turn are where they were, not where they end up (the ring came back upright with a turned shape).
+  const [settledTurn, setSettledTurn] = useState(turn);
+  useEffect(() => {
+    if (turn === settledTurn) return;
+    const timer = setTimeout(() => setSettledTurn(turn), TURN_SPIN_MS + TURN_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [turn, settledTurn]);
   const screen = useWindowDimensions();
 
   // What the triggers' button draws: the ones on right now (a remote only once a press proved it works).
@@ -586,6 +600,8 @@ export default function Setup() {
           clipSeconds={settings.cutSeconds}
           gesture={settings.gestureEnabled}
           voice={voiceOn}
+          // Only what the triggers button shows on (2026-11-26): the remote's chip once a press proved it works.
+          remote={remoteReady && remoteAllowed}
           // Continuous zoom only: a fixed lens cannot change while the camera records.
           zoom={
             zoomRange.continuous
@@ -628,12 +644,21 @@ export default function Setup() {
         spin={spinDeg}
         turned={landscape}
         reversed={landscape && turn === 90}
-        onTargets={tourSeen ? undefined : (next) => setTourTargets((prev) => (sameTargets(prev, next) ? prev : next))}
+        onTargets={
+          tourSeen || turn !== settledTurn
+            ? undefined
+            : (next) => setTourTargets((prev) => (prev?.turn === turn && sameTargets(prev.targets, next) ? prev : { turn, targets: next }))
+        }
       />
     );
-    // The tour waits for a quiet camera, upright: nothing open, nothing loading, no note over the camera.
+    // The tour waits for a quiet camera: nothing open, nothing loading, no note over the camera. Upright or on its side
+    // (2026-11-27: it went away on turning the phone, and did not open on its side).
     const showTour =
-      !tourSeen && !landscape && focused && phase === "idle" && panel === undefined && message === null && !waiting && !preparing;
+      !tourSeen && focused && phase === "idle" && panel === undefined && message === null && !waiting && !preparing;
+    // The controls as measured for the turn the phone is in now, once it has settled; meanwhile no ring (the card waits
+    // in the middle) rather than a ring where the control was.
+    const freshTargets =
+      tourTargets !== undefined && tourTargets.turn === turn && settledTurn === turn ? tourTargets.targets : undefined;
     // The new-version card waits for a calm camera, upright: no recording, nothing open or loading, no other note over
     // the camera and not during the tour.
     const showUpdate =
@@ -754,10 +779,15 @@ export default function Setup() {
         {bar}
         {showTour && tourTargets !== undefined ? (
           <CameraTour
-            steps={tourSteps(tourTargets)}
+            steps={tourSteps(freshTargets)}
+            index={tourIndex}
+            onIndex={setTourIndex}
+            turned={landscape ? { turn: turn === 90 ? 90 : -90, inset: barHeight + BAR_GAP } : undefined}
             onDone={() => {
               finishCameraTour();
               setTourSeen(true);
+              // Turned back on in Ajustes, it starts again from the first tip.
+              setTourIndex(0);
             }}
           />
         ) : null}
@@ -765,25 +795,41 @@ export default function Setup() {
     );
   }
 
-  /** The tour's four tips, on the controls as they are now (the clip length chosen, the quality this phone has). */
-  function tourSteps(targets: TourTargets): TourStep[] {
+  /**
+   * The tour's tips, on the controls as they are now (the clip length chosen, the quality this phone has), and an extra
+   * one pointing at nothing: record sideways (2026-11-27). Who saw the four-tip tour is not shown it again.
+   */
+  function tourSteps(targets: TourTargets | undefined): TourStep[] {
     const quality = !has4k ? "cameraTour.qualityBodyFixed" : fourKAllowed ? "cameraTour.qualityBodyPaid" : "cameraTour.qualityBody";
-    const chip = (icon: (color: string) => ReactNode, label: string) => ({ label, icon: icon(colors.text) });
+    const chip = (icon: (color: string) => ReactNode, label: string, highlight = false) => ({
+      label,
+      icon: icon(highlight ? colors.onAccent : colors.text),
+      highlight,
+    });
     return [
-      { key: "clip", target: targets.clip, title: t("cameraTour.clipTitle"), body: t("cameraTour.clipBody") },
-      { key: "quality", target: targets.quality, title: t("cameraTour.qualityTitle"), body: t(quality) },
+      { key: "clip", target: targets?.clip, title: t("cameraTour.clipTitle"), body: t("cameraTour.clipBody") },
+      { key: "quality", target: targets?.quality, title: t("cameraTour.qualityTitle"), body: t(quality) },
       {
         key: "triggers",
-        target: targets.triggers,
+        target: targets?.triggers,
         title: t("cameraTour.triggersTitle"),
-        body: t("cameraTour.triggersBody"),
+        // The Apple Watch first and in amber where it can work (iOS), paired or not: the tour is for discovery (2026-11-27).
+        body: t(watchSupported ? "cameraTour.triggersBodyWatch" : "cameraTour.triggersBody"),
         chips: [
+          ...(watchSupported ? [chip((color) => <WatchIcon size={15} color={color} />, sourceLabel("watch", locale), true)] : []),
           chip((color) => <RemoteIcon size={15} color={color} />, t("setup.remoteShort")),
           chip((color) => <WaveIcon size={15} color={color} />, t("setup.waveShort")),
           chip((color) => <MicIcon size={15} color={color} />, sourceLabel("voice", locale)),
         ],
       },
-      { key: "record", target: targets.record, round: true, title: t("cameraTour.recordTitle"), body: t("cameraTour.recordBody") },
+      { key: "record", target: targets?.record, round: true, title: t("cameraTour.recordTitle"), body: t("cameraTour.recordBody") },
+      {
+        key: "sideways",
+        label: t("cameraTour.sidewaysLabel"),
+        title: t("cameraTour.sidewaysTitle"),
+        body: t("cameraTour.sidewaysBody"),
+        art: <TurnPhoneArt />,
+      },
     ];
   }
 
@@ -1016,7 +1062,11 @@ export default function Setup() {
 function sameTargets(a: TourTargets | undefined, b: TourTargets): boolean {
   if (a === undefined) return false;
   return (["clip", "quality", "triggers", "record"] as const).every(
-    (k) => Math.round(a[k].x) === Math.round(b[k].x) && Math.round(a[k].y) === Math.round(b[k].y) && Math.round(a[k].width) === Math.round(b[k].width),
+    (k) =>
+      Math.round(a[k].x) === Math.round(b[k].x) &&
+      Math.round(a[k].y) === Math.round(b[k].y) &&
+      Math.round(a[k].width) === Math.round(b[k].width) &&
+      Math.round(a[k].height) === Math.round(b[k].height),
   );
 }
 

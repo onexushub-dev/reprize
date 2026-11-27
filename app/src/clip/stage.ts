@@ -31,8 +31,10 @@ export function clipStage(
   // A landscape clip is exported (and previewed) in a landscape frame; a vertical one in a vertical frame — unless a
   // compilation forces one frame for every clip.
   const landscape = forceLandscape !== undefined ? forceLandscape : shape.width > shape.height;
-  // A compilation forced landscape has no room for a vertical clip: Seguir a Bola stays out of it.
-  const ball = ballReady && forceLandscape !== true ? { path: ballReady, ready: true } : undefined;
+  // A compilation forced landscape has no room for a vertical clip: Seguir a Bola stays out of it. Nor does a clip
+  // recorded upright (its own shape, before the player's turn): it already fills the 9:16 frame (2026-11-27).
+  const upright = videoSize.height > videoSize.width;
+  const ball = ballReady && forceLandscape !== true && !upright ? { path: ballReady, ready: true } : undefined;
   const options = exportOptions(
     tier,
     edit,

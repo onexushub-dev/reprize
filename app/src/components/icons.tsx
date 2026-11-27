@@ -22,6 +22,28 @@ export function PhoneIcon({ color = colors.text, size = 22 }: IconProps) {
   );
 }
 
+/** A phone lying on its side under a turning arrow: turn the phone to record horizontally (Modo Foco: Bola's first tip). */
+export function PhoneLandscapeIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Rect x={3} y={11} width={18} height={10} rx={2} {...stroke(color)} />
+      <Path d="M17.5 14.5v3" {...stroke(color)} />
+      <Path d="M6 8C8 3.5 15 3 18.5 6.5M18.5 6.5l-.3-3M18.5 6.5l-3-.3" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+/** Scissors: cut the clip. */
+export function ScissorsIcon({ color = colors.text, size = 22 }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" accessibilityElementsHidden>
+      <Circle cx={6} cy={6} r={3} {...stroke(color)} />
+      <Circle cx={6} cy={18} r={3} {...stroke(color)} />
+      <Path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12" {...stroke(color)} />
+    </Svg>
+  );
+}
+
 /** A QR code: three finder squares and a few modules. It stands for connecting by scanning the pairing code. */
 export function QrIcon({ color = colors.text, size = 22 }: IconProps) {
   return (

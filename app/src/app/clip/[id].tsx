@@ -445,9 +445,13 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     sessionBallSport !== undefined ? sessionBallSport : receivedBall !== undefined ? receivedBall.sport || 'basquete' : undefined;
   // The framing before Bola was tapped: where the clip goes back to when Bola is cancelled or finds no ball.
   const beforeBall = useRef<'none' | 'focus'>('none');
+  // Recorded upright (the video's own shape, not the player's turn): it already fills Bola's 9:16 frame, so Bola is not
+  // offered (design-bola-vertical, 2026-11-27). Only once the shape is known: until then the default is landscape.
+  const vertical = sizeKnown && videoSize.height > videoSize.width;
   // Bola only for a sport with a ball model: a clip stored on Bola whose recording's sport is not known (or has no model)
-  // shows as the Original it is, nothing queued, until the player says the sport (spec 2026-11-11 decision 5).
-  const ballChosen = edit.framing === 'ball' && ballSport !== undefined;
+  // shows as the Original it is, nothing queued, until the player says the sport (spec 2026-11-11 decision 5). The same
+  // for a clip recorded upright, received ones too.
+  const ballChosen = edit.framing === 'ball' && ballSport !== undefined && !vertical;
   // The sender's Bola while the cut stays inside it, else this phone's own analysis of the cut.
   const ballFile =
     receivedBall !== undefined ? receivedBall.file : clip && ballSport !== undefined ? readyBallFile(clip) : undefined;
@@ -461,9 +465,10 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const cutKey = clip ? `${clip.trim.startMs}:${clip.trim.endMs}` : '';
   // On, with the cut or the sport changed or never analysed: the queue analyses it (the frames already found are reused).
   useEffect(() => {
-    if (!ballChosen || leaving || blockedAuto.current.ball || receivedBall !== undefined) return;
+    // Not before the shape is known: a clip recorded upright never analyses Bola.
+    if (!ballChosen || !sizeKnown || leaving || blockedAuto.current.ball || receivedBall !== undefined) return;
     ballQueue.request(id);
-  }, [ballChosen, cutKey, ballSport, id, leaving, receivedBall]);
+  }, [ballChosen, sizeKnown, cutKey, ballSport, id, leaving, receivedBall]);
   // Test 47a: no ball in play on this cut and sport: back to the framing before the tap (spec 2026-11-11 decision 6),
   // the chip says so for a few seconds and the Bola card is dimmed.
   const unsuitable =
@@ -871,7 +876,7 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
     blockedAuto.current = { focus: false, ball: false, toPlayers: false, framing: undefined }; // the player's own pick: analyses may run now
     if (framing === edit.framing) return;
     if (framing === 'ball') {
-      if (ballSport === undefined) return;
+      if (ballSport === undefined || vertical) return;
       beforeBall.current = edit.framing === 'focus' ? 'focus' : 'none';
       if (!repo.getPrefs().ballIntroSeen) return setBallIntro(true);
       turnBallOn();
@@ -1284,7 +1289,8 @@ function ClipEditor({ id, leaving, onSwitch, onShown }: EditorProps) {
   const tracking = ballChip !== undefined && ballChip.kind === 'working';
   let ballUi: BallUi = 'hidden';
   if (receivedBall !== undefined || (ballAvailable() && ballSport !== undefined)) {
-    if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
+    if (vertical) ballUi = 'vertical';
+    else if (ballChosen) ballUi = ballOn ? 'on' : 'analysing';
     else ballUi = unsuitable !== undefined ? 'unsuitable' : 'off';
   }
   // The percent only once frames are being analysed; waiting for the phone to cool down is said as such.

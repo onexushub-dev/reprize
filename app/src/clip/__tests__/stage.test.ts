@@ -85,6 +85,15 @@ describe('Seguir a Bola', () => {
     expect(forced.frame).toEqual({ width: 1920, height: 1080 });
   });
 
+  test('a clip recorded upright never gets it (2026-11-27), even with a file and turned sideways', () => {
+    const upright = { width: 1080, height: 1920 };
+    const s = clipStage('paid', on, cut, upright, false, undefined, 1080, '/c/1.ball.json');
+    expect(s.ball).toBe(false);
+    expect(s.options.focus).toBeUndefined();
+    const turned = clipStage('paid', { ...on, rotation: 90 }, cut, upright, false, undefined, 1080, '/c/1.ball.json');
+    expect(turned.ball).toBe(false);
+  });
+
   test('the picture in the 9:16 box: the video at its own shape, as tall as the box', () => {
     expect(ballContent(landscape, { width: 90, height: 160 })).toEqual({ width: (160 * 1920) / 1080, height: 160 });
   });

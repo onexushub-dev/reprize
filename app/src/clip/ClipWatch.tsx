@@ -268,7 +268,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: EDGE,
     paddingLeft: 4,
-    paddingRight: 6,
+    // Room for the time before the pill's rounded right end (2026-11-26).
+    paddingRight: 14,
     paddingVertical: 4,
   },
   actions: { flexDirection: 'row', gap: 8 },

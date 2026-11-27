@@ -90,7 +90,7 @@ test('a tap on the picture saves nothing; two fingers zoom it, and the zoom show
 
 test('the ways are one centred line of short chips, read out whole (2026-11-20, option A)', async () => {
   session({ paid: true });
-  await render(<Recording gesture voice />);
+  await render(<Recording gesture voice remote />);
   expect(screen.getByTestId('save-ways')).toHaveStyle({ flexDirection: 'row', justifyContent: 'center' });
   for (const [short, whole] of [
     ['“salvar”', 'Diga “salvar”'],
@@ -107,6 +107,24 @@ test('for 3 s after a save (from any trigger) the save button is greyed out and 
   const s = session({ clipCount: 1, lastSaved: { clipId: 'c1', number: 1, source: 'gesture', at: Date.now(), cutMs: 15000 } });
   await render(<Recording />);
   const button = () => screen.getByRole('button', { name: /Salvar os últimos/ });
+  expect(button()).toBeDisabled();
+  await fireEvent.press(button());
+  expect(s.trigger).not.toHaveBeenCalled();
+  await act(async () => jest.advanceTimersByTime(3000));
+  expect(button()).toBeEnabled();
+  jest.useRealTimers();
+});
+
+test('after Desfazer the save button stays greyed out until the same 3 s are over (2026-11-26)', async () => {
+  jest.useFakeTimers();
+  const at = Date.now();
+  session({ clipCount: 1, lastSaved: { clipId: 'c1', number: 1, source: 'screen', at, cutMs: 15000 } });
+  const view = await render(<Recording />);
+  const button = () => screen.getByRole('button', { name: /Salvar os últimos/ });
+  expect(button()).toBeDisabled();
+  // Desfazer: the clip is gone, and `lastSaved` with it.
+  const s = session({ clipCount: 0 });
+  await view.rerender(<Recording />);
   expect(button()).toBeDisabled();
   await fireEvent.press(button());
   expect(s.trigger).not.toHaveBeenCalled();
@@ -240,7 +258,7 @@ test('the saved popup tells the length the clip really has, not the length asked
 
 test('the hint says the clip length and shows one tag per way that is on, without a line of "ou"', async () => {
   session({ paid: true });
-  await render(<Recording clipSeconds={45} gesture={false} voice />);
+  await render(<Recording clipSeconds={45} gesture={false} voice remote />);
   expect(screen.getByLabelText('Diga “salvar”')).toBeTruthy();
   expect(screen.getByLabelText('Controle')).toBeTruthy();
   expect(screen.queryByLabelText('Acene')).toBeNull();
@@ -256,9 +274,16 @@ test('the wave tag shows when the gesture is on', async () => {
 
 test('in a free game the Bluetooth remote has its tag too: it is free', async () => {
   session({ paid: false });
-  await render(<Recording clipSeconds={15} gesture voice={false} />);
+  await render(<Recording clipSeconds={15} gesture voice={false} remote />);
   expect(screen.getByLabelText('Acene')).toBeTruthy();
   expect(screen.getByLabelText('Controle')).toBeTruthy();
+});
+
+test('2026-11-26: the remote has no tag when it is not on in the triggers (no press heard on the setup screen)', async () => {
+  session({ paid: true });
+  await render(<Recording clipSeconds={15} gesture voice={false} />);
+  expect(screen.getByLabelText('Acene')).toBeTruthy();
+  expect(screen.queryByLabelText('Controle')).toBeNull();
 });
 
 test('a remote phone asking to end the recording ends it like the hold button does', async () => {
