@@ -14,6 +14,7 @@ import { track } from '../analytics';
 import { countBucket, durationBucket } from '../analytics/session';
 import { diag } from '../diag/diagLog';
 import { confirmUploads } from './shares';
+import { askTransferNotifications } from './transferNotifications';
 import { onUploadHold, uploadHeld } from './uploadHold';
 import {
   confirmedPositions,
@@ -30,7 +31,10 @@ import { createUploadQueue, type GroupProgress, groupProgress, type ShareProgres
 /** The app's upload queue, on the system background uploader (sharing design §5.4). */
 export const uploadQueue = createUploadQueue({
   native: {
-    start: (items) => void startUploads(items),
+    start: (items) => {
+      void askTransferNotifications();
+      void startUploads(items);
+    },
     pause: pauseUploads,
     resume: resumeUploads,
     remove: removeUploads,
