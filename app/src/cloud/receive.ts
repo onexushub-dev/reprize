@@ -11,6 +11,7 @@ import { kv, removeFile, repo } from '../data/mmkv';
 import { track } from '../analytics';
 import { countBucket, durationBucket, recordingsBucket } from '../analytics/session';
 import { diag } from '../diag/diagLog';
+import { askTransferNotifications } from './transferNotifications';
 import {
   addReplayListener,
   downloadState,
@@ -115,7 +116,10 @@ export const receiveQueue = createReceiveQueue({
   open: openShare,
   native: {
     available: downloadsAvailable,
-    start: (items, paused) => void startDownloads(items, paused),
+    start: (items, paused) => {
+      void askTransferNotifications();
+      void startDownloads(items, paused);
+    },
     state: downloadState,
     pause: pauseDownloads,
     resume: resumeDownloads,
