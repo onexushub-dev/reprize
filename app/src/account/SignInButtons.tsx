@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '../components/Button';
+import { GoogleLogo } from '../components/icons';
 import { useT } from '../i18n/useT';
 import { colors, fonts, radius } from '../theme/tokens';
 import { signInWithApple, signInWithGoogle, type SignInResult } from './account';
@@ -40,6 +41,7 @@ export function SignInButtons() {
       <Button
         label={busy === 'google' ? t('account.signingIn') : t('account.google')}
         variant="secondary"
+        icon={<GoogleLogo />}
         loading={busy === 'google'}
         disabled={busy !== null}
         onPress={() => void run('google', signInWithGoogle)}
