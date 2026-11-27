@@ -103,15 +103,35 @@ export function CameraBar(props: Props) {
   const qualityRef = useRef<ComponentRef<typeof View>>(null);
   const triggersRef = useRef<ComponentRef<typeof View>>(null);
   const recordRef = useRef<ComponentRef<typeof View>>(null);
+  // On its side a button is turned in its slot: the slot is measured (it is not turned) and the button's own size, as
+  // laid out, is stood in the middle of it, the other way round (2026-11-27). Measuring the turned button itself gave
+  // whatever box the turn had reached, or the platform's own idea of a turned view.
+  // Each ref is its own top-level hook: hooks written inside an object literal get memoized by the React Compiler
+  // (the object is cached after the first render), so they ran once and the next render had fewer hooks (2026-11-27).
+  const clipSlotRef = useRef<ComponentRef<typeof View>>(null);
+  const qualitySlotRef = useRef<ComponentRef<typeof View>>(null);
+  const triggersSlotRef = useRef<ComponentRef<typeof View>>(null);
+  const slotRefs = { clip: clipSlotRef, quality: qualitySlotRef, triggers: triggersSlotRef };
+  const sizes = useRef<Partial<Record<SettingKind, { width: number; height: number }>>>({});
   const measureTargets = () => {
     if (onTargets === undefined) return;
-    const views = { clip: clipRef.current, quality: qualityRef.current, triggers: triggersRef.current, record: recordRef.current };
+    const views = {
+      clip: turned ? slotRefs.clip.current : clipRef.current,
+      quality: turned ? slotRefs.quality.current : qualityRef.current,
+      triggers: turned ? slotRefs.triggers.current : triggersRef.current,
+      record: recordRef.current,
+    };
     const found: Partial<TourTargets> = {};
     for (const kind of TARGET_KINDS) {
       const view = views[kind];
       if (view === null) return;
+      const size = kind === 'record' ? undefined : sizes.current[kind];
+      if (turned && kind !== 'record' && size === undefined) return;
       view.measureInWindow((x, y, width, height) => {
-        found[kind] = { x, y, width, height };
+        found[kind] =
+          turned && size !== undefined
+            ? { x: x + (width - size.height) / 2, y: y + (height - size.width) / 2, width: size.height, height: size.width }
+            : { x, y, width, height };
         if (TARGET_KINDS.every((k) => found[k] !== undefined)) onTargets(found as TourTargets);
       });
     }
@@ -121,6 +141,7 @@ export function CameraBar(props: Props) {
   });
   const measure = (kind: SettingKind) => (e: LayoutChangeEvent) => {
     const width = Math.ceil(e.nativeEvent.layout.width);
+    sizes.current[kind] = { width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height };
     if (lengths[kind] !== width) setLengths((prev) => ({ ...prev, [kind]: width }));
     measureTargets();
   };
@@ -132,7 +153,7 @@ export function CameraBar(props: Props) {
       </View>
     );
     return turned ? (
-      <View style={[styles.slot, { height: long }]}>
+      <View ref={slotRefs[kind]} style={[styles.slot, { height: long }]}>
         <Animated.View style={[styles.slotInner, { width: long }, upright]}>{sized}</Animated.View>
       </View>
     ) : (
