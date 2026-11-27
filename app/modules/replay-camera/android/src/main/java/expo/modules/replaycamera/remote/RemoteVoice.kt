@@ -11,8 +11,8 @@ import java.nio.ByteOrder
 
 /**
  * The save command heard on the remote phone (iOS `RemoteVoice`): this phone records nothing, so it opens the
- * microphone itself and feeds the same on-device recognizer as the camera phone. It listens only while the remote
- * screen asks; each command becomes `onRemoteVoice`, and the screen saves as for a tap.
+ * microphone itself and feeds the same engines as the camera phone (the "salvar" detector in Portuguese). It listens
+ * only while the remote screen asks; each command becomes `onRemoteVoice`, and the screen saves as for a tap.
  */
 object RemoteVoice {
   private const val TAG = "ReprizeRemoteVoice"
@@ -31,7 +31,7 @@ object RemoteVoice {
   fun set(on: Boolean, locale: String) {
     voice.setEnabled(on, locale)
     if (!on) return halt()
-    if (record != null || !VoiceTrigger.isSupported()) return
+    if (record != null || !VoiceTrigger.isSupported(locale)) return
     val min = AudioRecord.getMinBufferSize(RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
     val created = runCatching {
       AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION, RATE, AudioFormat.CHANNEL_IN_MONO,

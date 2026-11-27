@@ -148,6 +148,7 @@ class ReplayCameraModule : Module() {
       "onUploadProgress", "onUploadDone", "onUploadRetry", "onDownloadDone", "onDownloadRetry")
 
     OnCreate {
+      VoiceTrigger.context = appContext.reactContext?.applicationContext
       expo.modules.replaycamera.ball.BallAnalyzer.emit = { clipPath, done, total, state ->
         sendEvent("onBallProgress", mapOf("clipPath" to clipPath, "done" to done, "total" to total, "state" to state))
       }
@@ -442,8 +443,9 @@ class ReplayCameraModule : Module() {
 
     Function("watchSignal") { _: Boolean -> }
 
-    // Basic-mode recognition exists from Android 12; the language pack downloads the first time voice is turned on.
-    Function("isVoiceSupported") { _: String -> VoiceTrigger.isSupported() }
+    // Portuguese: the "salvar" detector on every Android. English: Basic-mode recognition from Android 12 (its language
+    // pack downloads the first time voice is turned on).
+    Function("isVoiceSupported") { locale: String -> VoiceTrigger.isSupported(locale) }
 
     // No speech permission of its own on Android: the recorder's microphone permission covers it.
     Function("getSpeechPermission") {

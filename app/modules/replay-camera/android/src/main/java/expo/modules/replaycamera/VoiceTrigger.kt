@@ -1,5 +1,6 @@
 package expo.modules.replaycamera
 
+import android.content.Context
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
@@ -12,6 +13,8 @@ import com.google.mlkit.genai.speechrecognition.SpeechRecognizerOptions
 import com.google.mlkit.genai.speechrecognition.SpeechRecognizerResponse
 import com.google.mlkit.genai.speechrecognition.speechRecognizerOptions
 import com.google.mlkit.genai.speechrecognition.speechRecognizerRequest
+import expo.modules.replaycamera.core.voice.VoiceEngine
+import expo.modules.replaycamera.voice.KeywordDetector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,12 +33,14 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Listens for the save command ("salvar" in Portuguese, "save" in English) in the recorder's own microphone audio, on
- * the device (ML Kit GenAI speech recognition, Basic mode; court audio never goes to a server). Android silences one of
- * two captures of the microphone, so the recognizer never opens it: [consider] hands it the PCM the recorder already
- * read, turned into the 16 kHz mono the recognizer takes, through a pipe.
+ * the device; court audio never goes to a server. Two engines, one live at a time (VoiceTrigger.swift, plan 2026-11-24
+ * voice keyword detector):
+ * - Portuguese: the "salvar" detector ([KeywordDetector], model `salvar-v2-rc4` in the assets), on every Android.
+ * - English, or Portuguese when the model fails to load: ML Kit GenAI speech recognition (Basic mode, Android 12+).
+ *   Android silences one of two captures of the microphone, so the recognizer never opens it: [consider] hands it the
+ *   PCM the recorder already read, turned into the 16 kHz mono the recognizer takes, through a pipe.
  *
- * Each step (model status, listening, a command heard, errors) goes to [log] (logcat tag `ReprizeVoice` and the
- * Diagnóstico screen); what was said never does.
+ * Each step goes to [log] (logcat tag `ReprizeVoice` and the Diagnóstico screen); what was said never does.
  */
 class VoiceTrigger(private val log: (String) -> Unit) {
   companion object {
@@ -45,8 +50,17 @@ class VoiceTrigger(private val log: (String) -> Unit) {
     private const val FIRST_BACKOFF_MS = 2_000L
     private const val MAX_BACKOFF_MS = 30_000L
 
-    /** Basic mode needs Android 12 (API 31). */
-    fun isSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    private const val DROP_REPORT_MS = 60_000L
+
+    /** The app's context, for the detector's model in the assets (set when the module is created). */
+    @Volatile var context: Context? = null
+
+    /** Dictation's Basic mode needs Android 12 (API 31). */
+    private fun dictationSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    /** Voice in [locale] on this phone: Portuguese on every Android (the detector), English from Android 12. */
+    fun isSupported(locale: String): Boolean =
+      (VoiceEngine.PORTUGUESE_USES_KEYWORD && locale == "pt-BR") || dictationSupported()
 
     fun words(locale: String): List<String> = if (locale == "pt-BR") listOf("salvar") else listOf("save")
 
@@ -58,6 +72,14 @@ class VoiceTrigger(private val log: (String) -> Unit) {
   }
 
   var onCommand: (() -> Unit)? = null
+
+  /** The engine listening now (meaningful while [enabled]). */
+  @Volatile private var live = VoiceEngine.DICTATION
+  /** Loaded on first use; [keywordFailed] stops retrying after a failed load. */
+  @Volatile private var keyword: KeywordDetector? = null
+  private var keywordFailed = false
+  private var reportedDrops = 0.0
+  private var lastDropReport = 0L
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
   private val gate = Mutex()
@@ -84,16 +106,66 @@ class VoiceTrigger(private val log: (String) -> Unit) {
   }
 
   fun setEnabled(on: Boolean, locale: String) {
-    if (!isSupported()) return
+    if (!isSupported(locale)) return
     scope.launch {
       gate.withLock {
         val changed = locale != this@VoiceTrigger.locale
         this@VoiceTrigger.locale = locale
-        if (on == enabled && !changed && (!on || session?.isActive == true)) return@withLock
+        val running = live == VoiceEngine.KEYWORD || session?.isActive == true
+        if (on == enabled && !changed && (!on || running)) return@withLock
         enabled = on
         stopSession()
-        if (on) startSession()
+        if (!on) return@withLock
+        if (VoiceEngine.PORTUGUESE_USES_KEYWORD && locale == "pt-BR") loadKeywordIfNeeded()
+        val next = VoiceEngine.choose(locale, keyword != null)
+        if (next == VoiceEngine.KEYWORD) {
+          // The detector forgets audio from before (no stale word fires).
+          keyword?.reset()
+          live = VoiceEngine.KEYWORD
+          say("gatilho modelo ${keyword?.config?.version}")
+        } else {
+          live = VoiceEngine.DICTATION
+          if (!dictationSupported()) return@withLock
+          say("gatilho ditado")
+          startSession()
+        }
       }
+    }
+  }
+
+  /** Must hold [gate]. */
+  private fun loadKeywordIfNeeded() {
+    if (keyword != null || keywordFailed) return
+    val ctx = context
+    val detector = if (ctx == null) null else KeywordDetector.loadBundled(ctx) { line -> Log.i(TAG, line); log(line) }
+    if (detector == null) {
+      keywordFailed = true
+      if (ctx == null) say("modelo indisponível (sem contexto) — usando ditado")
+      return
+    }
+    detector.log = { line -> Log.i(TAG, line); log(line) }
+    detector.onCommand = { score -> keywordHeard(score, detector) }
+    keyword = detector
+    reportedDrops = 0.0
+  }
+
+  /** On the detector's thread. */
+  private fun keywordHeard(score: Double, detector: KeywordDetector) {
+    val now = System.currentTimeMillis()
+    if (!enabled || live != VoiceEngine.KEYWORD || now - lastCommandAt <= COOLDOWN_MS) return
+    lastCommandAt = now
+    say(String.format(Locale.ROOT, "comando (modelo, nota %.2f, atraso %d ms)", score, detector.lastFireLagMs.toLong()))
+    onCommand?.invoke()
+  }
+
+  private fun reportDrops(detector: KeywordDetector) {
+    val now = System.currentTimeMillis()
+    if (now - lastDropReport < DROP_REPORT_MS) return
+    lastDropReport = now
+    val dropped = detector.droppedSeconds
+    if (dropped > reportedDrops) {
+      say(String.format(Locale.ROOT, "%.1f s de áudio descartados", dropped - reportedDrops))
+      reportedDrops = dropped
     }
   }
 
@@ -104,7 +176,14 @@ class VoiceTrigger(private val log: (String) -> Unit) {
    * [buf]. Cheap and never blocks; does nothing while voice is off.
    */
   fun consider(buf: ByteBuffer, bytes: Int, rate: Int) {
-    if (!enabled || out == null || bytes <= 0) return
+    if (!enabled || bytes <= 0) return
+    val detector = keyword
+    if (live == VoiceEngine.KEYWORD && detector != null) {
+      detector.consider(buf, bytes, rate)
+      reportDrops(detector)
+      return
+    }
+    if (out == null) return
     val src = buf.duplicate().order(ByteOrder.LITTLE_ENDIAN)
     val inSamples = bytes / 2
     val step = rate.toDouble() / OUT_RATE
@@ -191,7 +270,7 @@ class VoiceTrigger(private val log: (String) -> Unit) {
     }
   }
 
-  /** Must hold [gate]. */
+  /** Must hold [gate]. Stops dictation's session (the detector just stops being fed). */
   private suspend fun stopSession() {
     val running = session
     session = null

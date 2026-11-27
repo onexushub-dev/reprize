@@ -18,7 +18,11 @@ android {
     abortOnError false
   }
   // The Swift core's fixtures (Seguir a Bola parity), read in place so there is one copy.
-  sourceSets { test { resources.srcDirs += ['../ios/Core/Tests/ReplayCoreTests/Fixtures'] } }
+  sourceSets {
+    test { resources.srcDirs += ['../ios/Core/Tests/ReplayCoreTests/Fixtures'] }
+    // The voice detector's golden fixture on the phone (VoiceDetectorDeviceTest).
+    androidTest { assets.srcDirs += ['../ios/Core/Tests/ReplayCoreTests/Fixtures'] }
+  }
 }
 
 dependencies {
