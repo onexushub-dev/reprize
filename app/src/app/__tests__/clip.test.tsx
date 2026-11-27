@@ -1454,6 +1454,45 @@ describe('Seguir a Bola', () => {
     await openEdit('Foco');
     expect(repo.updateClip).toHaveBeenLastCalledWith('c1', { edit: { speed: 1, muted: false, framing: 'none' } });
   });
+
+  describe('a clip recorded upright (2026-11-27): Bola is not offered, a tap says why', () => {
+    const upright = () => (Image.getSize as jest.Mock).mockResolvedValue({ width: 1080, height: 1920 });
+    afterEach(() => (Image.getSize as jest.Mock).mockResolvedValue({ width: 1920, height: 1080 }));
+
+    test('the Bola card is dimmed with an "i"; a tap opens the sheet instead of tracking, Entendi closes it', async () => {
+      upright();
+      __setPrefs({ ...jest.requireActual('../../data/schema').DEFAULT_PREFS, focusIntroSeen: true, ballIntroSeen: true });
+      __setClip({ ...base, focus: focusReady });
+      await openEdit('Foco');
+      expect(screen.queryByRole('radio', { name: /^Bola/ })).toBeNull();
+      const card = screen.getByRole('button', { name: 'Bola indisponível neste vídeo. Toque para saber por quê' });
+      expect(screen.getByTestId('ball-vertical-badge')).toBeTruthy();
+      await pick(card);
+      expect(screen.getByText('Para usar esse modo, grave com o celular deitado')).toBeTruthy();
+      expect(screen.getByText('Em pé')).toBeTruthy();
+      expect(screen.getByText('Deitado')).toBeTruthy();
+      expect(balls.ballQueue.request).not.toHaveBeenCalled();
+      expect(repo.updateClip).not.toHaveBeenCalledWith('c1', expect.objectContaining({ edit: expect.objectContaining({ framing: 'ball' }) }));
+      await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Entendi' })));
+      expect(screen.queryByText('Para usar esse modo, grave com o celular deitado')).toBeNull();
+    });
+
+    test('stored on Bola with its framing ready: shown, played and exported as the Original, nothing queued', async () => {
+      upright();
+      __setClip({ ...base, ball: ballReady, edit: { muted: false, framing: 'ball' } });
+      await openEdit('Foco');
+      expect(balls.ballQueue.request).not.toHaveBeenCalled();
+      expect(screen.getByRole('radio', { name: 'Original' }).props.accessibilityState).toMatchObject({ checked: true });
+      expect(screen.getByRole('button', { name: /^Bola indisponível/ })).toBeTruthy();
+      expect(video.last.content).toBeUndefined();
+      await pressAction('Concluir');
+      expect(screen.queryByText('Modo Foco: Bola')).toBeNull();
+      await pressAction('Compartilhar');
+      const options = camera.exportClip.mock.calls[0][0];
+      expect(options).toMatchObject({ width: 1080, height: 1920 });
+      expect(options.focus).toBeUndefined();
+    });
+  });
 });
 
 describe('nothing runs by itself when a clip opens (2026-11-12)', () => {

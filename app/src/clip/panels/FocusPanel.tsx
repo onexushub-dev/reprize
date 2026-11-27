@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import { CloseIcon, LockIcon } from '../../components/icons';
 import { BallIcon, ChevronDownIcon, NoneIcon, PlayersIcon, ProgressRing, SportIcon } from '../../components/sportIcons';
@@ -8,6 +9,7 @@ import type { MessageKey } from '../../i18n';
 import { useT } from '../../i18n/useT';
 import type { Framing } from '../../share/editing';
 import { colors, fonts } from '../../theme/tokens';
+import { BallVerticalSheet } from '../BallVerticalSheet';
 import type { ToolContext } from '../tools';
 import { SPORT_LABEL, SportSheet } from './SportSheet';
 
@@ -21,6 +23,8 @@ type Card = {
   /** Waiting for the phone to cool down: "Aguardando" instead of a percent. */
   waiting?: boolean;
   dimmed: boolean;
+  /** Bola on a clip recorded upright: dimmed, but a tap opens why instead of picking it (with the amber "i"). */
+  explain?: boolean;
 };
 
 /**
@@ -31,6 +35,7 @@ type Card = {
 export function FocusPanel({ ctx }: { ctx: ToolContext }) {
   const { t } = useT();
   const [sheet, setSheet] = useState(false);
+  const [why, setWhy] = useState(false);
   // The card tapped, lit at once (Victor, 2026-11-13: the light came a beat after the tap, so she tapped twice). Applying
   // a framing re-renders the whole clip screen; it runs on the next frame, after this card has been drawn lit.
   const [tapped, setTapped] = useState<Framing | undefined>(undefined);
@@ -42,9 +47,13 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
     });
   };
   // A clip saved before (Modo Foco on by default) where Jogadores cannot frame shows as the Original it is.
-  // Likewise a clip stored on Bola where Bola is not offered (its sport not known, or without a ball model).
+  // Likewise a clip stored on Bola where Bola is not offered (its sport not known, without a ball model, or recorded upright).
   let framing: Framing = tapped !== undefined ? tapped : ctx.edit.framing;
-  if ((framing === 'focus' && ctx.focus === 'unavailable') || (framing === 'ball' && ctx.ball === 'hidden')) framing = 'none';
+  if (
+    (framing === 'focus' && ctx.focus === 'unavailable') ||
+    (framing === 'ball' && (ctx.ball === 'hidden' || ctx.ball === 'vertical'))
+  )
+    framing = 'none';
   const free = ctx.plan === 'free';
   const playersWorking = framing === 'focus' && ctx.focus === 'preparing';
   const ballWorking = framing === 'ball' && ctx.ball === 'analysing';
@@ -70,7 +79,8 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
       busy: ballWorking,
       percent: ballWorking && !ctx.ballCooling ? ctx.ballPercent : undefined,
       waiting: ballWorking && ctx.ballCooling,
-      dimmed: ctx.ball === 'unsuitable',
+      dimmed: ctx.ball === 'unsuitable' || ctx.ball === 'vertical',
+      explain: ctx.ball === 'vertical',
     });
   }
 
@@ -111,9 +121,11 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
       <View accessibilityRole="radiogroup" style={styles.row}>
         {cards.map((c) => {
           const on = framing === c.framing;
-          const color = c.dimmed ? '#5A5A5A' : on ? colors.accent : colors.soft;
+          const color = c.explain ? '#8A8A8A' : c.dimmed ? '#5A5A5A' : on ? colors.accent : colors.soft;
           const name = t(c.label);
-          const a11y = c.waiting
+          const a11y = c.explain
+            ? t('clip.framingBallVerticalA11y')
+            : c.waiting
             ? t('clip.framingWaitingA11y', { name })
             : c.busy
             ? c.percent !== undefined
@@ -123,15 +135,16 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
           return (
             <View key={c.framing} style={styles.cardWrap}>
               <Pressable
-                accessibilityRole="radio"
+                accessibilityRole={c.explain ? 'button' : 'radio'}
                 accessibilityLabel={a11y}
-                accessibilityState={{ checked: on, disabled: c.dimmed }}
-                disabled={c.dimmed}
-                onPress={() => tap(c.framing)}
+                accessibilityState={c.explain ? undefined : { checked: on, disabled: c.dimmed }}
+                disabled={c.dimmed && !c.explain}
+                onPress={c.explain ? () => setWhy(true) : () => tap(c.framing)}
                 style={({ pressed }) => [
                   styles.card,
                   on ? styles.cardOn : null,
                   c.dimmed ? styles.cardDimmed : null,
+                  c.explain ? styles.cardExplain : null,
                   pressed ? styles.cardPressed : null,
                 ]}>
                 {c.busy ? (
@@ -157,6 +170,11 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
                   <CloseIcon size={10} color={colors.onAccent} />
                 </Pressable>
               ) : null}
+              {c.explain ? (
+                <View pointerEvents="none" style={styles.info} testID="ball-vertical-badge">
+                  <InfoIcon />
+                </View>
+              ) : null}
             </View>
           );
         })}
@@ -169,7 +187,17 @@ export function FocusPanel({ ctx }: { ctx: ToolContext }) {
         onChoose={choose}
         onClose={() => setSheet(false)}
       />
+      <BallVerticalSheet visible={why} onClose={() => setWhy(false)} />
     </View>
+  );
+}
+
+/** The dark "i" on the amber badge of Bola's card on a clip recorded upright. */
+function InfoIcon() {
+  return (
+    <Svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 11v8M12 5.5v.5" stroke={colors.onAccent} strokeWidth={3.2} strokeLinecap="round" />
+    </Svg>
   );
 }
 
@@ -231,6 +259,20 @@ const styles = StyleSheet.create({
   },
   cardOn: { borderWidth: 2, borderColor: colors.accent },
   cardDimmed: { borderStyle: 'dashed' },
+  cardExplain: { borderColor: '#3A3A3A' },
+  info: {
+    position: 'absolute',
+    top: -8,
+    right: -6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.surface,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cardPressed: { opacity: 0.7 },
   cardText: { fontFamily: fonts.bodyBold, fontSize: 14 },
   hint: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.muted },

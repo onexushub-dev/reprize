@@ -18,9 +18,10 @@ export type FocusUi = 'on' | 'off' | 'preparing' | 'unavailable';
 /**
  * Bola's card (spec 2026-11-11 §3): `on` (ready and applied), `analysing` (chosen, progress on the card), `off` (offered),
  * `unsuitable` (no ball in play in this cut, test 47a: dimmed), `hidden` (no card: the sport has no ball model, the sport
- * is not known, or the phone cannot run it).
+ * is not known, or the phone cannot run it), `vertical` (the clip was recorded upright: the video already fills Bola's 9:16
+ * frame, so the card is dimmed and a tap explains why, design-bola-vertical 2026-11-27).
  */
-export type BallUi = 'on' | 'analysing' | 'off' | 'unsuitable' | 'hidden';
+export type BallUi = 'on' | 'analysing' | 'off' | 'unsuitable' | 'hidden' | 'vertical';
 
 /** Everything a tool panel reads and does; the clip screen builds it. */
 export type ToolContext = {
